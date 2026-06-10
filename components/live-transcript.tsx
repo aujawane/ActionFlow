@@ -72,7 +72,7 @@ export function LiveTranscript({
         ) : (
           <div className="rounded-md border border-dashed border-slate-300 bg-white p-4">
             <p className="text-sm text-slate-500">
-              Waiting for transcript segments from the meeting bot webhook.
+              Transcript will appear once the meeting starts.
             </p>
           </div>
         )}

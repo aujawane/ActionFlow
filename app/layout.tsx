@@ -6,7 +6,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { SidebarNav } from "@/components/sidebar-nav";
 
 export const metadata: Metadata = {
-  title: "Workflow",
+  title: "ActionFlow",
   description:
     "AI-powered meeting companion that turns transcripts into build-ready prompts."
 };
