@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import "@/app/globals.css";
+import { LogoutButton } from "@/components/logout-button";
 import { SidebarNav } from "@/components/sidebar-nav";
 
 export const metadata: Metadata = {
@@ -28,12 +29,15 @@ export default function RootLayout({
                 <div className="text-xs text-slate-500 sm:text-sm">
                   AI-powered meeting to engineering workflow
                 </div>
-                <Link
-                  href="/meetings/new"
-                  className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 sm:text-sm"
-                >
-                  New Meeting
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/meetings/new"
+                    className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 sm:text-sm"
+                  >
+                    New Meeting
+                  </Link>
+                  <LogoutButton />
+                </div>
               </div>
             </header>
 

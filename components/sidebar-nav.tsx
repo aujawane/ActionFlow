@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { Route } from "next";
+
+import { LogoutButton } from "@/components/logout-button";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/meetings/new", label: "New Meeting" },
-  { href: "/login", label: "Auth" }
+  { href: "/dashboard" as Route, label: "Dashboard" },
+  { href: "/meetings/new" as Route, label: "New Meeting" },
+  { href: "/login" as Route, label: "Auth" }
 ];
 
 export function SidebarNav() {
@@ -43,6 +46,9 @@ export function SidebarNav() {
           <p className="mt-1 text-xs text-slate-500">
             Turn meetings into build-ready implementation prompts.
           </p>
+          <div className="mt-3">
+            <LogoutButton />
+          </div>
         </div>
       </div>
     </aside>

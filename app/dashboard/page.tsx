@@ -30,6 +30,7 @@ export default async function DashboardPage() {
           <p className="text-sm text-slate-600">
             Track your meetings and turn conversations into implementation prompts.
           </p>
+          <p className="mt-1 text-xs text-slate-500">Logged in as {user.email}</p>
         </div>
         <Link
           href="/meetings/new"

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export function AuthForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createSupabaseBrowserClient();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
@@ -39,7 +40,8 @@ export function AuthForm() {
     );
 
     if (mode === "login") {
-      router.push("/dashboard");
+      const nextPath = searchParams.get("next") || "/dashboard";
+      window.location.assign(nextPath);
       router.refresh();
     }
   }
