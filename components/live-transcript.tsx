@@ -63,10 +63,10 @@ export function LiveTranscript({
               className="rounded-md border border-slate-200 bg-white px-3 py-2.5"
             >
               <p className="text-xs font-medium text-slate-500">
-                {segment.speaker_name ?? "Unknown speaker"} •{" "}
-                {new Date(segment.started_at).toLocaleTimeString()}
+                {segment.speaker ?? "Unknown speaker"} •{" "}
+                {new Date(segment.timestamp).toLocaleTimeString()}
               </p>
-              <p className="mt-1 text-sm text-slate-800">{segment.content}</p>
+              <p className="mt-1 text-sm text-slate-800">{segment.text}</p>
             </div>
           ))
         ) : (

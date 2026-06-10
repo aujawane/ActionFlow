@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { GeneratedPrompt } from "@/lib/types";
 
-type PromptTool = GeneratedPrompt["target_tool"];
+type PromptTool = GeneratedPrompt["tool_type"];
 
 const TOOL_ORDER: PromptTool[] = ["codex", "claude_code", "lovable"];
 
@@ -17,18 +17,18 @@ function toolLabel(tool: PromptTool) {
 export function PromptsPanel({ prompts }: { prompts: GeneratedPrompt[] }) {
   const sortedPrompts = useMemo(() => {
     return [...prompts].sort(
-      (a, b) => TOOL_ORDER.indexOf(a.target_tool) - TOOL_ORDER.indexOf(b.target_tool)
+      (a, b) => TOOL_ORDER.indexOf(a.tool_type) - TOOL_ORDER.indexOf(b.tool_type)
     );
   }, [prompts]);
 
-  const [activeTool, setActiveTool] = useState<PromptTool>(sortedPrompts[0]?.target_tool ?? "codex");
+  const [activeTool, setActiveTool] = useState<PromptTool>(sortedPrompts[0]?.tool_type ?? "codex");
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
-  const activePrompt = sortedPrompts.find((item) => item.target_tool === activeTool);
+  const activePrompt = sortedPrompts.find((item) => item.tool_type === activeTool);
 
   useEffect(() => {
     if (!activePrompt && sortedPrompts[0]) {
-      setActiveTool(sortedPrompts[0].target_tool);
+      setActiveTool(sortedPrompts[0].tool_type);
     }
   }, [activePrompt, sortedPrompts]);
 
@@ -60,14 +60,14 @@ export function PromptsPanel({ prompts }: { prompts: GeneratedPrompt[] }) {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setActiveTool(item.target_tool)}
+                onClick={() => setActiveTool(item.tool_type)}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium ${
-                  item.target_tool === activeTool
+                  item.tool_type === activeTool
                     ? "bg-slate-900 text-white"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
-                {toolLabel(item.target_tool)}
+                {toolLabel(item.tool_type)}
               </button>
             ))}
           </div>
@@ -75,7 +75,7 @@ export function PromptsPanel({ prompts }: { prompts: GeneratedPrompt[] }) {
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                {activePrompt ? toolLabel(activePrompt.target_tool) : "Prompt"}
+                {activePrompt ? toolLabel(activePrompt.tool_type) : "Prompt"}
               </p>
               <button
                 type="button"

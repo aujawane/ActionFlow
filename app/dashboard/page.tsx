@@ -16,7 +16,7 @@ export default async function DashboardPage() {
   const safeMeetings = meetings ?? [];
   const totalMeetings = safeMeetings.length;
   const activeMeetings = safeMeetings.filter(
-    (meeting) => meeting.status === "joining" || meeting.status === "in_progress"
+    (meeting) => meeting.status === "joining" || meeting.status === "recording"
   ).length;
   const completedMeetings = safeMeetings.filter(
     (meeting) => meeting.status === "completed"

@@ -2,12 +2,17 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireApiUser } from "@/lib/api-auth";
-import { env } from "@/lib/env";
-import { createRecallBot } from "@/lib/recall";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+const googleMeetRegex = /^https:\/\/meet\.google\.com\/[a-z0-9-]+($|[/?].*)/i;
+
 const payloadSchema = z.object({
-  meetingUrl: z.string().url(),
+  meetingUrl: z
+    .string()
+    .url()
+    .refine((value) => googleMeetRegex.test(value), {
+      message: "meetingUrl must be a valid Google Meet link."
+    }),
   title: z.string().trim().min(1).max(200).optional()
 });
 
@@ -71,51 +76,5 @@ export async function POST(request: Request) {
     );
   }
 
-  try {
-    const webhookUrl = `${env.NEXT_PUBLIC_APP_URL}/api/recall/webhook`;
-    const bot = await createRecallBot({
-      meetingUrl: meeting.meeting_url,
-      webhookUrl,
-      meetingId: meeting.id
-    });
-
-    const { error: updateError } = await supabaseAdmin
-      .from("meetings")
-      .update({
-        recall_bot_id: bot.id,
-        status: "joining"
-      })
-      .eq("id", meeting.id);
-
-    if (updateError) {
-      return NextResponse.json(
-        {
-          error: "Recall bot created but meeting update failed",
-          details: updateError.message,
-          meetingId: meeting.id,
-          recallBotId: bot.id
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      meeting: { ...meeting, recall_bot_id: bot.id, status: "joining" }
-    });
-  } catch (error) {
-    const { error: failUpdateError } = await supabaseAdmin
-      .from("meetings")
-      .update({ status: "failed" })
-      .eq("id", meeting.id);
-
-    return NextResponse.json(
-      {
-        error: "Created meeting but failed to create Recall bot",
-        details: error instanceof Error ? error.message : "Unknown error",
-        meetingId: meeting.id,
-        statusUpdateError: failUpdateError?.message ?? null
-      },
-      { status: 502 }
-    );
-  }
+  return NextResponse.json({ meeting }, { status: 201 });
 }

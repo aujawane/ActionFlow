@@ -27,7 +27,7 @@ export async function GET(
     .from("transcript_segments")
     .select("*")
     .eq("meeting_id", id)
-    .order("started_at", { ascending: true });
+    .order("timestamp", { ascending: true });
 
   if (error) {
     return NextResponse.json(

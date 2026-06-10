@@ -48,7 +48,7 @@ export async function POST(
     );
   }
 
-  let generated: Array<{ target_tool: PromptTarget; prompt: string }>;
+  let generated: Array<{ tool_type: PromptTarget; prompt: string }>;
   try {
     generated = await Promise.all(
       TARGETS.map(async (target) => {
@@ -62,7 +62,7 @@ export async function POST(
           throw new Error(`OpenAI returned empty ${target} prompt.`);
         }
 
-        return { target_tool: target, prompt };
+        return { tool_type: target, prompt };
       })
     );
   } catch (error) {
@@ -90,7 +90,7 @@ export async function POST(
     .insert(
       generated.map((item) => ({
         meeting_id: id,
-        target_tool: item.target_tool,
+        tool_type: item.tool_type,
         prompt: item.prompt
       }))
     )

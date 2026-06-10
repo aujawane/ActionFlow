@@ -9,8 +9,7 @@ export default async function NewMeetingPage() {
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="text-2xl font-semibold text-slate-900">Create new meeting</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Paste a meeting URL and Workflow will spin up a Recall.ai bot to capture
-          transcript events.
+          Paste a Google Meet link to create and track a new meeting.
         </p>
       </div>
       <NewMeetingForm />

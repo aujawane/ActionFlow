@@ -22,10 +22,9 @@ export type InsightCategory =
 export interface TranscriptSegment {
   id: string;
   meeting_id: string;
-  speaker_name: string | null;
-  content: string;
-  started_at: string;
-  ended_at: string | null;
+  speaker: string | null;
+  text: string;
+  timestamp: string;
   raw_payload: JsonValue;
   created_at: string;
 }
@@ -42,7 +41,7 @@ export interface ExtractedInsight {
 export interface GeneratedPrompt {
   id: string;
   meeting_id: string;
-  target_tool: "codex" | "claude_code" | "lovable";
+  tool_type: "codex" | "claude_code" | "lovable";
   prompt: string;
   created_at: string;
 }
@@ -53,7 +52,7 @@ export interface Meeting {
   title: string | null;
   meeting_url: string;
   recall_bot_id: string | null;
-  status: "pending" | "joining" | "in_progress" | "completed" | "failed";
+  status: "pending" | "joining" | "recording" | "completed" | "failed";
   created_at: string;
   updated_at: string;
 }

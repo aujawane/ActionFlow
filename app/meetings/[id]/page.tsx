@@ -35,7 +35,7 @@ export default async function MeetingDetailPage({
         .from("transcript_segments")
         .select("*")
         .eq("meeting_id", id)
-        .order("started_at", { ascending: true }),
+        .order("timestamp", { ascending: true }),
       supabaseAdmin
         .from("extracted_insights")
         .select("*")
