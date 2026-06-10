@@ -76,13 +76,13 @@ const transcriptAnalysisJsonSchema: Record<string, unknown> = {
 };
 
 export function buildCleanTranscript(
-  segments: Array<{ speaker_name: string | null; content: string; started_at: string }>
+  segments: Array<{ speaker: string | null; text: string; timestamp: string }>
 ) {
   return segments
     .map((segment) => {
-      const speaker = segment.speaker_name?.trim() || "Unknown Speaker";
-      const time = new Date(segment.started_at).toISOString();
-      const text = segment.content.trim().replace(/\s+/g, " ");
+      const speaker = segment.speaker?.trim() || "Unknown Speaker";
+      const time = new Date(segment.timestamp).toISOString();
+      const text = segment.text.trim().replace(/\s+/g, " ");
       return `[${time}] ${speaker}: ${text}`;
     })
     .filter((line) => line.length > 0)

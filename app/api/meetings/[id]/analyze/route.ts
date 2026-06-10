@@ -30,9 +30,9 @@ export async function POST(
 
   const { data: segments, error: segmentsError } = await supabaseAdmin
     .from("transcript_segments")
-    .select("speaker_name, content, started_at")
+    .select("speaker, text, timestamp")
     .eq("meeting_id", id)
-    .order("started_at", { ascending: true });
+    .order("timestamp", { ascending: true });
 
   if (segmentsError) {
     return NextResponse.json(
