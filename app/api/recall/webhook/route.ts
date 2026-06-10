@@ -1,25 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { isValidRecallWebhookSignature } from "@/lib/recall";
+import {
+  isValidRecallWebhookSignature,
+  mapRecallStatus,
+  parseRecallWebhookPayload
+} from "@/lib/recall";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-
-type RecallWebhookPayload = {
-  event?: string;
-  data?: {
-    bot?: {
-      id?: string;
-      status?: string;
-      metadata?: { meeting_id?: string };
-    };
-    transcript?: {
-      speaker?: { name?: string };
-      words?: string;
-      text?: string;
-      start_timestamp?: string;
-      end_timestamp?: string;
-    };
-  };
-};
 
 export async function POST(request: Request) {
   const signature = request.headers.get("x-recall-signature");
@@ -29,14 +15,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  let payload: RecallWebhookPayload;
-  try {
-    payload = JSON.parse(rawBody) as RecallWebhookPayload;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  const parsed = parseRecallWebhookPayload(rawBody);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
+  const payload = parsed.payload;
 
-  const event = payload.event ?? "";
   const meetingId = payload.data?.bot?.metadata?.meeting_id;
   const recallBotId = payload.data?.bot?.id;
 
@@ -49,11 +33,12 @@ export async function POST(request: Request) {
 
   const resolveMeetingId = async () => {
     if (meetingId) return meetingId;
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("meetings")
       .select("id")
       .eq("recall_bot_id", recallBotId ?? "")
       .single();
+    if (error) return null;
     return data?.id ?? null;
   };
 
@@ -62,34 +47,51 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
   }
 
-  if (event.includes("transcript")) {
-    const transcript = payload.data?.transcript;
+  const transcript = payload.data?.transcript;
+  if (transcript) {
     const content = transcript?.text ?? transcript?.words ?? "";
+    const startedAt =
+      transcript?.timestamp ??
+      transcript?.start_timestamp ??
+      new Date().toISOString();
 
     if (content.trim()) {
-      await supabaseAdmin.from("transcript_segments").insert({
+      const { error: transcriptInsertError } = await supabaseAdmin
+        .from("transcript_segments")
+        .insert({
         meeting_id: resolvedMeetingId,
         speaker_name: transcript?.speaker?.name ?? null,
         content,
-        started_at: transcript?.start_timestamp ?? new Date().toISOString(),
+        started_at: startedAt,
         ended_at: transcript?.end_timestamp ?? null,
         raw_payload: payload
       });
+
+      if (transcriptInsertError) {
+        return NextResponse.json(
+          {
+            error: "Failed to store transcript segment",
+            details: transcriptInsertError.message
+          },
+          { status: 500 }
+        );
+      }
     }
   }
 
-  const botStatus = payload.data?.bot?.status;
-  if (botStatus) {
-    const statusMap: Record<string, string> = {
-      joining: "joining",
-      in_call: "in_progress",
-      done: "completed",
-      error: "failed"
-    };
-    await supabaseAdmin
+  const meetingStatus = mapRecallStatus(payload);
+  if (meetingStatus) {
+    const { error: statusUpdateError } = await supabaseAdmin
       .from("meetings")
-      .update({ status: statusMap[botStatus] ?? "in_progress" })
+      .update({ status: meetingStatus })
       .eq("id", resolvedMeetingId);
+
+    if (statusUpdateError) {
+      return NextResponse.json(
+        { error: "Failed to update meeting status", details: statusUpdateError.message },
+        { status: 500 }
+      );
+    }
   }
 
   return NextResponse.json({ ok: true });

@@ -35,7 +35,16 @@ export async function POST(request: Request) {
   const auth = await requireApiUser();
   if (auth.response) return auth.response;
 
-  const body = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Request body must be valid JSON" },
+      { status: 400 }
+    );
+  }
+
   const parsed = payloadSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -70,7 +79,7 @@ export async function POST(request: Request) {
       meetingId: meeting.id
     });
 
-    await supabaseAdmin
+    const { error: updateError } = await supabaseAdmin
       .from("meetings")
       .update({
         recall_bot_id: bot.id,
@@ -78,11 +87,23 @@ export async function POST(request: Request) {
       })
       .eq("id", meeting.id);
 
+    if (updateError) {
+      return NextResponse.json(
+        {
+          error: "Recall bot created but meeting update failed",
+          details: updateError.message,
+          meetingId: meeting.id,
+          recallBotId: bot.id
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       meeting: { ...meeting, recall_bot_id: bot.id, status: "joining" }
     });
   } catch (error) {
-    await supabaseAdmin
+    const { error: failUpdateError } = await supabaseAdmin
       .from("meetings")
       .update({ status: "failed" })
       .eq("id", meeting.id);
@@ -91,7 +112,8 @@ export async function POST(request: Request) {
       {
         error: "Created meeting but failed to create Recall bot",
         details: error instanceof Error ? error.message : "Unknown error",
-        meetingId: meeting.id
+        meetingId: meeting.id,
+        statusUpdateError: failUpdateError?.message ?? null
       },
       { status: 502 }
     );
