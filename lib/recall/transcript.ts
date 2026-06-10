@@ -64,6 +64,9 @@ function pickUtteranceArray(payload: unknown): unknown[] {
   const obj = asObject(payload);
   if (!obj) return [];
 
+  const segments = obj.segments;
+  if (Array.isArray(segments)) return segments;
+
   const transcript = obj.transcript;
   if (Array.isArray(transcript)) return transcript;
 
@@ -75,6 +78,7 @@ function pickUtteranceArray(payload: unknown): unknown[] {
 
   const nestedData = asObject(obj.data);
   if (nestedData) {
+    if (Array.isArray(nestedData.segments)) return nestedData.segments;
     if (Array.isArray(nestedData.transcript)) return nestedData.transcript;
     if (Array.isArray(nestedData.utterances)) return nestedData.utterances;
     if (Array.isArray(nestedData.results)) return nestedData.results;
@@ -117,8 +121,11 @@ export async function fetchRecallTranscript(transcriptId: string): Promise<unkno
     throw new Error("Missing RECALL_REGION");
   }
 
-  const url = `https://${region}.recall.ai/api/v1/transcript/${encodeURIComponent(transcriptId)}/`;
-  const response = await fetch(url, {
+  const isDev = process.env.NODE_ENV !== "production";
+  const metadataUrl = `https://${region}.recall.ai/api/v1/transcript/${encodeURIComponent(transcriptId)}/`;
+  console.info("Recall transcript metadata fetch request", { request_url: metadataUrl });
+
+  const metadataResponse = await fetch(metadataUrl, {
     method: "GET",
     headers: {
       Authorization: `Token ${apiKey}`,
@@ -126,18 +133,73 @@ export async function fetchRecallTranscript(transcriptId: string): Promise<unkno
     }
   });
 
-  const bodyText = await response.text();
-  if (!response.ok) {
-    console.error("Recall transcript fetch failed", {
-      status: response.status,
-      body: bodyText
-    });
-    throw new Error(`Recall transcript fetch failed: ${response.status} ${bodyText}`);
+  const metadataBodyText = await metadataResponse.text();
+  let metadataBody: unknown = metadataBodyText;
+  try {
+    metadataBody = metadataBodyText ? (JSON.parse(metadataBodyText) as unknown) : {};
+  } catch {
+    metadataBody = metadataBodyText;
   }
 
-  try {
-    return bodyText ? (JSON.parse(bodyText) as unknown) : {};
-  } catch {
-    return {};
+  if (!metadataResponse.ok) {
+    console.error("Recall transcript metadata fetch failed", {
+      status: metadataResponse.status,
+      body: metadataBodyText
+    });
+    throw new Error(
+      `Recall transcript fetch failed: ${metadataResponse.status} ${metadataBodyText}`
+    );
   }
+
+  const metadataObject = asObject(metadataBody);
+  const metadataData = asObject(metadataObject?.data);
+  const downloadUrl =
+    asString(metadataData?.download_url) ?? asString(metadataData?.provider_data_download_url);
+
+  if (!downloadUrl) {
+    throw new Error("Recall transcript metadata missing data.download_url");
+  }
+
+  const contentResponse = await fetch(downloadUrl, { method: "GET" });
+  console.info("Recall transcript content fetch response", {
+    status: contentResponse.status
+  });
+
+  const contentBodyText = await contentResponse.text();
+  let contentBody: unknown = contentBodyText;
+  try {
+    contentBody = contentBodyText ? (JSON.parse(contentBodyText) as unknown) : {};
+  } catch {
+    contentBody = contentBodyText;
+  }
+
+  if (!contentResponse.ok) {
+    console.error("Recall transcript content fetch failed", {
+      status: contentResponse.status,
+      body: contentBodyText
+    });
+    throw new Error(
+      `Recall transcript content fetch failed: ${contentResponse.status} ${contentBodyText}`
+    );
+  }
+
+  if (isDev) {
+    const contentObject = asObject(contentBody);
+    console.info("Recall transcript content keys", {
+      keys: contentObject ? Object.keys(contentObject) : []
+    });
+
+    const candidates = [
+      contentObject?.utterances,
+      contentObject?.segments,
+      contentObject?.transcript,
+      contentObject?.results
+    ].find((value) => Array.isArray(value)) as unknown[] | undefined;
+
+    console.info("Recall transcript first items", {
+      first_three: candidates ? candidates.slice(0, 3) : []
+    });
+  }
+
+  return contentBody;
 }

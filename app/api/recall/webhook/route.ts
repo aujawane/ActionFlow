@@ -148,9 +148,9 @@ export async function POST(request: Request) {
         meeting_id: meetingId
       });
 
-      const transcriptPayload = await fetchRecallTranscript(transcriptId);
-      const parsedRows = parseRecallTranscriptToSegments(transcriptPayload);
-      console.info("Recall transcript rows fetched", {
+      const transcriptContent = await fetchRecallTranscript(transcriptId);
+      const parsedRows = parseRecallTranscriptToSegments(transcriptContent);
+      console.info("Recall transcript content rows found", {
         transcript_id: transcriptId,
         row_count: parsedRows.length
       });
