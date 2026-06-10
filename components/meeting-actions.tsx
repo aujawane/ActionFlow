@@ -5,19 +5,19 @@ import { useRouter } from "next/navigation";
 
 export function MeetingActions({ meetingId }: { meetingId: string }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"analyze" | "prompts" | null>(null);
+  const [busy, setBusy] = useState<"analyze" | "generatePrompts" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function trigger(kind: "analyze" | "prompts") {
+  async function trigger(kind: "analyze" | "generatePrompts") {
     setBusy(kind);
     setMessage(null);
 
-    const response = await fetch(
-      `/api/meetings/${meetingId}/${kind === "analyze" ? "analyze" : "prompts"}`,
-      {
-        method: "POST"
-      }
-    );
+    const path =
+      kind === "analyze"
+        ? `/api/meetings/${meetingId}/analyze`
+        : `/api/meetings/${meetingId}/generate-prompts`;
+
+    const response = await fetch(path, { method: "POST" });
 
     const data = await response.json();
     setBusy(null);
@@ -47,11 +47,11 @@ export function MeetingActions({ meetingId }: { meetingId: string }) {
           {busy === "analyze" ? "Analyzing..." : "Analyze Meeting"}
         </button>
         <button
-          onClick={() => trigger("prompts")}
+          onClick={() => trigger("generatePrompts")}
           disabled={busy !== null}
           className="rounded-md bg-brand-600 px-3 py-2 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-60"
         >
-          {busy === "prompts" ? "Generating..." : "Generate Prompts"}
+          {busy === "generatePrompts" ? "Generating..." : "Generate Prompts"}
         </button>
       </div>
       {message ? <p className="text-xs text-slate-600">{message}</p> : null}
