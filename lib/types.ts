@@ -7,13 +7,17 @@ export type JsonValue =
   | JsonValue[];
 
 export type InsightCategory =
+  | "product_summary"
+  | "requirements"
   | "product_requirements"
   | "features"
   | "user_stories"
   | "technical_constraints"
   | "design_preferences"
   | "implementation_details"
-  | "open_questions";
+  | "open_questions"
+  | "risks"
+  | "next_steps";
 
 export interface TranscriptSegment {
   id: string;

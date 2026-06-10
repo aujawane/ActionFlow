@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { extractInsightsFromTranscript } from "@/lib/analysis";
+import {
+  analyzeTranscriptWithOpenAI,
+  buildCleanTranscript
+} from "@/lib/analysis";
 import { requireApiUser } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { InsightCategory } from "@/lib/types";
 
 export async function POST(
   _request: Request,
@@ -26,7 +30,7 @@ export async function POST(
 
   const { data: segments, error: segmentsError } = await supabaseAdmin
     .from("transcript_segments")
-    .select("content")
+    .select("speaker_name, content, started_at")
     .eq("meeting_id", id)
     .order("started_at", { ascending: true });
 
@@ -37,7 +41,7 @@ export async function POST(
     );
   }
 
-  const transcript = (segments ?? []).map((s) => s.content).join("\n");
+  const transcript = buildCleanTranscript(segments ?? []);
   if (!transcript.trim()) {
     return NextResponse.json(
       { error: "No transcript available yet" },
@@ -45,7 +49,16 @@ export async function POST(
     );
   }
 
-  const insights = await extractInsightsFromTranscript(transcript);
+  const analysis = await analyzeTranscriptWithOpenAI(transcript);
+  if (!analysis.ok) {
+    return NextResponse.json(
+      {
+        error: "Transcript analysis failed",
+        details: analysis.details ?? analysis.error
+      },
+      { status: 502 }
+    );
+  }
 
   const { error: deleteError } = await supabaseAdmin
     .from("extracted_insights")
@@ -59,12 +72,74 @@ export async function POST(
     );
   }
 
-  const payload = insights.map((item) => ({
-    meeting_id: id,
-    category: item.category,
-    content: item.content,
-    confidence: item.confidence
-  }));
+  const structured = analysis.data;
+  const payload: Array<{
+    meeting_id: string;
+    category: InsightCategory;
+    content: string;
+    confidence: number | null;
+  }> = [
+    {
+      meeting_id: id,
+      category: "product_summary",
+      content: structured.product_summary,
+      confidence: null
+    },
+    ...structured.requirements.map((content) => ({
+      meeting_id: id,
+      category: "requirements" as const,
+      content,
+      confidence: null
+    })),
+    ...structured.features.map((content) => ({
+      meeting_id: id,
+      category: "features" as const,
+      content,
+      confidence: null
+    })),
+    ...structured.user_stories.map((content) => ({
+      meeting_id: id,
+      category: "user_stories" as const,
+      content,
+      confidence: null
+    })),
+    ...structured.technical_constraints.map((content) => ({
+      meeting_id: id,
+      category: "technical_constraints" as const,
+      content,
+      confidence: null
+    })),
+    ...structured.design_preferences.map((content) => ({
+      meeting_id: id,
+      category: "design_preferences" as const,
+      content,
+      confidence: null
+    })),
+    ...structured.implementation_details.map((content) => ({
+      meeting_id: id,
+      category: "implementation_details" as const,
+      content,
+      confidence: null
+    })),
+    ...structured.open_questions.map((content) => ({
+      meeting_id: id,
+      category: "open_questions" as const,
+      content,
+      confidence: null
+    })),
+    ...structured.risks.map((content) => ({
+      meeting_id: id,
+      category: "risks" as const,
+      content,
+      confidence: null
+    })),
+    ...structured.next_steps.map((content) => ({
+      meeting_id: id,
+      category: "next_steps" as const,
+      content,
+      confidence: null
+    }))
+  ];
 
   const { data: inserted, error: insertError } = await supabaseAdmin
     .from("extracted_insights")
@@ -78,5 +153,5 @@ export async function POST(
     );
   }
 
-  return NextResponse.json({ insights: inserted });
+  return NextResponse.json({ analysis: structured, insights: inserted });
 }

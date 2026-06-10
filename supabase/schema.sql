@@ -51,21 +51,32 @@ create table if not exists public.transcript_segments (
 create table if not exists public.extracted_insights (
   id uuid primary key default gen_random_uuid(),
   meeting_id uuid not null references public.meetings (id) on delete cascade,
-  category text not null check (
-    category in (
-      'product_requirements',
-      'features',
-      'user_stories',
-      'technical_constraints',
-      'design_preferences',
-      'implementation_details',
-      'open_questions'
-    )
-  ),
+  category text not null,
   content text not null,
   confidence numeric(3,2),
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
+);
+
+alter table public.extracted_insights
+drop constraint if exists extracted_insights_category_check;
+
+alter table public.extracted_insights
+add constraint extracted_insights_category_check
+check (
+  category in (
+    'product_summary',
+    'requirements',
+    'product_requirements',
+    'features',
+    'user_stories',
+    'technical_constraints',
+    'design_preferences',
+    'implementation_details',
+    'open_questions',
+    'risks',
+    'next_steps'
+  )
 );
 
 create table if not exists public.generated_prompts (
