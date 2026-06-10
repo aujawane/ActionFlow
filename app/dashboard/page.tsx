@@ -21,6 +21,7 @@ export default async function DashboardPage() {
   const completedMeetings = safeMeetings.filter(
     (meeting) => meeting.status === "completed"
   ).length;
+  const failedMeetings = safeMeetings.filter((meeting) => meeting.status === "failed").length;
 
   return (
     <section className="space-y-6">
@@ -60,6 +61,13 @@ export default async function DashboardPage() {
           <p className="mt-2 text-2xl font-semibold text-emerald-600">{completedMeetings}</p>
         </div>
       </div>
+
+      {failedMeetings > 0 ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {failedMeetings} meeting bot creation attempt
+          {failedMeetings > 1 ? "s" : ""} failed. Open each meeting for details and retry.
+        </div>
+      ) : null}
 
       {error ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">

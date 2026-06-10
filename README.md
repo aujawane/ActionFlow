@@ -3,9 +3,8 @@
 Workflow is an AI-powered meeting companion that:
 
 - creates Recall.ai meeting bots from a meeting URL
-- ingests transcript events through webhooks
-- analyzes transcripts with OpenAI into structured delivery insights
-- generates build-ready prompts for Codex, Claude Code, and Lovable
+- stores meetings and bot lifecycle state in Supabase
+- will ingest transcript events and analysis in a later feature branch
 
 ## Project Overview
 
@@ -14,9 +13,8 @@ Core product flow:
 1. User signs in with Supabase Auth.
 2. User creates a meeting in `/meetings/new` by pasting a meeting URL.
 3. Backend creates a `meetings` row and calls Recall.ai to join the call.
-4. Recall webhook sends transcript and bot status events to `/api/recall/webhook`.
-5. User runs Analyze to extract structured insights.
-6. User runs Generate Prompts to get tool-specific implementation prompts.
+4. Recall bot id and meeting status are stored in Supabase.
+5. User opens the meeting detail page to track bot status.
 
 ## Tech Stack
 
@@ -78,21 +76,24 @@ What schema creates:
 - `generated_prompts`
 - RLS policies so users can only access their own records
 
-## Recall.ai Setup
+## Recall.ai Setup (Current Branch)
 
 1. Create a Recall.ai account and get API key.
 2. Put key in:
    - `RECALL_API_KEY`
 3. Pick a webhook secret (random strong string) and set:
    - `RECALL_WEBHOOK_SECRET`
-4. For local testing, expose local app with ngrok and set:
+4. Ensure the meeting host has an active Google Meet open before creating the bot.
+5. User pastes the Google Meet URL in `/meetings/new`.
+6. Workflow sends a bot named `Workflow` to that Google Meet URL.
+7. For local testing, expose local app with ngrok and set:
    - `NEXT_PUBLIC_APP_URL=https://<your-ngrok-subdomain>.ngrok-free.app`
 
 Notes:
 
-- `POST /api/meetings` builds Recall bot payload and sets webhook URL to:
-  - `${NEXT_PUBLIC_APP_URL}/api/recall/webhook`
-- Webhook signature is verified with SHA256 HMAC in `lib/recall.ts`.
+- Recall API calls are server-side only (`lib/recall/client.ts` + `POST /api/meetings`).
+- `RECALL_API_KEY` is never exposed to browser code.
+- Webhook/transcript handling is intentionally deferred to the next feature branch.
 
 ## OpenAI Setup
 
@@ -118,7 +119,7 @@ Open:
 
 - [http://localhost:3000](http://localhost:3000)
 
-## Expose Local Webhook with ngrok
+## Expose Local App with ngrok
 
 1. Install ngrok and authenticate once.
 2. Start tunnel:
@@ -137,9 +138,7 @@ ngrok http 3000
 npm run dev
 ```
 
-Now Recall webhooks can reach your local endpoint at:
-
-- `https://abc123.ngrok-free.app/api/recall/webhook`
+Use the ngrok URL as `NEXT_PUBLIC_APP_URL` so Recall can reach your deployed callback endpoints when webhook support is added.
 
 ## How to Test Creating a Meeting Bot
 
@@ -150,7 +149,7 @@ Now Recall webhooks can reach your local endpoint at:
 5. Verify:
    - A row is created in `meetings`
    - `recall_bot_id` is populated
-   - status changes from `pending` to `joining` (then updates via webhook events)
+   - status changes from `pending` to `joining`
 
 Optional API-level test (requires authenticated browser session cookie):
 
@@ -163,50 +162,10 @@ curl -X POST http://localhost:3000/api/meetings \
   }'
 ```
 
-## How to Test Transcript Webhook Manually
+## Next Branch Scope
 
-You can simulate Recall webhook calls by sending JSON with valid signature header.
-
-### 1) Prepare payload
-
-```bash
-PAYLOAD='{
-  "event":"transcript.partial",
-  "data":{
-    "bot":{
-      "id":"bot_test_123",
-      "status":"in_call",
-      "metadata":{"meeting_id":"<your-meeting-uuid>"}
-    },
-    "transcript":{
-      "speaker":{"name":"PM"},
-      "text":"We need role-based access control in v1.",
-      "timestamp":"2026-06-10T12:00:00.000Z"
-    }
-  }
-}'
-```
-
-### 2) Sign payload with webhook secret
-
-```bash
-SIG=$(printf '%s' "$PAYLOAD" | openssl dgst -sha256 -hmac "$RECALL_WEBHOOK_SECRET" | sed 's/^.* //')
-```
-
-### 3) Send webhook request
-
-```bash
-curl -X POST "http://localhost:3000/api/recall/webhook" \
-  -H "Content-Type: application/json" \
-  -H "x-recall-signature: sha256=$SIG" \
-  --data "$PAYLOAD"
-```
-
-Expected behavior:
-
-- endpoint returns `{ "ok": true }`
-- new row appears in `transcript_segments`
-- related `meetings.status` updates (e.g. `in_progress`, `completed`, `failed`) based on event/status
+Webhook, transcript ingestion, and transcript analysis are planned for the next feature branch.  
+Current branch only creates Recall bots and tracks meeting creation status.
 
 ## Useful App Routes
 
@@ -223,7 +182,7 @@ API:
 - `POST /api/meetings` - create meeting + Recall bot
 - `GET /api/meetings` - list user meetings
 - `GET /api/meetings/[id]/transcript` - transcript segments
-- `POST /api/meetings/[id]/analyze` - transcript analysis
-- `POST /api/meetings/[id]/generate-prompts` - Codex/Claude/Lovable prompts
-- `POST /api/recall/webhook` - Recall webhook receiver
+- `POST /api/meetings/[id]/analyze` - transcript analysis (future branch)
+- `POST /api/meetings/[id]/generate-prompts` - Codex/Claude/Lovable prompts (future branch)
+- `POST /api/recall/webhook` - Recall webhook receiver (future branch)
 - `GET /api/auth/callback` - Supabase auth callback

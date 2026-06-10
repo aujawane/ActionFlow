@@ -19,6 +19,16 @@ export function MeetingCard({ meeting }: { meeting: Meeting }) {
 
         <p className="line-clamp-1 text-xs text-slate-500">{meeting.meeting_url}</p>
 
+        {meeting.recall_bot_id ? (
+          <p className="line-clamp-1 text-xs text-slate-500">
+            Bot ID: <span className="font-mono">{meeting.recall_bot_id}</span>
+          </p>
+        ) : meeting.status === "failed" ? (
+          <p className="text-xs text-rose-600">
+            Bot creation failed. Open meeting for details.
+          </p>
+        ) : null}
+
         <div className="flex items-center justify-between">
           <p className="text-xs text-slate-500">
             Created {new Date(meeting.created_at).toLocaleDateString()}

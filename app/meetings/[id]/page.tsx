@@ -48,6 +48,17 @@ export default async function MeetingDetailPage({
         .order("created_at", { ascending: true })
     ]);
 
+  const meetingWithOptionalError = meeting as typeof meeting & {
+    bot_error?: string | null;
+    error_message?: string | null;
+    recall_error?: string | null;
+  };
+  const botCreationError =
+    meetingWithOptionalError.bot_error ??
+    meetingWithOptionalError.error_message ??
+    meetingWithOptionalError.recall_error ??
+    null;
+
   return (
     <section className="space-y-6">
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -60,10 +71,23 @@ export default async function MeetingDetailPage({
               {meeting.title ?? "Untitled meeting"}
             </h1>
             <p className="text-xs text-slate-500">{meeting.meeting_url}</p>
+            {meeting.recall_bot_id ? (
+              <p className="text-xs text-slate-500">
+                Recall Bot ID: <span className="font-mono">{meeting.recall_bot_id}</span>
+              </p>
+            ) : null}
           </div>
           <MeetingStatusBadge status={meeting.status} />
         </div>
       </div>
+
+      {meeting.status === "failed" ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {botCreationError
+            ? `Bot creation failed: ${botCreationError}`
+            : "Bot creation failed. Verify the Google Meet URL is active and try creating the meeting again."}
+        </div>
+      ) : null}
 
       {(segmentsError || insightsError || promptsError) && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
