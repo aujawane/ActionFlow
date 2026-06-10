@@ -46,8 +46,13 @@ export function PromptsPanel({ prompts }: { prompts: GeneratedPrompt[] }) {
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-slate-900">Generated Prompts</h2>
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div>
+        <h2 className="text-sm font-semibold text-slate-900">Prompt Tabs</h2>
+        <p className="text-xs text-slate-500">
+          Copy build-ready prompts for Codex, Claude Code, and Lovable.
+        </p>
+      </div>
       {sortedPrompts.length > 0 ? (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
@@ -67,7 +72,7 @@ export function PromptsPanel({ prompts }: { prompts: GeneratedPrompt[] }) {
             ))}
           </div>
 
-          <div className="rounded-md border border-slate-200 p-3">
+          <div className="rounded-lg border border-slate-200 p-3">
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 {activePrompt ? toolLabel(activePrompt.target_tool) : "Prompt"}
@@ -100,10 +105,12 @@ export function PromptsPanel({ prompts }: { prompts: GeneratedPrompt[] }) {
           ) : null}
         </div>
       ) : (
-        <p className="text-sm text-slate-500">
-          No prompts generated yet. Run Analyze Meeting first, then Generate
-          Prompts.
-        </p>
+        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
+          <p className="text-sm text-slate-500">
+            No prompts generated yet. Run Analyze Meeting first, then Generate
+            Prompts.
+          </p>
+        </div>
       )}
     </div>
   );

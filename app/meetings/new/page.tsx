@@ -5,11 +5,14 @@ export default async function NewMeetingPage() {
   await requireUser();
 
   return (
-    <section className="space-y-3">
-      <h1 className="text-2xl font-semibold text-slate-900">Create new meeting</h1>
-      <p className="text-sm text-slate-600">
-        Paste the conference link and ActionFlow will spin up a Recall.ai bot.
-      </p>
+    <section className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h1 className="text-2xl font-semibold text-slate-900">Create new meeting</h1>
+        <p className="mt-1 text-sm text-slate-600">
+          Paste a meeting URL and Workflow will spin up a Recall.ai bot to capture
+          transcript events.
+        </p>
+      </div>
       <NewMeetingForm />
     </section>
   );

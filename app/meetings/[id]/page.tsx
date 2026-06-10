@@ -25,7 +25,11 @@ export default async function MeetingDetailPage({
 
   if (!meeting) notFound();
 
-  const [{ data: segments }, { data: insights }, { data: prompts }] =
+  const [
+    { data: segments, error: segmentsError },
+    { data: insights, error: insightsError },
+    { data: prompts, error: promptsError }
+  ] =
     await Promise.all([
       supabaseAdmin
         .from("transcript_segments")
@@ -46,14 +50,52 @@ export default async function MeetingDetailPage({
 
   return (
     <section className="space-y-6">
-      <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold text-slate-900">
-            {meeting.title ?? "Untitled meeting"}
-          </h1>
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Meeting Detail
+            </p>
+            <h1 className="text-xl font-semibold text-slate-900">
+              {meeting.title ?? "Untitled meeting"}
+            </h1>
+            <p className="text-xs text-slate-500">{meeting.meeting_url}</p>
+          </div>
           <MeetingStatusBadge status={meeting.status} />
         </div>
-        <p className="text-xs text-slate-500">{meeting.meeting_url}</p>
+      </div>
+
+      {(segmentsError || insightsError || promptsError) && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          Some data sections could not be loaded. Try refreshing this page.
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Transcript Segments
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {(segments ?? []).length}
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Insights
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {(insights ?? []).length}
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Generated Prompts
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {(prompts ?? []).length}
+          </p>
+        </div>
       </div>
 
       <MeetingActions meetingId={meeting.id} />

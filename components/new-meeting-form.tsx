@@ -36,8 +36,15 @@ export function NewMeetingForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="max-w-xl space-y-4 rounded-xl border border-slate-200 bg-white p-6"
+      className="max-w-2xl space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
     >
+      <div>
+        <h2 className="text-sm font-semibold text-slate-900">Meeting Setup</h2>
+        <p className="text-xs text-slate-500">
+          Paste a meeting URL to send a Recall bot and begin transcript capture.
+        </p>
+      </div>
+
       <div className="space-y-1">
         <label className="text-sm font-medium text-slate-700" htmlFor="title">
           Meeting title (optional)

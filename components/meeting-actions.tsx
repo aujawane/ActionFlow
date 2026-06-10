@@ -36,8 +36,13 @@ export function MeetingActions({ meetingId }: { meetingId: string }) {
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-slate-900">Actions</h2>
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div>
+        <h2 className="text-sm font-semibold text-slate-900">Meeting Actions</h2>
+        <p className="text-xs text-slate-500">
+          Analyze transcript and generate build-ready engineering prompts.
+        </p>
+      </div>
       <div className="flex gap-2">
         <button
           onClick={() => trigger("analyze")}
@@ -54,7 +59,17 @@ export function MeetingActions({ meetingId }: { meetingId: string }) {
           {busy === "generatePrompts" ? "Generating..." : "Generate Prompts"}
         </button>
       </div>
-      {message ? <p className="text-xs text-slate-600">{message}</p> : null}
+      {message ? (
+        <p
+          className={`rounded-md px-2 py-1 text-xs ${
+            message.toLowerCase().includes("failed")
+              ? "bg-rose-50 text-rose-700"
+              : "bg-slate-50 text-slate-600"
+          }`}
+        >
+          {message}
+        </p>
+      ) : null}
     </div>
   );
 }
