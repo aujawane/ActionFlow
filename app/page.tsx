@@ -18,7 +18,7 @@ export default function LandingPage() {
           Turn product meetings into build-ready engineering prompts.
         </h1>
         <p className="text-lg text-slate-600">
-          ActionFlow joins meetings with Recall.ai, captures live transcript
+          Parfait joins meetings with Recall.ai, captures live transcript
           data, extracts actionable requirements, and produces polished prompts
           your coding AI can execute immediately.
         </p>

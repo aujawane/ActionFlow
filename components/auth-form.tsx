@@ -101,15 +101,27 @@ export function AuthForm() {
 
       {message ? <p className="mt-3 text-sm text-slate-600">{message}</p> : null}
 
-      <button
-        type="button"
-        className="mt-4 text-sm"
-        onClick={() => setMode((prev) => (prev === "login" ? "signup" : "login"))}
-      >
-        {mode === "login"
-          ? "Need an account? Sign up"
-          : "Already have an account? Login"}
-      </button>
+      <div className="mt-4 flex flex-wrap gap-3 text-sm">
+        <button
+          type="button"
+          onClick={() => {
+            setMode((prev) => (prev === "login" ? "signup" : "login"));
+            setMessage(null);
+          }}
+        >
+          {mode === "login"
+            ? "Need an account? Sign up"
+            : "Already have an account? Login"}
+        </button>
+        {mode === "login" ? (
+          <button
+            type="button"
+            onClick={() => window.location.assign("/forgot-password")}
+          >
+            Forgot password?
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

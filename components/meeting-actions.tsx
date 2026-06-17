@@ -17,22 +17,29 @@ export function MeetingActions({ meetingId }: { meetingId: string }) {
         ? `/api/meetings/${meetingId}/analyze`
         : `/api/meetings/${meetingId}/generate-prompts`;
 
-    const response = await fetch(path, { method: "POST" });
+    try {
+      const response = await fetch(path, { method: "POST" });
+      const data = await response.json();
+      setBusy(null);
 
-    const data = await response.json();
-    setBusy(null);
+      if (!response.ok) {
+        const details = typeof data?.details === "string" ? data.details : null;
+        setMessage(
+          details ? `${data.error ?? `Failed to ${kind}`}: ${details}` : data.error ?? `Failed to ${kind}`
+        );
+        return;
+      }
 
-    if (!response.ok) {
-      setMessage(data.error ?? `Failed to ${kind}`);
-      return;
+      setMessage(
+        kind === "analyze"
+          ? "Insights updated from transcript."
+          : "Prompts generated for General Development and Lovable."
+      );
+      router.refresh();
+    } catch {
+      setBusy(null);
+      setMessage("Request failed. Check your connection and try again.");
     }
-
-    setMessage(
-      kind === "analyze"
-        ? "Insights updated from transcript."
-        : "Prompts generated for Codex, Claude Code, and Lovable."
-    );
-    router.refresh();
   }
 
   return (

@@ -6,7 +6,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { SidebarNav } from "@/components/sidebar-nav";
 
 export const metadata: Metadata = {
-  title: "ActionFlow",
+  title: "Parfait",
   description:
     "AI-powered meeting companion that turns transcripts into build-ready prompts."
 };
@@ -24,10 +24,10 @@ export default function RootLayout({
             <header className="border-b border-slate-200 bg-white">
               <div className="flex items-center justify-between px-4 py-3 sm:px-6">
                 <Link href="/" className="text-base font-semibold text-slate-900 lg:hidden">
-                  Workflow
+                  Parfait
                 </Link>
                 <div className="text-xs text-slate-500 sm:text-sm">
-                  AI-powered meeting to engineering workflow
+                  AI-powered meeting to engineering Parfait
                 </div>
                 <div className="flex items-center gap-2">
                   <Link

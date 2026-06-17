@@ -1,6 +1,6 @@
-# Workflow
+# Parfait
 
-Workflow is an AI-powered meeting companion that:
+Parfait is an AI-powered meeting companion that:
 
 - creates Recall.ai meeting bots from a meeting URL
 - stores meetings and bot lifecycle state in Supabase
@@ -87,7 +87,7 @@ What schema creates:
    - `RECALL_WEBHOOK_SECRET`
 4. Ensure the meeting host has an active Google Meet open before creating the bot.
 5. User pastes the Google Meet URL in `/meetings/new`.
-6. Workflow sends a bot named `Workflow` to that Google Meet URL.
+6. Parfait sends a bot named `Parfait Notetaker` to that Google Meet URL.
 7. For local testing, expose local app with ngrok and set:
    - `NEXT_PUBLIC_APP_URL=https://<your-ngrok-subdomain>.ngrok-free.app`
 
@@ -162,7 +162,7 @@ curl -X POST http://localhost:3000/api/meetings \
   -H "Content-Type: application/json" \
   -d '{
     "meetingUrl":"https://meet.google.com/your-link",
-    "title":"Workflow test call"
+    "title":"Parfait test call"
   }'
 ```
 

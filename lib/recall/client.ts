@@ -26,7 +26,7 @@ export async function createRecallBot(
 
   try {
     const requestUrl = "https://us-west-2.recall.ai/api/v1/bot/";
-    const botName = "Workflow Notetaker";
+    const botName = "Parfait Notetaker";
     const authorizationHeader = `Token ${apiKey}`;
     const requestBody = {
       bot_name: botName,

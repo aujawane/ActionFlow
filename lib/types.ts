@@ -32,6 +32,7 @@ export interface TranscriptSegment {
 export interface ExtractedInsight {
   id: string;
   meeting_id: string;
+  topic_id: string | null;
   category: InsightCategory;
   content: string;
   confidence: number | null;
@@ -41,9 +42,28 @@ export interface ExtractedInsight {
 export interface GeneratedPrompt {
   id: string;
   meeting_id: string;
-  tool_type: "codex" | "claude_code" | "lovable";
+  topic_id: string | null;
+  tool_type: "general" | "lovable" | "codex" | "claude_code";
   prompt: string;
   created_at: string;
+}
+
+export interface MeetingTopic {
+  id: string;
+  meeting_id: string;
+  title: string;
+  summary: string | null;
+  start_timestamp: string | null;
+  end_timestamp: string | null;
+  segment_ids: string[] | JsonValue;
+  confidence: number | null;
+  separation_reason: string | null;
+  created_at: string;
+}
+
+export interface TopicSegmentResult {
+  topic_id: string;
+  segment_ids: string[];
 }
 
 export interface Meeting {
