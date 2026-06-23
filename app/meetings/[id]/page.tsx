@@ -5,8 +5,18 @@ import { LiveTranscript } from "@/components/live-transcript";
 import { MeetingActions } from "@/components/meeting-actions";
 import { MeetingStatusBadge } from "@/components/meeting-status-badge";
 import { PromptsPanel } from "@/components/prompts-panel";
+import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+
+function isMissingRelationError(
+  error: { code?: string; message?: string } | null,
+  relation: string
+) {
+  if (!error) return false;
+  if (error.code === "42P01") return true;
+  return error.message?.toLowerCase().includes(relation.toLowerCase()) ?? false;
+}
 
 export default async function MeetingDetailPage({
   params
@@ -28,7 +38,8 @@ export default async function MeetingDetailPage({
   const [
     { data: segments, error: segmentsError },
     { data: insights, error: insightsError },
-    { data: prompts, error: promptsError }
+    { data: prompts, error: promptsError },
+    { data: topics, error: topicsError }
   ] =
     await Promise.all([
       supabaseAdmin
@@ -45,8 +56,16 @@ export default async function MeetingDetailPage({
         .from("generated_prompts")
         .select("*")
         .eq("meeting_id", id)
+        .order("created_at", { ascending: true }),
+      supabaseAdmin
+        .from("meeting_topics")
+        .select("*")
+        .eq("meeting_id", id)
         .order("created_at", { ascending: true })
     ]);
+
+  const topicsMissingTable = isMissingRelationError(topicsError, "meeting_topics");
+  const safeTopics = topicsMissingTable ? [] : (topics ?? []);
 
   const meetingWithOptionalError = meeting as typeof meeting & {
     bot_error?: string | null;
@@ -61,13 +80,13 @@ export default async function MeetingDetailPage({
 
   return (
     <section className="space-y-6">
-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="premium-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Meeting Detail
             </p>
-            <h1 className="text-xl font-semibold text-slate-900">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
               {meeting.title ?? "Untitled meeting"}
             </h1>
             <p className="text-xs text-slate-500">{meeting.meeting_url}</p>
@@ -89,14 +108,14 @@ export default async function MeetingDetailPage({
         </div>
       ) : null}
 
-      {(segmentsError || insightsError || promptsError) && (
+      {(segmentsError || insightsError || promptsError || (topicsError && !topicsMissingTable)) && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Some data sections could not be loaded. Try refreshing this page.
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Transcript Segments
           </p>
@@ -104,7 +123,15 @@ export default async function MeetingDetailPage({
             {(segments ?? []).length}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="premium-card premium-card-hover p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Topics
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {safeTopics.length}
+          </p>
+        </div>
+        <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Insights
           </p>
@@ -112,7 +139,7 @@ export default async function MeetingDetailPage({
             {(insights ?? []).length}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Generated Prompts
           </p>
@@ -124,12 +151,18 @@ export default async function MeetingDetailPage({
 
       <MeetingActions meetingId={meeting.id} />
 
+      <TopicResults topics={safeTopics} insights={insights ?? []} prompts={prompts ?? []} />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <LiveTranscript meetingId={meeting.id} initialSegments={segments ?? []} />
-        <InsightsPanel insights={insights ?? []} />
+        {safeTopics.length === 0 ? (
+          <InsightsPanel insights={(insights ?? []).filter((item) => item.topic_id == null)} />
+        ) : null}
       </div>
 
-      <PromptsPanel prompts={prompts ?? []} />
+      {safeTopics.length === 0 ? (
+        <PromptsPanel prompts={(prompts ?? []).filter((item) => item.topic_id == null)} />
+      ) : null}
     </section>
   );
 }

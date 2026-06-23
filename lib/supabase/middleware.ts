@@ -40,7 +40,8 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isProtectedRoute =
     pathname.startsWith("/dashboard") || pathname.startsWith("/meetings");
-  const isAuthRoute = pathname.startsWith("/login");
+  const isAuthRoute =
+    pathname.startsWith("/login") || pathname.startsWith("/forgot-password");
 
   if (!user && isProtectedRoute) {
     const redirectUrl = request.nextUrl.clone();

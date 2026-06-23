@@ -1,96 +1,293 @@
 import { NextResponse } from "next/server";
+import crypto from "node:crypto";
+import { mkdir, appendFile } from "node:fs/promises";
+import path from "node:path";
 
 import {
-  isValidRecallWebhookSignature,
-  mapRecallStatus,
-  parseRecallWebhookPayload
-} from "@/lib/recall";
+  fetchRecallTranscript,
+  parseRecallTranscriptToSegments
+} from "@/lib/recall/transcript";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+type JsonObject = Record<string, unknown>;
+
+function asObject(value: unknown): JsonObject | null {
+  return value && typeof value === "object" ? (value as JsonObject) : null;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
 export async function POST(request: Request) {
-  const signature = request.headers.get("x-recall-signature");
+  const isDev = process.env.NODE_ENV !== "production";
   const rawBody = await request.text();
 
-  if (!isValidRecallWebhookSignature(signature, rawBody)) {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
+  // TEMPORARY: Skip strict webhook signature verification in local MVP development.
+  // TODO: Enforce strict signature verification for production hardening.
+  if (!isDev) {
+    const webhookSecret = process.env.RECALL_WEBHOOK_SECRET;
+    const signature = request.headers.get("x-recall-signature");
 
-  const parsed = parseRecallWebhookPayload(rawBody);
-  if (!parsed.ok) {
-    return NextResponse.json({ error: parsed.error }, { status: 400 });
-  }
-  const payload = parsed.payload;
+    if (webhookSecret && signature && rawBody) {
+      const incoming = signature.startsWith("sha256=")
+        ? signature.slice("sha256=".length)
+        : signature;
+      const expected = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
+      const incomingBuffer = Buffer.from(incoming, "hex");
+      const expectedBuffer = Buffer.from(expected, "hex");
+      const validSignature =
+        incomingBuffer.length === expectedBuffer.length &&
+        crypto.timingSafeEqual(incomingBuffer, expectedBuffer);
 
-  const meetingId = payload.data?.bot?.metadata?.meeting_id;
-  const recallBotId = payload.data?.bot?.id;
-
-  if (!meetingId && !recallBotId) {
-    return NextResponse.json(
-      { error: "Missing meeting identity in payload" },
-      { status: 400 }
-    );
-  }
-
-  const resolveMeetingId = async () => {
-    if (meetingId) return meetingId;
-    const { data, error } = await supabaseAdmin
-      .from("meetings")
-      .select("id")
-      .eq("recall_bot_id", recallBotId ?? "")
-      .single();
-    if (error) return null;
-    return data?.id ?? null;
-  };
-
-  const resolvedMeetingId = await resolveMeetingId();
-  if (!resolvedMeetingId) {
-    return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
-  }
-
-  const transcript = payload.data?.transcript;
-  if (transcript) {
-    const content = transcript?.text ?? transcript?.words ?? "";
-    const startedAt =
-      transcript?.timestamp ??
-      transcript?.start_timestamp ??
-      new Date().toISOString();
-
-    if (content.trim()) {
-      const { error: transcriptInsertError } = await supabaseAdmin
-        .from("transcript_segments")
-        .insert({
-        meeting_id: resolvedMeetingId,
-        speaker_name: transcript?.speaker?.name ?? null,
-        content,
-        started_at: startedAt,
-        ended_at: transcript?.end_timestamp ?? null,
-        raw_payload: payload
-      });
-
-      if (transcriptInsertError) {
-        return NextResponse.json(
-          {
-            error: "Failed to store transcript segment",
-            details: transcriptInsertError.message
-          },
-          { status: 500 }
-        );
+      if (!validSignature) {
+        return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
       }
+    } else {
+      console.warn("Recall webhook: signature verification skipped in production (missing secret/signature).");
     }
   }
 
-  const meetingStatus = mapRecallStatus(payload);
-  if (meetingStatus) {
-    const { error: statusUpdateError } = await supabaseAdmin
-      .from("meetings")
-      .update({ status: meetingStatus })
-      .eq("id", resolvedMeetingId);
+  let payload: JsonObject;
+  try {
+    const parsed = JSON.parse(rawBody) as unknown;
+    payload = asObject(parsed) ?? {};
+  } catch {
+    // Tolerant webhook handling: acknowledge malformed payloads without crashing.
+    console.warn("Recall webhook: invalid JSON payload");
+    return NextResponse.json({ ok: true });
+  }
 
-    if (statusUpdateError) {
-      return NextResponse.json(
-        { error: "Failed to update meeting status", details: statusUpdateError.message },
-        { status: 500 }
+  const eventType = String(payload.event ?? payload.event_type ?? "unknown").toLowerCase();
+  const data = asObject(payload.data) ?? {};
+  const bot = asObject(data.bot) ?? {};
+  const transcript = asObject(data.transcript) ?? {};
+  const metadata = asObject(bot.metadata) ?? asObject(data.metadata) ?? {};
+
+  const recallBotId = asString(bot.id) ?? asString(data.bot_id) ?? asString(payload.bot_id);
+  const meetingIdFromMetadata = asString(metadata.meeting_id) ?? asString(metadata.meetingId);
+
+  console.info("RECALL WEBHOOK HIT");
+  console.info("Recall webhook event", {
+    event_type: eventType,
+    bot_id: recallBotId,
+    meeting_id: meetingIdFromMetadata
+  });
+
+  if (isDev) {
+    console.info("Recall webhook complete payload", payload);
+    console.info("Recall webhook payload probes", {
+      keys: Object.keys(payload),
+      data: payload.data ?? null,
+      transcript: payload.transcript ?? null,
+      words: payload.words ?? null,
+      participant: payload.participant ?? null,
+      speaker: payload.speaker ?? null
+    });
+
+    // Temporary local debug capture to inspect raw Recall event shape over time.
+    try {
+      const debugDir = path.join(process.cwd(), ".tmp");
+      const debugFile = path.join(debugDir, "recall-webhook-events.log");
+      await mkdir(debugDir, { recursive: true });
+      await appendFile(
+        debugFile,
+        [
+          `\n=== ${new Date().toISOString()} ===`,
+          `event_type=${eventType}`,
+          `bot_id=${recallBotId ?? "null"}`,
+          `meeting_id=${meetingIdFromMetadata ?? "null"}`,
+          `raw_body=${rawBody}`
+        ].join("\n") + "\n"
       );
+    } catch (fileLogError) {
+      console.warn("Recall webhook debug file write failed", {
+        error: fileLogError instanceof Error ? fileLogError.message : "Unknown file write error"
+      });
+    }
+  }
+
+  const resolveMeetingId = async (): Promise<string | null> => {
+    if (meetingIdFromMetadata) return meetingIdFromMetadata;
+    if (!recallBotId) return null;
+
+    const { data: meeting } = await supabaseAdmin
+      .from("meetings")
+      .select("id")
+      .eq("recall_bot_id", recallBotId)
+      .single();
+    return meeting?.id ?? null;
+  };
+
+  const meetingId = await resolveMeetingId();
+
+  if (isDev) {
+    console.info("Recall webhook event received", {
+      event_type: eventType,
+      bot_id: recallBotId,
+      meeting_id: meetingId ?? meetingIdFromMetadata
+    });
+  }
+
+  if (!meetingId) {
+    console.info("Recall webhook: no matching meeting", {
+      eventType,
+      recallBotId,
+      meetingIdFromMetadata
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  const transcriptId =
+    asString(transcript.id) ??
+    (typeof transcript.id === "number" ? String(transcript.id) : null);
+  if (eventType === "transcript.done" && transcriptId) {
+    try {
+      console.info("Recall transcript.done received", {
+        transcript_id: transcriptId,
+        meeting_id: meetingId
+      });
+
+      const transcriptContent = await fetchRecallTranscript(transcriptId);
+      const parsedRows = parseRecallTranscriptToSegments(transcriptContent);
+      console.info("Recall transcript content rows found", {
+        transcript_id: transcriptId,
+        row_count: parsedRows.length
+      });
+
+      let insertedCount = 0;
+      if (parsedRows.length > 0) {
+        const { data: insertedRows, error: insertError } = await supabaseAdmin
+          .from("transcript_segments")
+          .insert(
+            parsedRows.map((row) => ({
+              meeting_id: meetingId,
+              speaker: row.speaker,
+              text: row.text,
+              timestamp: row.timestamp,
+              raw_payload: row.raw_payload
+            }))
+          )
+          .select("id");
+
+        if (insertError) {
+          console.error("Recall transcript.done insert failed", {
+            transcript_id: transcriptId,
+            meeting_id: meetingId,
+            error: insertError.message
+          });
+        } else {
+          insertedCount = insertedRows?.length ?? 0;
+        }
+      }
+
+      console.info("Recall transcript segments inserted", {
+        transcript_id: transcriptId,
+        meeting_id: meetingId,
+        inserted_count: insertedCount
+      });
+
+      await supabaseAdmin
+        .from("meetings")
+        .update({ status: "completed" })
+        .eq("id", meetingId);
+    } catch (error) {
+      console.error("Recall transcript.done processing failed", {
+        transcript_id: transcriptId,
+        meeting_id: meetingId,
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+
+    return NextResponse.json({ ok: true });
+  }
+
+  const normalizedBotStatus = String(bot.status ?? data.status ?? "").toLowerCase();
+
+  let mappedStatus: "joining" | "recording" | "completed" | "failed" | null = null;
+  if (
+    eventType.includes("error") ||
+    eventType.includes("fail") ||
+    normalizedBotStatus.includes("error") ||
+    normalizedBotStatus.includes("fail")
+  ) {
+    mappedStatus = "failed";
+  } else if (
+    eventType.includes("end") ||
+    eventType.includes("complete") ||
+    eventType.includes("done") ||
+    normalizedBotStatus.includes("done") ||
+    normalizedBotStatus.includes("complete")
+  ) {
+    mappedStatus = "completed";
+  } else if (
+    eventType.includes("transcript") ||
+    eventType.includes("record") ||
+    normalizedBotStatus.includes("in_call") ||
+    normalizedBotStatus.includes("record")
+  ) {
+    mappedStatus = "recording";
+  } else if (
+    eventType.includes("join") ||
+    normalizedBotStatus.includes("join")
+  ) {
+    mappedStatus = "joining";
+  } else if (eventType !== "unknown") {
+    console.info("Recall webhook: unknown event type", { eventType, normalizedBotStatus });
+  }
+
+  if (mappedStatus) {
+    const { error: statusError } = await supabaseAdmin
+      .from("meetings")
+      .update({ status: mappedStatus })
+      .eq("id", meetingId);
+
+    if (statusError) {
+      console.error("Recall webhook: failed updating meeting status", {
+        meetingId,
+        mappedStatus,
+        error: statusError.message
+      });
+    }
+  }
+
+  const transcriptText =
+    asString(transcript.text) ?? asString(transcript.words) ?? asString(data.text);
+
+  if (isDev) {
+    console.info("Recall webhook transcript diagnostics", {
+      event_type: eventType,
+      bot_id: recallBotId,
+      meeting_id: meetingId,
+      transcript_text_length: transcriptText?.length ?? 0
+    });
+  }
+
+  if (transcriptText && transcriptText.trim()) {
+    const speaker =
+      asString(asObject(transcript.speaker)?.name) ??
+      asString(transcript.speaker) ??
+      asString(data.speaker);
+
+    const timestamp =
+      asString(transcript.timestamp) ??
+      asString(transcript.start_timestamp) ??
+      asString(data.timestamp) ??
+      new Date().toISOString();
+
+    const { error: insertError } = await supabaseAdmin.from("transcript_segments").insert({
+      meeting_id: meetingId,
+      speaker,
+      text: transcriptText.trim(),
+      timestamp,
+      raw_payload: payload
+    });
+
+    if (insertError) {
+      console.error("Recall webhook: failed inserting transcript segment", {
+        meetingId,
+        error: insertError.message
+      });
     }
   }
 

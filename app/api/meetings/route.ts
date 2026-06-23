@@ -108,8 +108,9 @@ export async function POST(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown error while creating Recall bot.";
+    const isDev = process.env.NODE_ENV !== "production";
 
-    const failedWithMessage = await supabaseAdmin
+    const failedWithBotError = await supabaseAdmin
       .from("meetings")
       .update({
         status: "failed",
@@ -117,12 +118,32 @@ export async function POST(request: Request) {
       } as { status: "failed"; bot_error: string })
       .eq("id", meeting.id);
 
-    // If schema does not support bot_error, fallback to status only.
-    if (failedWithMessage.error) {
-      await supabaseAdmin
+    // If schema does not support bot_error, fallback to other likely error columns.
+    if (failedWithBotError.error) {
+      const failedWithRecallError = await supabaseAdmin
         .from("meetings")
-        .update({ status: "failed" })
+        .update({
+          status: "failed",
+          recall_error: message
+        } as { status: "failed"; recall_error: string })
         .eq("id", meeting.id);
+
+      if (failedWithRecallError.error) {
+        const failedWithErrorMessage = await supabaseAdmin
+          .from("meetings")
+          .update({
+            status: "failed",
+            error_message: message
+          } as { status: "failed"; error_message: string })
+          .eq("id", meeting.id);
+
+        if (failedWithErrorMessage.error) {
+          await supabaseAdmin
+            .from("meetings")
+            .update({ status: "failed" })
+            .eq("id", meeting.id);
+        }
+      }
     }
 
     const { data: failedMeeting } = await supabaseAdmin
@@ -134,7 +155,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error: "Meeting created, but Recall bot creation failed",
-        details: message,
+        details: isDev ? message : "Recall bot creation failed.",
         meeting: failedMeeting ?? meeting
       },
       { status: 502 }
