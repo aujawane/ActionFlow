@@ -36,7 +36,7 @@ export function InsightsPanel({ insights }: { insights: ExtractedInsight[] }) {
     .filter((section) => section.items.length > 0);
 
   return (
-    <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="premium-card space-y-4 p-4">
       <div>
         <h2 className="text-sm font-semibold text-slate-900">Insight Sections</h2>
         <p className="text-xs text-slate-500">
@@ -47,16 +47,16 @@ export function InsightsPanel({ insights }: { insights: ExtractedInsight[] }) {
       {grouped.length > 0 ? (
         <div className="max-h-[30rem] space-y-3 overflow-y-auto pr-1">
           {grouped.map((section) => (
-            <div key={section.key} className="rounded-lg border border-slate-200">
-              <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <div key={section.key} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:border-brand-200">
+              <div className="border-b border-brand-100 bg-brand-50/70 px-3 py-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-brand-800">
                   {section.label}
                 </p>
               </div>
               <div className="space-y-2 p-3">
                 {section.items.map((insight) => (
-                  <p key={insight.id} className="text-sm text-slate-700">
-                    - {insight.content}
+                  <p key={insight.id} className="rounded-lg px-2 py-1 text-sm leading-6 text-slate-700 transition hover:bg-slate-50">
+                    {insight.content}
                   </p>
                 ))}
               </div>
@@ -64,8 +64,9 @@ export function InsightsPanel({ insights }: { insights: ExtractedInsight[] }) {
           ))}
         </div>
       ) : (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
-          <p className="text-sm text-slate-600">
+        <div className="premium-empty p-6">
+          <p className="text-sm font-semibold text-slate-800">No insights yet</p>
+          <p className="mt-1 text-sm text-slate-600">
             No insights yet. Click Analyze Meeting to extract requirements,
             constraints, and implementation details.
           </p>

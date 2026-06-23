@@ -60,7 +60,7 @@ export function TopicResults({
 
   if (topics.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+      <div className="premium-empty p-6 text-left">
         <h2 className="text-sm font-semibold text-slate-900">Topics</h2>
         <p className="mt-1 text-sm text-slate-600">
           No segmented topics yet. Run Analyze Meeting to create topic-level insights.
@@ -87,7 +87,7 @@ export function TopicResults({
           return (
             <article
               key={topic.id}
-              className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+              className="premium-card space-y-4 p-4 transition hover:border-brand-200"
             >
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -95,13 +95,13 @@ export function TopicResults({
                     <button
                       type="button"
                       onClick={() => toggleTopic(topic.id)}
-                      className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800"
                     >
                       {isExpanded ? "Collapse" : "Expand"}
                     </button>
                     <h3 className="text-base font-semibold text-slate-900">{topic.title}</h3>
                   </div>
-                  <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                  <span className="rounded-full border border-brand-100 bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-800">
                     Confidence: {formatConfidence(topic.confidence)}
                   </span>
                 </div>

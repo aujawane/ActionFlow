@@ -80,13 +80,13 @@ export default async function MeetingDetailPage({
 
   return (
     <section className="space-y-6">
-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="premium-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Meeting Detail
             </p>
-            <h1 className="text-xl font-semibold text-slate-900">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
               {meeting.title ?? "Untitled meeting"}
             </h1>
             <p className="text-xs text-slate-500">{meeting.meeting_url}</p>
@@ -115,7 +115,7 @@ export default async function MeetingDetailPage({
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Transcript Segments
           </p>
@@ -123,7 +123,7 @@ export default async function MeetingDetailPage({
             {(segments ?? []).length}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Topics
           </p>
@@ -131,7 +131,7 @@ export default async function MeetingDetailPage({
             {safeTopics.length}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Insights
           </p>
@@ -139,7 +139,7 @@ export default async function MeetingDetailPage({
             {(insights ?? []).length}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Generated Prompts
           </p>
