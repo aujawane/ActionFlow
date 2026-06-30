@@ -61,6 +61,25 @@ export interface MeetingTopic {
   created_at: string;
 }
 
+export type MeetingTaskType = "commitment" | "implicit_commitment" | "unassigned_work";
+export type MeetingTaskPriority = "low" | "medium" | "high";
+export type MeetingTaskStatus = "pending" | "in_progress" | "completed" | "dismissed";
+
+export interface MeetingTask {
+  id: string;
+  meeting_id: string;
+  topic_id: string;
+  task: string;
+  owner: string | null;
+  task_type: MeetingTaskType;
+  priority: MeetingTaskPriority;
+  suggested_steps: string[] | JsonValue;
+  source_quote: string | null;
+  confidence: number | null;
+  status: MeetingTaskStatus;
+  created_at: string;
+}
+
 export interface TopicSegmentResult {
   topic_id: string;
   segment_ids: string[];

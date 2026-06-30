@@ -39,7 +39,8 @@ export default async function MeetingDetailPage({
     { data: segments, error: segmentsError },
     { data: insights, error: insightsError },
     { data: prompts, error: promptsError },
-    { data: topics, error: topicsError }
+    { data: topics, error: topicsError },
+    { data: tasks, error: tasksError }
   ] =
     await Promise.all([
       supabaseAdmin
@@ -61,11 +62,18 @@ export default async function MeetingDetailPage({
         .from("meeting_topics")
         .select("*")
         .eq("meeting_id", id)
+        .order("created_at", { ascending: true }),
+      supabaseAdmin
+        .from("meeting_tasks")
+        .select("*")
+        .eq("meeting_id", id)
         .order("created_at", { ascending: true })
     ]);
 
   const topicsMissingTable = isMissingRelationError(topicsError, "meeting_topics");
+  const tasksMissingTable = isMissingRelationError(tasksError, "meeting_tasks");
   const safeTopics = topicsMissingTable ? [] : (topics ?? []);
+  const safeTasks = tasksMissingTable ? [] : (tasks ?? []);
 
   const meetingWithOptionalError = meeting as typeof meeting & {
     bot_error?: string | null;
@@ -108,13 +116,17 @@ export default async function MeetingDetailPage({
         </div>
       ) : null}
 
-      {(segmentsError || insightsError || promptsError || (topicsError && !topicsMissingTable)) && (
+      {(segmentsError ||
+        insightsError ||
+        promptsError ||
+        (topicsError && !topicsMissingTable) ||
+        (tasksError && !tasksMissingTable)) && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Some data sections could not be loaded. Try refreshing this page.
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Transcript Segments
@@ -147,11 +159,24 @@ export default async function MeetingDetailPage({
             {(prompts ?? []).length}
           </p>
         </div>
+        <div className="premium-card premium-card-hover p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Action Items
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {safeTasks.length}
+          </p>
+        </div>
       </div>
 
       <MeetingActions meetingId={meeting.id} />
 
-      <TopicResults topics={safeTopics} insights={insights ?? []} prompts={prompts ?? []} />
+      <TopicResults
+        topics={safeTopics}
+        insights={insights ?? []}
+        prompts={prompts ?? []}
+        tasks={safeTasks}
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <LiveTranscript meetingId={meeting.id} initialSegments={segments ?? []} />

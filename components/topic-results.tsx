@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { ActionItemsPanel } from "@/components/action-items-panel";
 import { InsightsPanel } from "@/components/insights-panel";
 import { PromptsPanel } from "@/components/prompts-panel";
-import type { ExtractedInsight, GeneratedPrompt, MeetingTopic } from "@/lib/types";
+import type { ExtractedInsight, GeneratedPrompt, MeetingTask, MeetingTopic } from "@/lib/types";
 
 function formatConfidence(confidence: number | null) {
   if (confidence === null || Number.isNaN(confidence)) return "N/A";
@@ -14,11 +15,13 @@ function formatConfidence(confidence: number | null) {
 export function TopicResults({
   topics,
   insights,
-  prompts
+  prompts,
+  tasks = []
 }: {
   topics: MeetingTopic[];
   insights: ExtractedInsight[];
   prompts: GeneratedPrompt[];
+  tasks?: MeetingTask[];
 }) {
   const sortedTopics = useMemo(() => {
     return [...topics].sort(
@@ -82,6 +85,7 @@ export function TopicResults({
         {sortedTopics.map((topic) => {
           const topicInsights = insights.filter((item) => item.topic_id === topic.id);
           const topicPrompts = prompts.filter((item) => item.topic_id === topic.id);
+          const topicTasks = tasks.filter((item) => item.topic_id === topic.id);
           const isExpanded = expandedTopicIds.has(topic.id);
 
           return (
@@ -118,6 +122,7 @@ export function TopicResults({
               {isExpanded ? (
                 <>
                   <InsightsPanel insights={topicInsights} />
+                  <ActionItemsPanel tasks={topicTasks} />
                   <PromptsPanel prompts={topicPrompts} />
                 </>
               ) : null}

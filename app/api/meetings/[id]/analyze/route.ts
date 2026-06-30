@@ -4,7 +4,9 @@ import {
   analyzeTranscriptWithOpenAI,
   buildCleanTranscript,
   buildInsightsPayload,
+  buildMeetingTasksPayload,
   buildTranscriptWithSegmentIds,
+  extractTopicTasksWithOpenAI,
   segmentMeetingTopicsWithOpenAI
 } from "@/lib/analysis";
 import { requireApiUser } from "@/lib/api-auth";
@@ -86,6 +88,7 @@ export async function POST(
 
     // Reset to a consistent whole-meeting state. Best-effort topic delete so a
     // missing meeting_topics table does not break the fallback.
+    await deleteMeetingTasks(id);
     await supabaseAdmin.from("meeting_topics").delete().eq("meeting_id", id);
     await supabaseAdmin.from("extracted_insights").delete().eq("meeting_id", id);
 
@@ -107,7 +110,8 @@ export async function POST(
       fallback: true,
       fallback_reason: reason,
       topics: [],
-      insights: inserted
+      insights: inserted,
+      tasks: []
     });
   };
 
@@ -128,6 +132,17 @@ export async function POST(
 
   // Only clear previous data after a successful segmentation, so a failed or empty
   // re-analysis never wipes existing topics/insights.
+  const deleteTasksResult = await deleteMeetingTasks(id);
+  if (deleteTasksResult.error) {
+    return NextResponse.json(
+      {
+        error: "Failed to reset previous action items",
+        details: deleteTasksResult.error.message
+      },
+      { status: 500 }
+    );
+  }
+
   const { error: deleteInsightsError } = await supabaseAdmin
     .from("extracted_insights")
     .delete()
@@ -182,6 +197,7 @@ export async function POST(
   }
 
   const allTopicInsightRows: Array<Record<string, unknown>> = [];
+  const allTopicTaskRows: Array<Record<string, unknown>> = [];
 
   for (let index = 0; index < insertedTopics.length; index += 1) {
     const topic = insertedTopics[index] as MeetingTopic;
@@ -212,12 +228,34 @@ export async function POST(
     if (!topicInsightError && insertedTopicInsights) {
       allTopicInsightRows.push(...insertedTopicInsights);
     }
+
+    const taskExtraction = await extractTopicTasksWithOpenAI(topic, topicSegments);
+    if (taskExtraction.ok) {
+      const taskRows = buildMeetingTasksPayload({
+        meetingId: id,
+        topicId: topic.id,
+        extraction: taskExtraction.data
+      });
+
+      const { data: insertedTopicTasks, error: taskInsertError } =
+        await insertMeetingTaskRows(taskRows);
+
+      if (!taskInsertError && insertedTopicTasks) {
+        allTopicTaskRows.push(...insertedTopicTasks);
+      }
+    } else {
+      console.warn(
+        `[analyze] Task extraction failed for topic ${topic.id}:`,
+        taskExtraction.details ?? taskExtraction.error
+      );
+    }
   }
 
   return NextResponse.json({
     fallback: false,
     topics: insertedTopics,
-    insights: allTopicInsightRows
+    insights: allTopicInsightRows,
+    tasks: allTopicTaskRows
   });
 
   async function insertInsightsRows(
@@ -249,5 +287,64 @@ export async function POST(
     }
 
     return firstAttempt;
+  }
+
+  async function deleteMeetingTasks(meetingId: string) {
+    const result = await supabaseAdmin
+      .from("meeting_tasks")
+      .delete()
+      .eq("meeting_id", meetingId);
+
+    if (result.error && isMissingRelationError(result.error, "meeting_tasks")) {
+      return { error: null };
+    }
+
+    return result;
+  }
+
+  async function insertMeetingTaskRows(
+    rows: Array<{
+      meeting_id: string;
+      topic_id: string;
+      task: string;
+      owner: string | null;
+      task_type: string;
+      priority: string;
+      suggested_steps: string[];
+      source_quote: string | null;
+      confidence: number | null;
+    }>
+  ) {
+    if (rows.length === 0) {
+      return { data: [], error: null };
+    }
+
+    const seen = new Set<string>();
+    const dedupedRows = rows.filter((row) => {
+      const key = [
+        row.meeting_id,
+        row.topic_id,
+        row.task_type,
+        row.task.toLowerCase()
+      ].join(":");
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+
+    const result = await supabaseAdmin
+      .from("meeting_tasks")
+      .insert(dedupedRows)
+      .select("*");
+
+    if (result.error && isMissingRelationError(result.error, "meeting_tasks")) {
+      return { data: [], error: null };
+    }
+
+    return result;
   }
 }
