@@ -1,3 +1,6 @@
+import Link from "next/link";
+import type { Route } from "next";
+
 import type { MeetingTask } from "@/lib/types";
 
 function formatTaskType(taskType: MeetingTask["task_type"]) {
@@ -6,8 +9,15 @@ function formatTaskType(taskType: MeetingTask["task_type"]) {
   return "Commitment";
 }
 
-function formatStatus(status: MeetingTask["status"]) {
-  return status.replace("_", " ");
+function formatStatus(status: MeetingTask["status"] | null | undefined) {
+  return (status || "pending").replace("_", " ");
+}
+
+function formatWorkspaceType(workspaceType: MeetingTask["workspace_type"] | null | undefined) {
+  return (workspaceType || "other")
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function formatConfidence(confidence: number | null) {
@@ -50,6 +60,9 @@ function TaskCard({ task }: { task: MeetingTask }) {
 
       <div className="mt-3 flex flex-wrap gap-2">
         <span className="rounded-full border border-brand-100 bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-800">
+          {formatWorkspaceType(task.workspace_type)}
+        </span>
+        <span className="rounded-full border border-brand-100 bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-800">
           {formatTaskType(task.task_type)}
         </span>
         <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium capitalize text-slate-700">
@@ -78,6 +91,12 @@ function TaskCard({ task }: { task: MeetingTask }) {
           &ldquo;{task.source_quote}&rdquo;
         </blockquote>
       ) : null}
+
+      <div className="mt-4">
+        <Link href={`/tasks/${task.id}` as Route} className="secondary-button px-3 py-1.5 text-xs">
+          Open Workspace
+        </Link>
+      </div>
     </article>
   );
 }

@@ -5,6 +5,7 @@ import type {
   InsightCategory,
   MeetingTaskPriority,
   MeetingTaskType,
+  MeetingTaskWorkspaceType,
   MeetingTopic
 } from "@/lib/types";
 
@@ -54,7 +55,22 @@ const topicTaskExtractionSchema = z
           priority: z.enum(["low", "medium", "high"]).default("medium"),
           suggested_steps: z.array(z.string()),
           source_quote: z.string().nullable(),
-          confidence: z.number().min(0).max(1).nullable()
+          confidence: z.number().min(0).max(1).nullable(),
+          workspace_type: z.enum([
+            "research",
+            "email",
+            "proposal",
+            "coding",
+            "documentation",
+            "design",
+            "meeting_follow_up",
+            "planning",
+            "testing",
+            "decision",
+            "learning",
+            "other"
+          ]),
+          workspace_summary: z.string().nullable()
         })
         .strict()
     )
@@ -144,7 +160,25 @@ const topicTaskExtractionJsonSchema: Record<string, unknown> = {
             items: { type: "string" }
           },
           source_quote: { type: ["string", "null"] },
-          confidence: { type: ["number", "null"] }
+          confidence: { type: ["number", "null"] },
+          workspace_type: {
+            type: "string",
+            enum: [
+              "research",
+              "email",
+              "proposal",
+              "coding",
+              "documentation",
+              "design",
+              "meeting_follow_up",
+              "planning",
+              "testing",
+              "decision",
+              "learning",
+              "other"
+            ]
+          },
+          workspace_summary: { type: ["string", "null"] }
         },
         required: [
           "task",
@@ -153,7 +187,9 @@ const topicTaskExtractionJsonSchema: Record<string, unknown> = {
           "priority",
           "suggested_steps",
           "source_quote",
-          "confidence"
+          "confidence",
+          "workspace_type",
+          "workspace_summary"
         ]
       }
     }
@@ -283,6 +319,21 @@ export async function extractTopicTasksWithOpenAI(
     "- Include a short source_quote when possible.",
     "- Generate 2-5 practical suggested next steps for each task.",
     "- Use priority low, medium, or high. Default to medium when unclear.",
+    "",
+    "Workspace classification rules:",
+    "- Research tasks should become research.",
+    "- Email, draft, send message, or outreach tasks should become email.",
+    "- Build, implement, fix, code, or engineering tasks should become coding.",
+    "- Create proposal, pitch, or proposal-style plan docs should become proposal.",
+    "- Write docs, specs, PRDs, or requirements should become documentation.",
+    "- UI, UX, visual, or design tasks should become design.",
+    "- Follow-up, schedule, check back, or circle-back tasks should become meeting_follow_up.",
+    "- Planning, roadmap, timeline, sequencing, or coordination tasks should become planning.",
+    "- Testing, QA, validation, or verification tasks should become testing.",
+    "- Decide, choose, approve, or finalize tasks should become decision.",
+    "- Learn, study, understand, or get familiar tasks should become learning.",
+    "- Unknown tasks should become other.",
+    "- workspace_summary should be one concise sentence describing the workspace focus.",
     "- Return valid JSON only."
   ].join("\n");
 
@@ -578,6 +629,8 @@ export function buildMeetingTasksPayload(input: {
   suggested_steps: string[];
   source_quote: string | null;
   confidence: number | null;
+  workspace_type: MeetingTaskWorkspaceType;
+  workspace_summary: string | null;
 }> {
   return input.extraction.tasks.map((task) => ({
     meeting_id: input.meetingId,
@@ -590,6 +643,8 @@ export function buildMeetingTasksPayload(input: {
       .map((step) => step.trim())
       .filter((step) => step.length > 0),
     source_quote: task.source_quote?.trim() || null,
-    confidence: task.confidence
+    confidence: task.confidence,
+    workspace_type: task.workspace_type,
+    workspace_summary: task.workspace_summary?.trim() || null
   }));
 }

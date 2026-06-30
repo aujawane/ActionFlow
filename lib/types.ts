@@ -64,6 +64,19 @@ export interface MeetingTopic {
 export type MeetingTaskType = "commitment" | "implicit_commitment" | "unassigned_work";
 export type MeetingTaskPriority = "low" | "medium" | "high";
 export type MeetingTaskStatus = "pending" | "in_progress" | "completed" | "dismissed";
+export type MeetingTaskWorkspaceType =
+  | "research"
+  | "email"
+  | "proposal"
+  | "coding"
+  | "documentation"
+  | "design"
+  | "meeting_follow_up"
+  | "planning"
+  | "testing"
+  | "decision"
+  | "learning"
+  | "other";
 
 export interface MeetingTask {
   id: string;
@@ -77,6 +90,8 @@ export interface MeetingTask {
   source_quote: string | null;
   confidence: number | null;
   status: MeetingTaskStatus;
+  workspace_type: MeetingTaskWorkspaceType;
+  workspace_summary: string | null;
   created_at: string;
 }
 

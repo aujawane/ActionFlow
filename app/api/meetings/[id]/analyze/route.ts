@@ -313,6 +313,8 @@ export async function POST(
       suggested_steps: string[];
       source_quote: string | null;
       confidence: number | null;
+      workspace_type: string;
+      workspace_summary: string | null;
     }>
   ) {
     if (rows.length === 0) {

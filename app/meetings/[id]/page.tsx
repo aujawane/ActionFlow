@@ -8,6 +8,9 @@ import { PromptsPanel } from "@/components/prompts-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { MeetingTask, MeetingTopic } from "@/lib/types";
+
+export const dynamic = "force-dynamic";
 
 function isMissingRelationError(
   error: { code?: string; message?: string } | null,
@@ -15,7 +18,16 @@ function isMissingRelationError(
 ) {
   if (!error) return false;
   if (error.code === "42P01") return true;
-  return error.message?.toLowerCase().includes(relation.toLowerCase()) ?? false;
+  if (error.code === "PGRST205") return true;
+
+  const message = error.message?.toLowerCase() ?? "";
+  const normalizedRelation = relation.toLowerCase();
+  return (
+    message.includes(`relation "${normalizedRelation}" does not exist`) ||
+    message.includes(`table "${normalizedRelation}" does not exist`) ||
+    message.includes(`could not find the table '${normalizedRelation}'`) ||
+    message.includes(`could not find the table "${normalizedRelation}"`)
+  );
 }
 
 export default async function MeetingDetailPage({
@@ -65,7 +77,9 @@ export default async function MeetingDetailPage({
         .order("created_at", { ascending: true }),
       supabaseAdmin
         .from("meeting_tasks")
-        .select("*")
+        .select(
+          "id, meeting_id, topic_id, task, owner, task_type, priority, suggested_steps, source_quote, confidence, status, workspace_type, workspace_summary, created_at"
+        )
         .eq("meeting_id", id)
         .order("created_at", { ascending: true })
     ]);
@@ -73,7 +87,32 @@ export default async function MeetingDetailPage({
   const topicsMissingTable = isMissingRelationError(topicsError, "meeting_topics");
   const tasksMissingTable = isMissingRelationError(tasksError, "meeting_tasks");
   const safeTopics = topicsMissingTable ? [] : (topics ?? []);
-  const safeTasks = tasksMissingTable ? [] : (tasks ?? []);
+  const safeTasks = (tasksMissingTable ? [] : (tasks ?? [])) as MeetingTask[];
+  const typedTopics = safeTopics as MeetingTopic[];
+
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[meeting-detail] fetched tasks:", {
+      meetingId: id,
+      count: safeTasks.length,
+      tasks: safeTasks.map((task) => ({
+        id: task.id,
+        task: task.task,
+        topic_id: task.topic_id
+      }))
+    });
+    console.info("[meeting-detail] fetched topics:", {
+      meetingId: id,
+      count: typedTopics.length,
+      topics: typedTopics.map((topic) => ({
+        id: topic.id,
+        title: topic.title
+      }))
+    });
+
+    if (tasksError && !tasksMissingTable) {
+      console.error("[meeting-detail] meeting_tasks fetch error:", tasksError);
+    }
+  }
 
   const meetingWithOptionalError = meeting as typeof meeting & {
     bot_error?: string | null;
@@ -123,6 +162,11 @@ export default async function MeetingDetailPage({
         (tasksError && !tasksMissingTable)) && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Some data sections could not be loaded. Try refreshing this page.
+          {tasksError && !tasksMissingTable ? (
+            <span className="mt-1 block text-xs">
+              Action items failed to load: {tasksError.message}
+            </span>
+          ) : null}
         </div>
       )}
 
@@ -140,7 +184,7 @@ export default async function MeetingDetailPage({
             Topics
           </p>
           <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {safeTopics.length}
+            {typedTopics.length}
           </p>
         </div>
         <div className="premium-card premium-card-hover p-4">
@@ -172,7 +216,7 @@ export default async function MeetingDetailPage({
       <MeetingActions meetingId={meeting.id} />
 
       <TopicResults
-        topics={safeTopics}
+        topics={typedTopics}
         insights={insights ?? []}
         prompts={prompts ?? []}
         tasks={safeTasks}
@@ -180,12 +224,12 @@ export default async function MeetingDetailPage({
 
       <div className="grid gap-4 lg:grid-cols-2">
         <LiveTranscript meetingId={meeting.id} initialSegments={segments ?? []} />
-        {safeTopics.length === 0 ? (
+        {typedTopics.length === 0 ? (
           <InsightsPanel insights={(insights ?? []).filter((item) => item.topic_id == null)} />
         ) : null}
       </div>
 
-      {safeTopics.length === 0 ? (
+      {typedTopics.length === 0 ? (
         <PromptsPanel prompts={(prompts ?? []).filter((item) => item.topic_id == null)} />
       ) : null}
     </section>

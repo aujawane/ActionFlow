@@ -85,8 +85,22 @@ export function TopicResults({
         {sortedTopics.map((topic) => {
           const topicInsights = insights.filter((item) => item.topic_id === topic.id);
           const topicPrompts = prompts.filter((item) => item.topic_id === topic.id);
-          const topicTasks = tasks.filter((item) => item.topic_id === topic.id);
+          const topicId = String(topic.id);
+          const topicTasks = tasks.filter((item) => String(item.topic_id) === topicId);
           const isExpanded = expandedTopicIds.has(topic.id);
+
+          if (process.env.NODE_ENV !== "production") {
+            console.info("[topic-results] topic task filter:", {
+              topic_id: topic.id,
+              title: topic.title,
+              taskCount: topicTasks.length,
+              tasks: topicTasks.map((task) => ({
+                id: task.id,
+                task: task.task,
+                topic_id: task.topic_id
+              }))
+            });
+          }
 
           return (
             <article
