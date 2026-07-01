@@ -177,6 +177,16 @@ curl -X POST http://localhost:3000/api/meetings \
   - `timestamp`
   - `raw_payload`
 
+## Manual Test: Task Owner Detection
+
+After applying migrations and running `POST /api/meetings/[id]/analyze`, use transcript segments like:
+
+- `Aditya: I'll research pricing.` -> owner `Aditya`, task type `commitment`
+- `Sarah: Let me draft the follow-up email.` -> owner `Sarah`, task type `commitment`
+- `John: I can look into the API issue.` -> owner `John`, task type `implicit_commitment`
+- `Unknown Speaker: This is Maya, I'll prepare the proposal.` -> owner `Maya`, task type `commitment`
+- `Alex: Someone needs to write onboarding docs.` -> owner `null`, task type `unassigned_work`
+
 ## Useful App Routes
 
 Pages:
