@@ -52,7 +52,7 @@ export function PromptsPanel({ prompts }: { prompts: GeneratedPrompt[] }) {
       <div>
         <h2 className="text-sm font-semibold text-slate-900">Topic Prompts</h2>
         <p className="text-xs text-slate-500">
-          Generate two focused prompts per topic: General Development and Lovable.
+          Previously generated topic prompts are shown here for reference.
         </p>
       </div>
       {TOOL_ORDER.some((tool) => promptByTool.has(tool)) ? (
@@ -96,7 +96,7 @@ export function PromptsPanel({ prompts }: { prompts: GeneratedPrompt[] }) {
         <div className="premium-empty p-6">
           <p className="text-sm font-semibold text-slate-800">No prompts yet</p>
           <p className="mt-1 text-sm text-slate-600">
-            No prompts generated yet. Run Analyze Meeting, then Generate Prompts.
+            Task-specific prompts now live inside applicable task workspaces.
           </p>
         </div>
       )}

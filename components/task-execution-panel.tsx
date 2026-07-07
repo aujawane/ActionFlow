@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import type { TaskArtifact, TaskGuide } from "@/lib/types";
+import type { MeetingTaskWorkspaceType, TaskArtifact, TaskGuide, TaskPrompt } from "@/lib/types";
 
 type ApiError = {
   error?: string;
@@ -11,7 +11,17 @@ type ApiError = {
 
 type TaskExecutionPanelProps = {
   taskId: string;
+  workspaceType: MeetingTaskWorkspaceType;
   initialArtifacts: TaskArtifact[];
+};
+
+const promptLabelByWorkspaceType: Partial<Record<MeetingTaskWorkspaceType, string>> = {
+  coding: "Generate Implementation Prompt",
+  documentation: "Generate Documentation Prompt",
+  design: "Generate Design Prompt",
+  testing: "Generate Test Prompt",
+  planning: "Generate Planning Prompt",
+  research: "Generate Research Prompt"
 };
 
 async function parseJson<T>(response: Response) {
@@ -20,9 +30,11 @@ async function parseJson<T>(response: Response) {
 
 export function TaskExecutionPanel({
   taskId,
+  workspaceType,
   initialArtifacts
 }: TaskExecutionPanelProps) {
   const [guide, setGuide] = useState<TaskGuide | null>(null);
+  const [taskPrompt, setTaskPrompt] = useState<TaskPrompt | null>(null);
   const [artifacts, setArtifacts] = useState<TaskArtifact[]>(initialArtifacts);
   const [selectedArtifact, setSelectedArtifact] = useState<TaskArtifact | null>(
     initialArtifacts[0] ?? null
@@ -30,11 +42,14 @@ export function TaskExecutionPanel({
   const [editableTitle, setEditableTitle] = useState(initialArtifacts[0]?.title ?? "");
   const [editableContent, setEditableContent] = useState(initialArtifacts[0]?.content ?? "");
   const [guideLoading, setGuideLoading] = useState(false);
+  const [promptLoading, setPromptLoading] = useState(false);
   const [artifactLoading, setArtifactLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [guideError, setGuideError] = useState<string | null>(null);
+  const [promptError, setPromptError] = useState<string | null>(null);
   const [artifactError, setArtifactError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const promptLabel = promptLabelByWorkspaceType[workspaceType];
 
   function selectArtifact(artifact: TaskArtifact) {
     setSelectedArtifact(artifact);
@@ -74,6 +89,22 @@ export function TaskExecutionPanel({
 
     setArtifacts((current) => [result.artifact!, ...current]);
     selectArtifact(result.artifact);
+  }
+
+  async function generatePrompt() {
+    setPromptLoading(true);
+    setPromptError(null);
+
+    const response = await fetch(`/api/tasks/${taskId}/prompt`, { method: "POST" });
+    const result = await parseJson<{ taskPrompt?: TaskPrompt } & ApiError>(response);
+    setPromptLoading(false);
+
+    if (!response.ok || !result.taskPrompt) {
+      setPromptError(result.error || "Unable to generate task prompt.");
+      return;
+    }
+
+    setTaskPrompt(result.taskPrompt);
   }
 
   async function saveArtifact() {
@@ -222,6 +253,49 @@ export function TaskExecutionPanel({
         ) : null}
 
       </section>
+
+      {promptLabel ? (
+        <section className="premium-card p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Task Prompt</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Generate an execution-focused prompt grounded in this task workspace.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={generatePrompt}
+              disabled={promptLoading}
+              className="secondary-button"
+            >
+              {promptLoading ? "Generating..." : promptLabel}
+            </button>
+          </div>
+
+          {promptError ? (
+            <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {promptError}
+            </p>
+          ) : null}
+
+          {taskPrompt ? (
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {taskPrompt.promptType}
+              </p>
+              <h3 className="mt-2 text-base font-semibold text-slate-950">
+                {taskPrompt.title}
+              </h3>
+              <textarea
+                value={taskPrompt.prompt}
+                readOnly
+                className="mt-3 min-h-80 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-4 font-mono text-sm leading-6 text-slate-800 shadow-inner outline-none"
+              />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {selectedArtifact ? (
         <section className="premium-card p-5 sm:p-6">

@@ -116,6 +116,12 @@ export interface TaskGuide {
   successCriteria: string[];
 }
 
+export interface TaskPrompt {
+  title: string;
+  prompt: string;
+  promptType: string;
+}
+
 export interface TopicSegmentResult {
   topic_id: string;
   segment_ids: string[];

@@ -8,6 +8,7 @@ import type {
   MeetingTaskWorkspaceType,
   MeetingTopic,
   TaskGuide,
+  TaskPrompt,
   TranscriptSegment
 } from "@/lib/types";
 
@@ -34,6 +35,14 @@ export const generatedArtifactSchema = z
   .object({
     title: z.string(),
     content: z.string()
+  })
+  .strict();
+
+export const taskPromptSchema = z
+  .object({
+    title: z.string(),
+    prompt: z.string(),
+    promptType: z.string()
   })
   .strict();
 
@@ -72,6 +81,17 @@ export const generatedArtifactJsonSchema: Record<string, unknown> = {
   required: ["title", "content"]
 };
 
+export const taskPromptJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: "string" },
+    prompt: { type: "string" },
+    promptType: { type: "string" }
+  },
+  required: ["title", "prompt", "promptType"]
+};
+
 export const artifactTypeByWorkspaceType: Record<MeetingTaskWorkspaceType, string> = {
   research: "Research Report",
   email: "Email Draft",
@@ -85,6 +105,15 @@ export const artifactTypeByWorkspaceType: Record<MeetingTaskWorkspaceType, strin
   decision: "Decision Matrix",
   learning: "Learning Plan",
   other: "Task Deliverable"
+};
+
+export const promptLabelByWorkspaceType: Partial<Record<MeetingTaskWorkspaceType, string>> = {
+  coding: "Generate Implementation Prompt",
+  documentation: "Generate Documentation Prompt",
+  design: "Generate Design Prompt",
+  testing: "Generate Test Prompt",
+  planning: "Generate Planning Prompt",
+  research: "Generate Research Prompt"
 };
 
 function getSegmentIds(topic: MeetingTopic | null) {
@@ -106,6 +135,18 @@ export function normalizeWorkspaceType(
 
 export function getArtifactTypeForTask(task: Pick<MeetingTask, "workspace_type">) {
   return artifactTypeByWorkspaceType[normalizeWorkspaceType(task.workspace_type)];
+}
+
+export function getPromptLabelForWorkspaceType(
+  workspaceType: MeetingTaskWorkspaceType | string | null | undefined
+) {
+  return promptLabelByWorkspaceType[normalizeWorkspaceType(workspaceType)];
+}
+
+export function supportsTaskPrompt(
+  workspaceType: MeetingTaskWorkspaceType | string | null | undefined
+) {
+  return Boolean(getPromptLabelForWorkspaceType(workspaceType));
 }
 
 export function getSuggestedSteps(value: MeetingTask["suggested_steps"]) {
@@ -352,6 +393,71 @@ export async function generateTaskArtifactDraft(
     return {
       ok: false,
       error: "Failed to generate task artifact.",
+      details: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+}
+
+export async function generateTaskPrompt(
+  context: TaskWorkspaceContext
+): Promise<
+  | { ok: true; taskPrompt: TaskPrompt }
+  | { ok: false; error: string; details?: string }
+> {
+  const workspaceType = normalizeWorkspaceType(context.task.workspace_type);
+  const promptLabel = getPromptLabelForWorkspaceType(workspaceType);
+
+  if (!promptLabel) {
+    return {
+      ok: false,
+      error: "Prompt generation is not available for this task workspace type."
+    };
+  }
+
+  try {
+    const response = await openai.responses.create({
+      model: OPENAI_MODEL,
+      input: [
+        {
+          role: "system",
+          content:
+            "You are Parfait, an AI execution assistant. Your job is to create task-specific prompts that help the user complete work extracted from meetings. Be concrete, grounded in the task context, and include only details supported by the task, meeting topic, source quote, suggested steps, and transcript context."
+        },
+        {
+          role: "user",
+          content: `Create a ${promptLabel.toLowerCase()} for this ${workspaceType} task. The prompt should be ready to paste into an AI coding, research, documentation, design, testing, or planning tool as appropriate. Include explicit context, goals, constraints, acceptance criteria, and instructions to mark assumptions clearly.\n\n${buildTaskContextPrompt(
+            context
+          )}`
+        }
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "task_execution_prompt",
+          strict: true,
+          schema: taskPromptJsonSchema
+        }
+      }
+    });
+
+    const raw = response.output_text?.trim();
+    if (!raw) return { ok: false, error: "OpenAI returned empty prompt output." };
+
+    const parsed = JSON.parse(raw) as unknown;
+    const validated = taskPromptSchema.safeParse(parsed);
+    if (!validated.success) {
+      return {
+        ok: false,
+        error: "Prompt output did not match expected schema.",
+        details: validated.error.message
+      };
+    }
+
+    return { ok: true, taskPrompt: validated.data };
+  } catch (error) {
+    return {
+      ok: false,
+      error: "Failed to generate task prompt.",
       details: error instanceof Error ? error.message : "Unknown error"
     };
   }

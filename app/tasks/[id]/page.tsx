@@ -257,7 +257,11 @@ export default async function TaskWorkspacePage({
         </aside>
       </div>
 
-      <TaskExecutionPanel taskId={typedTask.id} initialArtifacts={initialArtifacts} />
+      <TaskExecutionPanel
+        taskId={typedTask.id}
+        workspaceType={typedTask.workspace_type}
+        initialArtifacts={initialArtifacts}
+      />
     </section>
   );
 }

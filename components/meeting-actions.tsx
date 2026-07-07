@@ -11,38 +11,29 @@ export function MeetingActions({
   showDevReimport?: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"analyze" | "generatePrompts" | "reimport" | null>(
-    null
-  );
+  const [busy, setBusy] = useState<"analyze" | "reimport" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function trigger(kind: "analyze" | "generatePrompts") {
-    setBusy(kind);
+  async function triggerAnalyze() {
+    setBusy("analyze");
     setMessage(null);
 
-    const path =
-      kind === "analyze"
-        ? `/api/meetings/${meetingId}/analyze`
-        : `/api/meetings/${meetingId}/generate-prompts`;
-
     try {
-      const response = await fetch(path, { method: "POST" });
+      const response = await fetch(`/api/meetings/${meetingId}/analyze`, { method: "POST" });
       const data = await response.json();
       setBusy(null);
 
       if (!response.ok) {
         const details = typeof data?.details === "string" ? data.details : null;
         setMessage(
-          details ? `${data.error ?? `Failed to ${kind}`}: ${details}` : data.error ?? `Failed to ${kind}`
+          details
+            ? `${data.error ?? "Failed to analyze meeting"}: ${details}`
+            : data.error ?? "Failed to analyze meeting"
         );
         return;
       }
 
-      setMessage(
-        kind === "analyze"
-          ? "Insights updated from transcript."
-          : "Prompts generated for General Development and Lovable."
-      );
+      setMessage("Insights updated from transcript.");
       router.refresh();
     } catch {
       setBusy(null);
@@ -105,23 +96,16 @@ export function MeetingActions({
       <div>
         <h2 className="text-sm font-semibold text-slate-900">Meeting Actions</h2>
         <p className="text-xs text-slate-500">
-          Analyze transcript and generate build-ready engineering prompts.
+          Analyze transcript and refresh extracted meeting intelligence.
         </p>
       </div>
       <div className="flex gap-2">
         <button
-          onClick={() => trigger("analyze")}
+          onClick={triggerAnalyze}
           disabled={busy !== null}
           className="secondary-button px-3 py-2 text-xs"
         >
           {busy === "analyze" ? "Analyzing..." : "Analyze Meeting"}
-        </button>
-        <button
-          onClick={() => trigger("generatePrompts")}
-          disabled={busy !== null}
-          className="premium-button px-3 py-2 text-xs"
-        >
-          {busy === "generatePrompts" ? "Generating..." : "Generate Prompts"}
         </button>
         {showDevReimport ? (
           <button
