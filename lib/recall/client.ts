@@ -38,6 +38,9 @@ export async function createRecallBot(
               mode: "prioritize_low_latency",
               language_code: "en"
             }
+          },
+          diarization: {
+            use_separate_streams_when_available: true
           }
         }
       },

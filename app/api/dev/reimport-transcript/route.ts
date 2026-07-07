@@ -82,6 +82,9 @@ export async function POST(request: Request) {
         parsedRows.map((row) => ({
           meeting_id: meetingId,
           speaker: row.speaker ?? "Unknown Speaker",
+          participant_name: row.participant_name,
+          diarized_speaker: row.diarized_speaker,
+          speaker_confidence: row.speaker_confidence,
           text: row.text,
           timestamp: row.timestamp,
           raw_payload: row.raw_payload

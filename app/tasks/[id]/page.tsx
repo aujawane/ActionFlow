@@ -5,8 +5,15 @@ import { notFound } from "next/navigation";
 import { MeetingStatusBadge } from "@/components/meeting-status-badge";
 import { TaskExecutionPanel } from "@/components/task-execution-panel";
 import { requireUser } from "@/lib/auth";
+import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MeetingTask, MeetingTopic, TaskArtifact, TranscriptSegment } from "@/lib/types";
+import type {
+  MeetingSpeakerAlias,
+  MeetingTask,
+  MeetingTopic,
+  TaskArtifact,
+  TranscriptSegment
+} from "@/lib/types";
 
 function formatLabel(value: string | null | undefined, fallback = "Unknown") {
   return (value || fallback)
@@ -83,23 +90,38 @@ export default async function TaskWorkspacePage({
 
   const typedTopic = topic as MeetingTopic | null;
   const segmentIds = typedTopic ? getSegmentIds(typedTopic.segment_ids) : [];
-  const { data: contextSegments } =
+  const [{ data: contextSegments }, { data: aliases }] =
     segmentIds.length > 0
-      ? await supabaseAdmin
-          .from("transcript_segments")
-          .select("*")
-          .eq("meeting_id", typedTask.meeting_id)
-          .in("id", segmentIds)
-          .order("timestamp", { ascending: true })
-      : await supabaseAdmin
-          .from("transcript_segments")
-          .select("*")
-          .eq("meeting_id", typedTask.meeting_id)
-          .order("timestamp", { ascending: true })
-          .limit(8);
+      ? await Promise.all([
+          supabaseAdmin
+            .from("transcript_segments")
+            .select("*")
+            .eq("meeting_id", typedTask.meeting_id)
+            .in("id", segmentIds)
+            .order("timestamp", { ascending: true }),
+          supabaseAdmin
+            .from("meeting_speaker_aliases")
+            .select("*")
+            .eq("meeting_id", typedTask.meeting_id)
+        ])
+      : await Promise.all([
+          supabaseAdmin
+            .from("transcript_segments")
+            .select("*")
+            .eq("meeting_id", typedTask.meeting_id)
+            .order("timestamp", { ascending: true })
+            .limit(8),
+          supabaseAdmin
+            .from("meeting_speaker_aliases")
+            .select("*")
+            .eq("meeting_id", typedTask.meeting_id)
+        ]);
 
   const suggestedSteps = getSuggestedSteps(typedTask.suggested_steps);
-  const segments = (contextSegments ?? []) as TranscriptSegment[];
+  const segments = applySpeakerAliases(
+    (contextSegments ?? []) as TranscriptSegment[],
+    (aliases ?? []) as MeetingSpeakerAlias[]
+  );
   const { data: artifacts } = await supabaseAdmin
     .from("task_artifacts")
     .select("*")

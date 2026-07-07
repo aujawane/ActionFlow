@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 import { OPENAI_MODEL, openai } from "@/lib/openai";
+import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   Meeting,
+  MeetingSpeakerAlias,
   MeetingTask,
   MeetingTaskWorkspaceType,
   MeetingTopic,
@@ -211,20 +213,32 @@ export async function getTaskWorkspaceContext(
 
   const typedTopic = (topic as MeetingTopic | null) ?? null;
   const segmentIds = getSegmentIds(typedTopic);
-  const { data: segments, error: segmentsError } =
+  const [{ data: segments, error: segmentsError }, { data: aliases, error: aliasesError }] =
     segmentIds.length > 0
-      ? await supabaseAdmin
-          .from("transcript_segments")
-          .select("*")
-          .eq("meeting_id", typedTask.meeting_id)
-          .in("id", segmentIds)
-          .order("timestamp", { ascending: true })
-      : await supabaseAdmin
-          .from("transcript_segments")
-          .select("*")
-          .eq("meeting_id", typedTask.meeting_id)
-          .order("timestamp", { ascending: true })
-          .limit(8);
+      ? await Promise.all([
+          supabaseAdmin
+            .from("transcript_segments")
+            .select("*")
+            .eq("meeting_id", typedTask.meeting_id)
+            .in("id", segmentIds)
+            .order("timestamp", { ascending: true }),
+          supabaseAdmin
+            .from("meeting_speaker_aliases")
+            .select("*")
+            .eq("meeting_id", typedTask.meeting_id)
+        ])
+      : await Promise.all([
+          supabaseAdmin
+            .from("transcript_segments")
+            .select("*")
+            .eq("meeting_id", typedTask.meeting_id)
+            .order("timestamp", { ascending: true })
+            .limit(8),
+          supabaseAdmin
+            .from("meeting_speaker_aliases")
+            .select("*")
+            .eq("meeting_id", typedTask.meeting_id)
+        ]);
 
   if (segmentsError) {
     return {
@@ -235,13 +249,25 @@ export async function getTaskWorkspaceContext(
     };
   }
 
+  if (aliasesError) {
+    return {
+      ok: false,
+      status: 500,
+      error: "Failed to load speaker aliases",
+      details: aliasesError.message
+    };
+  }
+
   return {
     ok: true,
     context: {
       task: typedTask,
       meeting: meeting as Meeting,
       topic: typedTopic,
-      segments: (segments ?? []) as TranscriptSegment[]
+      segments: applySpeakerAliases(
+        (segments ?? []) as TranscriptSegment[],
+        (aliases ?? []) as MeetingSpeakerAlias[]
+      )
     }
   };
 }

@@ -6,10 +6,17 @@ import { LiveTranscript } from "@/components/live-transcript";
 import { MeetingActions } from "@/components/meeting-actions";
 import { MeetingStatusBadge } from "@/components/meeting-status-badge";
 import { PromptsPanel } from "@/components/prompts-panel";
+import { SpeakerMappingPanel } from "@/components/speaker-mapping-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
+import { applySpeakerAliases, getMappableSpeakerLabels } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MeetingTask, MeetingTopic, TranscriptSegment } from "@/lib/types";
+import type {
+  MeetingSpeakerAlias,
+  MeetingTask,
+  MeetingTopic,
+  TranscriptSegment
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +60,8 @@ export default async function MeetingDetailPage({
     { data: insights, error: insightsError },
     { data: prompts, error: promptsError },
     { data: topics, error: topicsError },
-    { data: tasks, error: tasksError }
+    { data: tasks, error: tasksError },
+    { data: aliases, error: aliasesError }
   ] =
     await Promise.all([
       supabaseAdmin
@@ -82,7 +90,12 @@ export default async function MeetingDetailPage({
           "id, meeting_id, topic_id, task, owner, task_type, priority, suggested_steps, source_quote, confidence, status, workspace_type, workspace_summary, created_at"
         )
         .eq("meeting_id", id)
-        .order("created_at", { ascending: true })
+        .order("created_at", { ascending: true }),
+      supabaseAdmin
+        .from("meeting_speaker_aliases")
+        .select("*")
+        .eq("meeting_id", id)
+        .order("raw_speaker_label", { ascending: true })
     ]);
 
   const topicsMissingTable = isMissingRelationError(topicsError, "meeting_topics");
@@ -90,7 +103,10 @@ export default async function MeetingDetailPage({
   const safeTopics = topicsMissingTable ? [] : (topics ?? []);
   const safeTasks = (tasksMissingTable ? [] : (tasks ?? [])) as MeetingTask[];
   const typedTopics = safeTopics as MeetingTopic[];
-  const safeSegments = (segments ?? []) as TranscriptSegment[];
+  const safeAliases = (aliases ?? []) as MeetingSpeakerAlias[];
+  const rawSegments = (segments ?? []) as TranscriptSegment[];
+  const safeSegments = applySpeakerAliases(rawSegments, safeAliases);
+  const mappableSpeakerLabels = getMappableSpeakerLabels(rawSegments);
   const participants = Array.from(
     new Set(
       safeSegments
@@ -167,6 +183,7 @@ export default async function MeetingDetailPage({
       {(segmentsError ||
         insightsError ||
         promptsError ||
+        aliasesError ||
         (topicsError && !topicsMissingTable) ||
         (tasksError && !tasksMissingTable)) && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -225,6 +242,12 @@ export default async function MeetingDetailPage({
       <MeetingActions
         meetingId={meeting.id}
         showDevReimport={process.env.NODE_ENV === "development"}
+      />
+
+      <SpeakerMappingPanel
+        meetingId={meeting.id}
+        speakerLabels={mappableSpeakerLabels}
+        initialAliases={safeAliases}
       />
 
       <ExecutionDashboard participants={participants} tasks={safeTasks} />

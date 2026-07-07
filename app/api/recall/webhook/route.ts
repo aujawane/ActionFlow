@@ -168,6 +168,9 @@ export async function POST(request: Request) {
             parsedRows.map((row) => ({
               meeting_id: meetingId,
               speaker: row.speaker,
+              participant_name: row.participant_name,
+              diarized_speaker: row.diarized_speaker,
+              speaker_confidence: row.speaker_confidence,
               text: row.text,
               timestamp: row.timestamp,
               raw_payload: row.raw_payload
@@ -272,17 +275,44 @@ export async function POST(request: Request) {
     const transcriptParticipant = asObject(transcript.participant);
     const dataParticipant = asObject(data.participant);
     const payloadParticipant = asObject(payload.participant);
-    const speaker =
+    const participantName =
       asNonEmptyString(transcriptParticipant?.name) ??
       asNonEmptyString(dataParticipant?.name) ??
       asNonEmptyString(payloadParticipant?.name) ??
       asNonEmptyString(transcript.participant_name) ??
       asNonEmptyString(data.participant_name) ??
-      asNonEmptyString(payload.participant_name) ??
+      asNonEmptyString(payload.participant_name);
+    const rawDiarizedSpeaker =
+      asNonEmptyString(transcript.diarized_speaker) ??
+      asNonEmptyString(transcript.diarized_speaker_label) ??
+      asNonEmptyString(transcript.speaker_label) ??
+      asNonEmptyString(data.diarized_speaker) ??
+      asNonEmptyString(data.speaker_label) ??
+      asNonEmptyString(payload.diarized_speaker) ??
+      asNonEmptyString(payload.speaker_label);
+    const diarizedSpeaker =
+      rawDiarizedSpeaker && /^speaker\s+/i.test(rawDiarizedSpeaker)
+        ? rawDiarizedSpeaker
+        : rawDiarizedSpeaker
+          ? `Speaker ${rawDiarizedSpeaker}`
+          : null;
+    const speaker =
+      participantName ??
+      diarizedSpeaker ??
       asNonEmptyString(asObject(transcript.speaker)?.name) ??
       asNonEmptyString(transcript.speaker) ??
       asNonEmptyString(data.speaker) ??
       asNonEmptyString(payload.speaker);
+    const speakerConfidence =
+      typeof transcript.speaker_confidence === "number"
+        ? transcript.speaker_confidence
+        : typeof transcript.confidence === "number"
+          ? transcript.confidence
+          : typeof data.speaker_confidence === "number"
+            ? data.speaker_confidence
+            : typeof data.confidence === "number"
+              ? data.confidence
+              : null;
 
     const timestamp =
       asString(transcript.timestamp) ??
@@ -293,6 +323,9 @@ export async function POST(request: Request) {
     const { error: insertError } = await supabaseAdmin.from("transcript_segments").insert({
       meeting_id: meetingId,
       speaker,
+      participant_name: participantName,
+      diarized_speaker: diarizedSpeaker,
+      speaker_confidence: speakerConfidence,
       text: transcriptText.trim(),
       timestamp,
       raw_payload: payload

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
+import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { MeetingSpeakerAlias, TranscriptSegment } from "@/lib/types";
 
 export async function GET(
   _request: Request,
@@ -23,11 +25,17 @@ export async function GET(
     return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
   }
 
-  const { data, error } = await supabaseAdmin
-    .from("transcript_segments")
-    .select("*")
-    .eq("meeting_id", id)
-    .order("timestamp", { ascending: true });
+  const [{ data, error }, { data: aliases, error: aliasesError }] = await Promise.all([
+    supabaseAdmin
+      .from("transcript_segments")
+      .select("*")
+      .eq("meeting_id", id)
+      .order("timestamp", { ascending: true }),
+    supabaseAdmin
+      .from("meeting_speaker_aliases")
+      .select("*")
+      .eq("meeting_id", id)
+  ]);
 
   if (error) {
     return NextResponse.json(
@@ -36,5 +44,17 @@ export async function GET(
     );
   }
 
-  return NextResponse.json({ segments: data });
+  if (aliasesError) {
+    return NextResponse.json(
+      { error: "Failed to fetch speaker aliases", details: aliasesError.message },
+      { status: 500 }
+    );
+  }
+
+  const resolvedSegments = applySpeakerAliases(
+    (data ?? []) as TranscriptSegment[],
+    (aliases ?? []) as MeetingSpeakerAlias[]
+  );
+
+  return NextResponse.json({ segments: resolvedSegments });
 }

@@ -10,8 +10,9 @@ import {
   segmentMeetingTopicsWithOpenAI
 } from "@/lib/analysis";
 import { requireApiUser } from "@/lib/api-auth";
+import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MeetingTopic } from "@/lib/types";
+import type { MeetingSpeakerAlias, MeetingTopic, TranscriptSegment } from "@/lib/types";
 
 function isMissingRelationError(
   error: { code?: string; message?: string } | null,
@@ -51,11 +52,20 @@ export async function POST(
     return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
   }
 
-  const { data: segments, error: segmentsError } = await supabaseAdmin
-    .from("transcript_segments")
-    .select("id, speaker, text, timestamp")
-    .eq("meeting_id", id)
-    .order("timestamp", { ascending: true });
+  const [
+    { data: segments, error: segmentsError },
+    { data: aliases, error: aliasesError }
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("transcript_segments")
+      .select("*")
+      .eq("meeting_id", id)
+      .order("timestamp", { ascending: true }),
+    supabaseAdmin
+      .from("meeting_speaker_aliases")
+      .select("*")
+      .eq("meeting_id", id)
+  ]);
 
   if (segmentsError) {
     return NextResponse.json(
@@ -64,7 +74,17 @@ export async function POST(
     );
   }
 
-  const safeSegments = segments ?? [];
+  if (aliasesError) {
+    return NextResponse.json(
+      { error: "Failed to fetch speaker aliases", details: aliasesError.message },
+      { status: 500 }
+    );
+  }
+
+  const safeSegments = applySpeakerAliases(
+    (segments ?? []) as TranscriptSegment[],
+    (aliases ?? []) as MeetingSpeakerAlias[]
+  );
   const transcript = buildCleanTranscript(safeSegments);
   if (!transcript.trim() || safeSegments.length === 0) {
     return NextResponse.json(

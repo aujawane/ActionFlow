@@ -21,6 +21,12 @@ export interface RecallTranscriptEntry {
   participant_name?: string | null;
   speaker?: { name?: string | null } | string | null;
   speaker_name?: string | null;
+  speaker_label?: string | null;
+  diarized_speaker?: string | null;
+  diarized_speaker_label?: string | null;
+  channel?: string | number | null;
+  confidence?: number | null;
+  speaker_confidence?: number | null;
   text?: string | null;
   words?: RecallTranscriptWord[] | string | null;
   start_timestamp?: string | null;
@@ -30,6 +36,9 @@ export interface RecallTranscriptEntry {
 
 export interface ParsedTranscriptSegment {
   speaker: string | null;
+  participant_name: string | null;
+  diarized_speaker: string | null;
+  speaker_confidence: number | null;
   text: string;
   timestamp: string;
   raw_payload: unknown;
@@ -41,6 +50,10 @@ function asObject(value: unknown): JsonObject | null {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function asTimestamp(value: unknown): string | null {
@@ -82,16 +95,65 @@ function extractText(utterance: JsonObject): string {
 
 function extractSpeaker(utterance: JsonObject): string | null {
   const typedUtterance = utterance as RecallTranscriptEntry;
-  const participant = asObject(typedUtterance.participant);
   const speaker = asObject(typedUtterance.speaker);
 
   return (
-    asNonEmptyString(participant?.name) ??
-    asNonEmptyString(typedUtterance.participant_name) ??
+    extractParticipantName(utterance) ??
+    extractDiarizedSpeaker(utterance) ??
     asNonEmptyString(speaker?.name) ??
     asNonEmptyString(typedUtterance.speaker_name) ??
     asNonEmptyString(typedUtterance.speaker) ??
     asNonEmptyString(typedUtterance.participant) ??
+    null
+  );
+}
+
+function extractParticipantName(utterance: JsonObject): string | null {
+  const typedUtterance = utterance as RecallTranscriptEntry;
+  const participant = asObject(typedUtterance.participant);
+  return (
+    asNonEmptyString(participant?.name) ??
+    asNonEmptyString(typedUtterance.participant_name) ??
+    null
+  );
+}
+
+function formatSpeakerLabel(value: string | number | null | undefined) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return `Speaker ${value}`;
+  }
+
+  const label = asNonEmptyString(value);
+  if (!label) return null;
+  return /^speaker\s+/i.test(label) ? label : `Speaker ${label}`;
+}
+
+function extractDiarizedSpeaker(utterance: JsonObject): string | null {
+  const typedUtterance = utterance as RecallTranscriptEntry;
+  const speaker = asObject(typedUtterance.speaker);
+  const words = Array.isArray(typedUtterance.words) ? typedUtterance.words : [];
+  const firstWord = asObject(words[0]);
+
+  return (
+    formatSpeakerLabel(typedUtterance.diarized_speaker) ??
+    formatSpeakerLabel(typedUtterance.diarized_speaker_label) ??
+    formatSpeakerLabel(typedUtterance.speaker_label) ??
+    formatSpeakerLabel(speaker?.label as string | number | null | undefined) ??
+    formatSpeakerLabel(speaker?.id as string | number | null | undefined) ??
+    formatSpeakerLabel(firstWord?.speaker as string | number | null | undefined) ??
+    formatSpeakerLabel(firstWord?.speaker_label as string | number | null | undefined) ??
+    formatSpeakerLabel(typedUtterance.channel) ??
+    null
+  );
+}
+
+function extractSpeakerConfidence(utterance: JsonObject): number | null {
+  const typedUtterance = utterance as RecallTranscriptEntry;
+  const speaker = asObject(typedUtterance.speaker);
+  return (
+    asNumber(typedUtterance.speaker_confidence) ??
+    asNumber(typedUtterance.confidence) ??
+    asNumber(speaker?.confidence) ??
     null
   );
 }
@@ -157,6 +219,9 @@ export function parseRecallTranscriptToSegments(payload: unknown): ParsedTranscr
 
     segments.push({
       speaker: extractSpeaker(utterance),
+      participant_name: extractParticipantName(utterance),
+      diarized_speaker: extractDiarizedSpeaker(utterance),
+      speaker_confidence: extractSpeakerConfidence(utterance),
       text,
       timestamp: extractTimestamp(utterance),
       raw_payload: utterance
