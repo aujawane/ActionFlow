@@ -75,6 +75,7 @@ export default async function TaskWorkspacePage({
     .select("*")
     .eq("id", typedTask.meeting_id)
     .eq("user_id", user.id)
+    .is("deleted_at", null)
     .single();
 
   if (!meeting) {

@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { MeetingCard } from "@/components/meeting-card";
+import { MeetingLibrary } from "@/components/meeting-library";
 import { requireUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getFirstName, getUserFullName } from "@/lib/user-profile";
@@ -29,6 +29,7 @@ export default async function DashboardPage() {
     .from("meetings")
     .select("*")
     .eq("user_id", user.id)
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
   const safeMeetings = meetings ?? [];
@@ -96,28 +97,8 @@ export default async function DashboardPage() {
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
           Unable to load meetings right now. Please refresh and try again.
         </div>
-      ) : safeMeetings.length > 0 ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {safeMeetings.map((meeting) => (
-            <MeetingCard key={meeting.id} meeting={meeting} />
-          ))}
-        </div>
       ) : (
-        <div className="premium-empty">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-xl font-semibold text-white shadow-lg shadow-brand-700/20">
-            +
-          </div>
-          <p className="mt-4 text-base font-semibold text-slate-900">No meetings yet</p>
-          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
-            Create your first meeting to start ingesting transcript events and generating prompts.
-          </p>
-          <Link
-            href="/meetings/new"
-            className="premium-button mt-5"
-          >
-            Create First Meeting
-          </Link>
-        </div>
+        <MeetingLibrary initialMeetings={safeMeetings} />
       )}
     </section>
   );

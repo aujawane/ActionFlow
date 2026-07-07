@@ -193,6 +193,7 @@ export async function getTaskWorkspaceContext(
     .select("*")
     .eq("id", typedTask.meeting_id)
     .eq("user_id", userId)
+    .is("deleted_at", null)
     .single();
 
   if (meetingError || !meeting) {

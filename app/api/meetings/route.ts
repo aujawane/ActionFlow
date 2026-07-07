@@ -28,6 +28,7 @@ export async function GET() {
     .from("meetings")
     .select("*")
     .eq("user_id", auth.user.id)
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
   if (error) {

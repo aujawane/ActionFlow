@@ -57,6 +57,7 @@ export async function PATCH(
     .select("id")
     .eq("id", task.meeting_id)
     .eq("user_id", auth.user.id)
+    .is("deleted_at", null)
     .single();
 
   if (meetingError || !meeting) {

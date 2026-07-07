@@ -19,6 +19,7 @@ export async function GET(
     .select("id")
     .eq("id", id)
     .eq("user_id", auth.user.id)
+    .is("deleted_at", null)
     .single();
 
   if (!meeting) {

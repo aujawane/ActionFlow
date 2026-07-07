@@ -44,6 +44,7 @@ export async function POST(request: Request) {
     .select("id")
     .eq("id", meetingId)
     .eq("user_id", auth.user.id)
+    .is("deleted_at", null)
     .single();
 
   if (meetingError || !meeting) {

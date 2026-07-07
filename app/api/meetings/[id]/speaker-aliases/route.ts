@@ -14,6 +14,7 @@ async function getOwnedMeeting(meetingId: string, userId: string) {
     .select("id")
     .eq("id", meetingId)
     .eq("user_id", userId)
+    .is("deleted_at", null)
     .single();
 
   return { meeting, error };

@@ -147,6 +147,8 @@ export interface Meeting {
   platform: "google_meet" | "zoom" | "unknown";
   recall_bot_id: string | null;
   status: "pending" | "joining" | "recording" | "completed" | "failed";
+  is_pinned: boolean;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
