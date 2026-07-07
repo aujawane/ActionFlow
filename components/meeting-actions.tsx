@@ -3,9 +3,17 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function MeetingActions({ meetingId }: { meetingId: string }) {
+export function MeetingActions({
+  meetingId,
+  showDevReimport = false
+}: {
+  meetingId: string;
+  showDevReimport?: boolean;
+}) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"analyze" | "generatePrompts" | null>(null);
+  const [busy, setBusy] = useState<"analyze" | "generatePrompts" | "reimport" | null>(
+    null
+  );
   const [message, setMessage] = useState<string | null>(null);
 
   async function trigger(kind: "analyze" | "generatePrompts") {
@@ -42,6 +50,56 @@ export function MeetingActions({ meetingId }: { meetingId: string }) {
     }
   }
 
+  async function reimportTranscript() {
+    const pastedJson = window.prompt(
+      "Paste the Recall.ai transcript JSON array from the dashboard."
+    );
+
+    if (!pastedJson) return;
+
+    let transcript: unknown;
+    try {
+      transcript = JSON.parse(pastedJson);
+    } catch {
+      setMessage("Invalid JSON. Paste the Recall transcript array and try again.");
+      return;
+    }
+
+    if (!Array.isArray(transcript)) {
+      setMessage("Transcript JSON must be an array of Recall transcript entries.");
+      return;
+    }
+
+    setBusy("reimport");
+    setMessage(null);
+
+    try {
+      const response = await fetch("/api/dev/reimport-transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meetingId, transcript })
+      });
+      const data = await response.json();
+      setBusy(null);
+
+      if (!response.ok) {
+        const details = typeof data?.details === "string" ? data.details : null;
+        setMessage(
+          details
+            ? `${data.error ?? "Failed to reimport transcript"}: ${details}`
+            : data.error ?? "Failed to reimport transcript"
+        );
+        return;
+      }
+
+      setMessage(`Transcript reimported. Inserted ${data.insertedSegments ?? 0} segments.`);
+      router.refresh();
+    } catch {
+      setBusy(null);
+      setMessage("Request failed. Check your connection and try again.");
+    }
+  }
+
   return (
     <div className="premium-card space-y-3 p-4">
       <div>
@@ -65,6 +123,15 @@ export function MeetingActions({ meetingId }: { meetingId: string }) {
         >
           {busy === "generatePrompts" ? "Generating..." : "Generate Prompts"}
         </button>
+        {showDevReimport ? (
+          <button
+            onClick={reimportTranscript}
+            disabled={busy !== null}
+            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy === "reimport" ? "Reimporting..." : "Reimport Transcript"}
+          </button>
+        ) : null}
       </div>
       {message ? (
         <p

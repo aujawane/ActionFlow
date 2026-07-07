@@ -1,5 +1,33 @@
 type JsonObject = Record<string, unknown>;
 
+export interface RecallTranscriptParticipant {
+  id?: number | string;
+  name?: string | null;
+}
+
+export interface RecallTranscriptWord {
+  text?: string | null;
+  word?: string | null;
+  start_timestamp?: string | null;
+  end_timestamp?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  start?: string | number | null;
+  end?: string | number | null;
+}
+
+export interface RecallTranscriptEntry {
+  participant?: RecallTranscriptParticipant | string | null;
+  participant_name?: string | null;
+  speaker?: { name?: string | null } | string | null;
+  speaker_name?: string | null;
+  text?: string | null;
+  words?: RecallTranscriptWord[] | string | null;
+  start_timestamp?: string | null;
+  timestamp?: string | null;
+  end_timestamp?: string | null;
+}
+
 export interface ParsedTranscriptSegment {
   speaker: string | null;
   text: string;
@@ -13,6 +41,19 @@ function asObject(value: unknown): JsonObject | null {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function asTimestamp(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value).toISOString();
+  }
+  return null;
+}
+
+function asNonEmptyString(value: unknown): string | null {
+  const stringValue = asString(value)?.trim();
+  return stringValue ? stringValue : null;
 }
 
 function extractText(utterance: JsonObject): string {
@@ -29,7 +70,7 @@ function extractText(utterance: JsonObject): string {
       .map((word) => {
         if (typeof word === "string") return word;
         const asWordObject = asObject(word);
-        return asString(asWordObject?.text) ?? asString(asWordObject?.word) ?? "";
+        return asNonEmptyString(asWordObject?.text) ?? asNonEmptyString(asWordObject?.word) ?? "";
       })
       .join(" ")
       .trim();
@@ -40,20 +81,36 @@ function extractText(utterance: JsonObject): string {
 }
 
 function extractSpeaker(utterance: JsonObject): string | null {
+  const typedUtterance = utterance as RecallTranscriptEntry;
+  const participant = asObject(typedUtterance.participant);
+  const speaker = asObject(typedUtterance.speaker);
+
   return (
-    asString(utterance.speaker_name) ??
-    asString(utterance.speaker) ??
-    asString(utterance.participant_name) ??
-    asString(utterance.participant) ??
+    asNonEmptyString(participant?.name) ??
+    asNonEmptyString(typedUtterance.participant_name) ??
+    asNonEmptyString(speaker?.name) ??
+    asNonEmptyString(typedUtterance.speaker_name) ??
+    asNonEmptyString(typedUtterance.speaker) ??
+    asNonEmptyString(typedUtterance.participant) ??
     null
   );
 }
 
 function extractTimestamp(utterance: JsonObject): string {
+  const fromWords = utterance.words;
+  if (Array.isArray(fromWords)) {
+    const firstWord = asObject(fromWords[0]);
+    const firstWordTimestamp =
+      asTimestamp(firstWord?.start_timestamp) ??
+      asTimestamp(firstWord?.start_time) ??
+      asTimestamp(firstWord?.start);
+    if (firstWordTimestamp) return firstWordTimestamp;
+  }
+
   return (
-    asString(utterance.start_timestamp) ??
-    asString(utterance.timestamp) ??
-    asString(utterance.end_timestamp) ??
+    asTimestamp(utterance.start_timestamp) ??
+    asTimestamp(utterance.timestamp) ??
+    asTimestamp(utterance.end_timestamp) ??
     new Date().toISOString()
   );
 }

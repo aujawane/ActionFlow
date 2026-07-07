@@ -19,6 +19,11 @@ function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function asNonEmptyString(value: unknown): string | null {
+  const stringValue = asString(value)?.trim();
+  return stringValue ? stringValue : null;
+}
+
 export async function POST(request: Request) {
   const isDev = process.env.NODE_ENV !== "production";
   const rawBody = await request.text();
@@ -264,10 +269,20 @@ export async function POST(request: Request) {
   }
 
   if (transcriptText && transcriptText.trim()) {
+    const transcriptParticipant = asObject(transcript.participant);
+    const dataParticipant = asObject(data.participant);
+    const payloadParticipant = asObject(payload.participant);
     const speaker =
-      asString(asObject(transcript.speaker)?.name) ??
-      asString(transcript.speaker) ??
-      asString(data.speaker);
+      asNonEmptyString(transcriptParticipant?.name) ??
+      asNonEmptyString(dataParticipant?.name) ??
+      asNonEmptyString(payloadParticipant?.name) ??
+      asNonEmptyString(transcript.participant_name) ??
+      asNonEmptyString(data.participant_name) ??
+      asNonEmptyString(payload.participant_name) ??
+      asNonEmptyString(asObject(transcript.speaker)?.name) ??
+      asNonEmptyString(transcript.speaker) ??
+      asNonEmptyString(data.speaker) ??
+      asNonEmptyString(payload.speaker);
 
     const timestamp =
       asString(transcript.timestamp) ??

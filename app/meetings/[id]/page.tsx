@@ -213,7 +213,10 @@ export default async function MeetingDetailPage({
         </div>
       </div>
 
-      <MeetingActions meetingId={meeting.id} />
+      <MeetingActions
+        meetingId={meeting.id}
+        showDevReimport={process.env.NODE_ENV === "development"}
+      />
 
       <TopicResults
         topics={typedTopics}
