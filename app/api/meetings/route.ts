@@ -2,17 +2,20 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireApiUser } from "@/lib/api-auth";
+import {
+  detectMeetingPlatform,
+  getSupportedMeetingUrlMessage,
+  isSupportedMeetingUrl
+} from "@/lib/meeting-platform";
 import { createRecallBot } from "@/lib/recall/client";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-
-const googleMeetRegex = /^https:\/\/meet\.google\.com\/[a-z0-9-]+($|[/?].*)/i;
 
 const payloadSchema = z.object({
   meetingUrl: z
     .string()
     .url()
-    .refine((value) => googleMeetRegex.test(value), {
-      message: "meetingUrl must be a valid Google Meet link."
+    .refine((value) => isSupportedMeetingUrl(value), {
+      message: getSupportedMeetingUrlMessage()
     }),
   title: z.string().trim().min(1).max(200).optional()
 });
@@ -59,12 +62,21 @@ export async function POST(request: Request) {
     );
   }
 
+  const meetingPlatform = detectMeetingPlatform(parsed.data.meetingUrl);
+  if (meetingPlatform === "unknown") {
+    return NextResponse.json(
+      { error: "Unsupported meeting URL", details: getSupportedMeetingUrlMessage() },
+      { status: 400 }
+    );
+  }
+
   const { data: meeting, error: meetingError } = await supabaseAdmin
     .from("meetings")
     .insert({
       user_id: auth.user.id,
       title: parsed.data.title ?? null,
       meeting_url: parsed.data.meetingUrl,
+      platform: meetingPlatform,
       status: "pending"
     })
     .select("*")

@@ -160,7 +160,7 @@ export default async function MeetingDetailPage({
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {botCreationError
             ? `Bot creation failed: ${botCreationError}`
-            : "Bot creation failed. Verify the Google Meet URL is active and try creating the meeting again."}
+            : "Bot creation failed. Verify the meeting URL is active and try creating the meeting again."}
         </div>
       ) : null}
 

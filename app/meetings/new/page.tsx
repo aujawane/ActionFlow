@@ -12,7 +12,7 @@ export default async function NewMeetingPage() {
           Create new meeting
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Paste a Google Meet link to create and track a new meeting.
+          Paste a Google Meet or Zoom link to create and track a new meeting.
         </p>
       </div>
       <NewMeetingForm />

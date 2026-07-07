@@ -132,6 +132,7 @@ export interface Meeting {
   user_id: string;
   title: string | null;
   meeting_url: string;
+  platform: "google_meet" | "zoom" | "unknown";
   recall_bot_id: string | null;
   status: "pending" | "joining" | "recording" | "completed" | "failed";
   created_at: string;

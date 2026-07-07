@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-const googleMeetRegex = /^https:\/\/meet\.google\.com\/[a-z0-9-]+($|[/?].*)/i;
+import {
+  getSupportedMeetingUrlMessage,
+  isSupportedMeetingUrl
+} from "@/lib/meeting-platform";
 
 export function NewMeetingForm() {
   const router = useRouter();
@@ -17,9 +20,9 @@ export function NewMeetingForm() {
     setLoading(true);
     setError(null);
 
-    if (!googleMeetRegex.test(meetingUrl.trim())) {
+    if (!isSupportedMeetingUrl(meetingUrl.trim())) {
       setLoading(false);
-      setError("Please enter a valid Google Meet URL (https://meet.google.com/...).");
+      setError("Please enter a valid Google Meet or Zoom URL.");
       return;
     }
 
@@ -49,7 +52,7 @@ export function NewMeetingForm() {
       <div>
         <h2 className="text-sm font-semibold text-slate-900">Meeting Setup</h2>
         <p className="mt-1 text-xs leading-5 text-slate-500">
-          Paste a Google Meet URL to create a meeting record.
+          Paste a Google Meet or Zoom URL to create a meeting record.
         </p>
       </div>
 
@@ -79,10 +82,10 @@ export function NewMeetingForm() {
           required
           value={meetingUrl}
           onChange={(event) => setMeetingUrl(event.target.value)}
-          placeholder="https://meet.google.com/abc-defg-hij"
+          placeholder="https://meet.google.com/abc-defg-hij or https://zoom.us/j/123456789"
           className="premium-input"
         />
-        <p className="text-xs text-slate-500">Only Google Meet links are supported right now.</p>
+        <p className="text-xs text-slate-500">{getSupportedMeetingUrlMessage()}</p>
       </div>
 
       <button
