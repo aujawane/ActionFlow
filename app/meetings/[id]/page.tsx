@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { ExecutionDashboard } from "@/components/execution-dashboard";
 import { InsightsPanel } from "@/components/insights-panel";
 import { LiveTranscript } from "@/components/live-transcript";
 import { MeetingActions } from "@/components/meeting-actions";
@@ -8,7 +9,7 @@ import { PromptsPanel } from "@/components/prompts-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MeetingTask, MeetingTopic } from "@/lib/types";
+import type { MeetingTask, MeetingTopic, TranscriptSegment } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +90,14 @@ export default async function MeetingDetailPage({
   const safeTopics = topicsMissingTable ? [] : (topics ?? []);
   const safeTasks = (tasksMissingTable ? [] : (tasks ?? [])) as MeetingTask[];
   const typedTopics = safeTopics as MeetingTopic[];
+  const safeSegments = (segments ?? []) as TranscriptSegment[];
+  const participants = Array.from(
+    new Set(
+      safeSegments
+        .map((segment) => segment.speaker?.trim())
+        .filter((speaker): speaker is string => Boolean(speaker))
+    )
+  ).sort((a, b) => a.localeCompare(b));
 
   if (process.env.NODE_ENV !== "production") {
     console.info("[meeting-detail] fetched tasks:", {
@@ -218,6 +227,8 @@ export default async function MeetingDetailPage({
         showDevReimport={process.env.NODE_ENV === "development"}
       />
 
+      <ExecutionDashboard participants={participants} tasks={safeTasks} />
+
       <TopicResults
         topics={typedTopics}
         insights={insights ?? []}
@@ -226,7 +237,7 @@ export default async function MeetingDetailPage({
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <LiveTranscript meetingId={meeting.id} initialSegments={segments ?? []} />
+        <LiveTranscript meetingId={meeting.id} initialSegments={safeSegments} />
         {typedTopics.length === 0 ? (
           <InsightsPanel insights={(insights ?? []).filter((item) => item.topic_id == null)} />
         ) : null}
