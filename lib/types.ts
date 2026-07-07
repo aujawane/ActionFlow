@@ -95,6 +95,27 @@ export interface MeetingTask {
   created_at: string;
 }
 
+export interface TaskArtifact {
+  id: string;
+  task_id: string;
+  artifact_type: string;
+  title: string;
+  content: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskGuide {
+  summary: string;
+  objective: string;
+  steps: string[];
+  recommendedApproach: string;
+  resources: string[];
+  estimatedEffort: string;
+  successCriteria: string[];
+}
+
 export interface TopicSegmentResult {
   topic_id: string;
   segment_ids: string[];

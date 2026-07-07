@@ -3,9 +3,10 @@ import type { Route } from "next";
 import { notFound } from "next/navigation";
 
 import { MeetingStatusBadge } from "@/components/meeting-status-badge";
+import { TaskExecutionPanel } from "@/components/task-execution-panel";
 import { requireUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MeetingTask, MeetingTopic, TranscriptSegment } from "@/lib/types";
+import type { MeetingTask, MeetingTopic, TaskArtifact, TranscriptSegment } from "@/lib/types";
 
 function formatLabel(value: string | null | undefined, fallback = "Unknown") {
   return (value || fallback)
@@ -99,6 +100,12 @@ export default async function TaskWorkspacePage({
 
   const suggestedSteps = getSuggestedSteps(typedTask.suggested_steps);
   const segments = (contextSegments ?? []) as TranscriptSegment[];
+  const { data: artifacts } = await supabaseAdmin
+    .from("task_artifacts")
+    .select("*")
+    .eq("task_id", typedTask.id)
+    .order("created_at", { ascending: false });
+  const initialArtifacts = (artifacts ?? []) as TaskArtifact[];
 
   return (
     <section className="space-y-6">
@@ -247,27 +254,10 @@ export default async function TaskWorkspacePage({
             )}
           </section>
 
-          <section className="premium-card p-5">
-            <h2 className="text-sm font-semibold text-slate-900">Help</h2>
-            <div className="mt-4 space-y-3">
-              <button
-                type="button"
-                disabled
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-400"
-              >
-                Guide Me coming in Sprint 3
-              </button>
-              <button
-                type="button"
-                disabled
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-400"
-              >
-                Do It For Me coming in Sprint 3
-              </button>
-            </div>
-          </section>
         </aside>
       </div>
+
+      <TaskExecutionPanel taskId={typedTask.id} initialArtifacts={initialArtifacts} />
     </section>
   );
 }
