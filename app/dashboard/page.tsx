@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { MeetingLibrary } from "@/components/meeting-library";
+import { StartMeetingPanel } from "@/components/start-meeting-panel";
 import { requireUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getFirstName, getUserFullName } from "@/lib/user-profile";
@@ -92,6 +93,8 @@ export default async function DashboardPage() {
           {failedMeetings > 1 ? "s" : ""} failed. Open each meeting for details and retry.
         </div>
       ) : null}
+
+      <StartMeetingPanel />
 
       {error ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
