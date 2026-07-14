@@ -6,9 +6,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import { TaskCategoryBadge } from "@/components/task-category-badge";
 import { TaskClarifications } from "@/components/task-clarifications";
+import { MeetingFollowUpEmails } from "@/components/meeting-follow-up-emails";
 import type { MeetingTask } from "@/lib/types";
 
 type ExecutionDashboardProps = {
+  meetingId: string;
   participants: string[];
   tasks: MeetingTask[];
 };
@@ -85,7 +87,7 @@ function sortByPriority(tasks: MeetingTask[]) {
   });
 }
 
-export function ExecutionDashboard({ participants, tasks }: ExecutionDashboardProps) {
+export function ExecutionDashboard({ meetingId, participants, tasks }: ExecutionDashboardProps) {
   const [localTasks, setLocalTasks] = useState(tasks);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -215,6 +217,8 @@ export function ExecutionDashboard({ participants, tasks }: ExecutionDashboardPr
           {error}
         </p>
       ) : null}
+
+      <MeetingFollowUpEmails meetingId={meetingId} tasks={localTasks} />
 
       <div className="space-y-5">
         {tasksByOwner.assignedGroups.map(({ ownerName, tasks: ownerTasks }) => (

@@ -198,6 +198,25 @@ export interface TaskArtifact {
   updated_at: string;
 }
 
+export type MeetingArtifactType =
+  | "follow_up_email_individual"
+  | "follow_up_email_team_summary";
+
+export type FollowUpEmailMode = "individual" | "team_summary";
+
+export interface MeetingArtifact {
+  id: string;
+  meeting_id: string;
+  artifact_type: MeetingArtifactType;
+  title: string;
+  content: string | null;
+  status: TaskArtifactStatus;
+  metadata: Record<string, JsonValue>;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TaskGuide {
   summary: string;
   objective: string;

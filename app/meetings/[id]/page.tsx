@@ -259,7 +259,11 @@ export default async function MeetingDetailPage({
         initialSpeakers={speakerRoster}
       />
 
-      <ExecutionDashboard participants={participants} tasks={safeTasks} />
+      <ExecutionDashboard
+        meetingId={meeting.id}
+        participants={participants}
+        tasks={safeTasks}
+      />
 
       <TopicResults
         topics={typedTopics}
