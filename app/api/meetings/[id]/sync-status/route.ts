@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { fetchRecallBotStatus } from "@/lib/recall/client";
-import { replaceMeetingTranscriptFromRecall } from "@/lib/recall/processing";
+import { processCompletedRecallMeeting } from "@/lib/recall/processing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 function isRecallDone(status: string) {
@@ -29,42 +29,6 @@ function isRecallActive(status: string) {
     normalized.includes("join") ||
     normalized.includes("active")
   );
-}
-
-async function runAnalysis(request: Request, meetingId: string) {
-  const requestOrigin = new URL(request.url).origin;
-  const appUrl =
-    process.env.INTERNAL_APP_URL?.trim() ||
-    (process.env.NODE_ENV !== "production" ? "http://localhost:3000" : requestOrigin);
-  const response = await fetch(`${appUrl}/api/meetings/${meetingId}/analyze`, {
-    method: "POST",
-    headers: {
-      cookie: request.headers.get("cookie") ?? ""
-    }
-  });
-  const responseText = await response.text();
-  let body: unknown = responseText;
-  try {
-    body = responseText ? (JSON.parse(responseText) as unknown) : {};
-  } catch {
-    body = responseText;
-  }
-
-  console.info("[sync-status] Analysis response", {
-    meeting_id: meetingId,
-    status: response.status,
-    ok: response.ok,
-    body
-  });
-
-  if (!response.ok) {
-    const bodyObject = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
-    const details = typeof bodyObject?.details === "string" ? bodyObject.details : null;
-    const error = typeof bodyObject?.error === "string" ? bodyObject.error : null;
-    throw new Error(details || error || responseText || "Meeting analysis failed.");
-  }
-
-  return body;
 }
 
 export async function POST(
@@ -113,20 +77,20 @@ export async function POST(
   }
 
   if (isRecallDone(recallStatus.status) || recallStatus.transcriptAvailable) {
-    await supabaseAdmin.from("meetings").update({ status: "processing" }).eq("id", id);
-
-    const { insertedCount, ready } = await replaceMeetingTranscriptFromRecall({
+    const result = await processCompletedRecallMeeting({
       meetingId: id,
-      recallBotId: meeting.recall_bot_id
+      recallBotId: meeting.recall_bot_id,
+      requestOrigin: new URL(request.url).origin
     });
-    if (!ready) {
+    if (result.status === "recording") {
       return NextResponse.json(
         {
-          status: "processing",
+          status: result.status,
           recallStatus: recallStatus.status,
           transcriptExists: false,
-          insertedSegments: 0,
-          message: "Transcript not ready yet."
+          insertedSegments: result.insertedCount,
+          analysisStatus: result.analysisStatus,
+          message: result.message
         },
         { status: 202 }
       );
@@ -135,39 +99,17 @@ export async function POST(
     console.info("[sync-status] Transcript processed", {
       meeting_id: id,
       recall_bot_id: meeting.recall_bot_id,
-      inserted_segments: insertedCount
+      inserted_segments: result.insertedCount,
+      analysis_status: result.analysisStatus
     });
 
-    let analysisStatus: "completed" | "failed" | "skipped" = "completed";
-    let analysisError: string | null = null;
-    try {
-      const analysisBody = await runAnalysis(request, id);
-      const analysisObject =
-        analysisBody && typeof analysisBody === "object"
-          ? (analysisBody as Record<string, unknown>)
-          : null;
-      if (analysisObject?.skipped === true) {
-        analysisStatus = "skipped";
-      }
-    } catch (error) {
-      analysisStatus = "failed";
-      analysisError = error instanceof Error ? error.message : "Meeting analysis failed.";
-      console.error("[sync-status] Analysis failed after transcript import", {
-        meeting_id: id,
-        recall_bot_id: meeting.recall_bot_id,
-        error: analysisError
-      });
-    }
-
-    await supabaseAdmin.from("meetings").update({ status: "completed" }).eq("id", id);
-
     return NextResponse.json({
-      status: "completed",
+      status: result.status,
       recallStatus: recallStatus.status,
       transcriptExists: true,
-      insertedSegments: insertedCount,
-      analysisStatus,
-      analysisError
+      insertedSegments: result.insertedCount,
+      analysisStatus: result.analysisStatus,
+      message: result.message
     });
   }
 

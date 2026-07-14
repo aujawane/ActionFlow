@@ -16,7 +16,7 @@ export async function GET(
 
   const { data: meeting } = await supabaseAdmin
     .from("meetings")
-    .select("id")
+    .select("id, status, updated_at")
     .eq("id", id)
     .eq("user_id", auth.user.id)
     .is("deleted_at", null)
@@ -57,5 +57,19 @@ export async function GET(
     (aliases ?? []) as MeetingSpeakerAlias[]
   );
 
-  return NextResponse.json({ segments: resolvedSegments });
+  return NextResponse.json(
+    {
+      segments: resolvedSegments,
+      meeting: {
+        id: meeting.id,
+        status: meeting.status,
+        updated_at: meeting.updated_at
+      }
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0"
+      }
+    }
+  );
 }

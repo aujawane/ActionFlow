@@ -2,9 +2,9 @@ import { notFound } from "next/navigation";
 
 import { ExecutionDashboard } from "@/components/execution-dashboard";
 import { InsightsPanel } from "@/components/insights-panel";
+import { LiveMeetingStatusBadge } from "@/components/live-meeting-status-badge";
 import { LiveTranscript } from "@/components/live-transcript";
 import { MeetingActions } from "@/components/meeting-actions";
-import { MeetingStatusBadge } from "@/components/meeting-status-badge";
 import { PromptsPanel } from "@/components/prompts-panel";
 import { SpeakerMappingPanel } from "@/components/speaker-mapping-panel";
 import { TopicResults } from "@/components/topic-results";
@@ -169,7 +169,7 @@ export default async function MeetingDetailPage({
               </p>
             ) : null}
           </div>
-          <MeetingStatusBadge status={meeting.status} />
+          <LiveMeetingStatusBadge meetingId={meeting.id} initialStatus={meeting.status} />
         </div>
       </div>
 
@@ -261,7 +261,11 @@ export default async function MeetingDetailPage({
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <LiveTranscript meetingId={meeting.id} initialSegments={safeSegments} />
+        <LiveTranscript
+          meetingId={meeting.id}
+          initialSegments={safeSegments}
+          initialStatus={meeting.status}
+        />
         {typedTopics.length === 0 ? (
           <InsightsPanel insights={(insights ?? []).filter((item) => item.topic_id == null)} />
         ) : null}

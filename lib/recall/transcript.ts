@@ -275,6 +275,42 @@ export async function fetchRecallTranscript(recallBotId: string): Promise<unknow
     throw new Error("Missing RECALL_API_KEY");
   }
 
+  const directTranscriptUrl = `https://${region}.recall.ai/api/v1/bot/${encodeURIComponent(recallBotId)}/transcript/`;
+  const directResponse = await fetch(directTranscriptUrl, {
+    method: "GET",
+    headers: {
+      Authorization: `Token ${apiKey}`,
+      "Content-Type": "application/json"
+    }
+  });
+  const directBodyText = await directResponse.text();
+
+  if (directResponse.ok) {
+    let directBody: unknown = directBodyText;
+    try {
+      directBody = directBodyText ? (JSON.parse(directBodyText) as unknown) : [];
+    } catch {
+      directBody = directBodyText;
+    }
+
+    const directEntries = Array.isArray(directBody)
+      ? directBody
+      : pickUtteranceArray(directBody);
+    console.info("Recall bot transcript endpoint fetched", {
+      bot_id: recallBotId,
+      transcript_entry_count: directEntries.length
+    });
+    return directBody;
+  }
+
+  // Some Recall workspaces return a legacy-endpoint response here. Fall back
+  // to the current bot recording transcript download URL without ever using
+  // /api/v1/transcript/{transcript_id}/.
+  console.info("Recall bot transcript endpoint unavailable; checking bot recording", {
+    bot_id: recallBotId,
+    status: directResponse.status
+  });
+
   const botUrl = `https://${region}.recall.ai/api/v1/bot/${encodeURIComponent(recallBotId)}/`;
   const botResponse = await fetch(botUrl, {
     method: "GET",

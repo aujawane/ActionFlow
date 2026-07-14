@@ -43,21 +43,32 @@ function countTranscriptWords(segments: TranscriptSegment[]) {
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireApiUser();
-  if (auth.response) return auth.response;
+  const configuredInternalSecret = process.env.RECALL_WEBHOOK_SECRET?.trim();
+  const suppliedInternalSecret = request.headers.get("x-parfait-internal-secret")?.trim();
+  const isTrustedInternalRequest =
+    Boolean(configuredInternalSecret) && suppliedInternalSecret === configuredInternalSecret;
+
+  let userId: string | null = null;
+  if (!isTrustedInternalRequest) {
+    const auth = await requireApiUser();
+    if (auth.response) return auth.response;
+    userId = auth.user.id;
+  }
 
   const { id } = await context.params;
 
-  const { data: meeting } = await supabaseAdmin
+  let meetingQuery = supabaseAdmin
     .from("meetings")
     .select("id")
     .eq("id", id)
-    .eq("user_id", auth.user.id)
-    .is("deleted_at", null)
-    .single();
+    .is("deleted_at", null);
+  if (userId) {
+    meetingQuery = meetingQuery.eq("user_id", userId);
+  }
+  const { data: meeting } = await meetingQuery.single();
 
   if (!meeting) {
     return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
