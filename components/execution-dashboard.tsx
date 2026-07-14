@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useMemo, useState } from "react";
 
+import { TaskCategoryBadge } from "@/components/task-category-badge";
 import { TaskClarifications } from "@/components/task-clarifications";
 import type { MeetingTask } from "@/lib/types";
 
@@ -308,9 +309,7 @@ function TaskCard({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <span className="rounded-full border border-brand-100 bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-800">
-          {formatLabel(task.workspace_type, "other")}
-        </span>
+        <TaskCategoryBadge task={task} />
         <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium capitalize text-slate-700">
           {task.priority} priority
         </span>

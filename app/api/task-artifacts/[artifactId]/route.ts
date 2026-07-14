@@ -66,7 +66,7 @@ export async function PATCH(
 
   const { data: updatedArtifact, error: updateError } = await supabaseAdmin
     .from("task_artifacts")
-    .update({ title, content })
+    .update({ title, content, status: "edited" })
     .eq("id", artifactId)
     .select("*")
     .single();

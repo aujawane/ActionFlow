@@ -9,10 +9,11 @@ import {
   extractTopicTasksWithOpenAI,
   segmentMeetingTopicsWithOpenAI
 } from "@/lib/analysis";
+import { categorizeMeetingTasksBestEffort } from "@/lib/task-categorization-batch";
 import { requireApiUser } from "@/lib/api-auth";
 import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MeetingSpeakerAlias, MeetingTopic, TranscriptSegment } from "@/lib/types";
+import type { MeetingSpeakerAlias, MeetingTask, MeetingTopic, TranscriptSegment } from "@/lib/types";
 
 const MIN_ANALYSIS_WORDS = 25;
 const MIN_ANALYSIS_SEGMENTS = 2;
@@ -241,7 +242,7 @@ export async function POST(
     summary: topic.summary,
     start_timestamp: topic.start_timestamp,
     end_timestamp: topic.end_timestamp,
-    segment_ids: topic.segment_ids,
+    segment_ids: topic.segment_ids.filter((segmentId) => segmentMap.has(segmentId)),
     confidence: topic.confidence ?? null,
     separation_reason: topic.separation_reason
   }));
@@ -258,7 +259,8 @@ export async function POST(
   }
 
   const allTopicInsightRows: Array<Record<string, unknown>> = [];
-  const allTopicTaskRows: Array<Record<string, unknown>> = [];
+  const allTopicTaskRows: MeetingTask[] = [];
+  const meetingContextByTopicId = new Map<string, string>();
 
   for (let index = 0; index < insertedTopics.length; index += 1) {
     const topic = insertedTopics[index] as MeetingTopic;
@@ -272,6 +274,7 @@ export async function POST(
     }
 
     const topicTranscript = buildCleanTranscript(topicSegments);
+    meetingContextByTopicId.set(topic.id, topicTranscript);
     const topicAnalysis = await analyzeTranscriptWithOpenAI(topicTranscript);
     if (!topicAnalysis.ok) {
       continue;
@@ -302,7 +305,7 @@ export async function POST(
         await insertMeetingTaskRows(taskRows);
 
       if (!taskInsertError && insertedTopicTasks) {
-        allTopicTaskRows.push(...insertedTopicTasks);
+        allTopicTaskRows.push(...(insertedTopicTasks as MeetingTask[]));
       }
     } else {
       console.warn(
@@ -312,11 +315,30 @@ export async function POST(
     }
   }
 
+  let tasksForResponse = allTopicTaskRows;
+  if (allTopicTaskRows.length > 0 && process.env.OPENAI_API_KEY) {
+    try {
+      await categorizeMeetingTasksBestEffort({
+        tasks: allTopicTaskRows,
+        meetingContextByTopicId
+      });
+      const { data: refreshedTasks } = await supabaseAdmin
+        .from("meeting_tasks")
+        .select("*")
+        .eq("meeting_id", id);
+      if (refreshedTasks) {
+        tasksForResponse = refreshedTasks as MeetingTask[];
+      }
+    } catch (error) {
+      console.warn("[analyze] Task categorization failed:", error);
+    }
+  }
+
   return NextResponse.json({
     fallback: false,
     topics: insertedTopics,
     insights: allTopicInsightRows,
-    tasks: allTopicTaskRows
+    tasks: tasksForResponse
   });
 
   async function insertInsightsRows(

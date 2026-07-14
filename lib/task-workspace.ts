@@ -2,13 +2,19 @@ import { z } from "zod";
 
 import { OPENAI_MODEL, openai } from "@/lib/openai";
 import {
-  applySpeakerAliases,
+  DELIVERABLE_FORMAT_INSTRUCTIONS,
+  DELIVERABLE_PANEL_TITLES,
+  getDeliverablePanelTitle,
+  getTaskCategorization,
+  normalizeTaskCategory
+} from "@/lib/task-deliverables";
+import {
   resolveTaskOwner
 } from "@/lib/speaker-aliases";
+import { getSegmentIdsFromTopic, loadResolvedMeetingTranscriptSegments } from "@/lib/transcript-segments";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   Meeting,
-  MeetingSpeakerAlias,
   MeetingTask,
   MeetingTaskWorkspaceType,
   MeetingTopic,
@@ -98,18 +104,23 @@ export const taskPromptJsonSchema: Record<string, unknown> = {
 };
 
 export const artifactTypeByWorkspaceType: Record<MeetingTaskWorkspaceType, string> = {
-  research: "Research Report",
-  email: "Email Draft",
-  proposal: "Proposal",
-  coding: "Implementation Plan",
-  documentation: "Documentation",
-  design: "Design Brief",
-  meeting_follow_up: "Follow-up Draft",
-  planning: "Project Plan",
-  testing: "Test Plan",
-  decision: "Decision Matrix",
-  learning: "Learning Plan",
-  other: "Task Deliverable"
+  research: DELIVERABLE_PANEL_TITLES.research_report,
+  email: DELIVERABLE_PANEL_TITLES.email_draft,
+  proposal: DELIVERABLE_PANEL_TITLES.document_draft,
+  coding: DELIVERABLE_PANEL_TITLES.code_implementation_prompt,
+  documentation: DELIVERABLE_PANEL_TITLES.document_draft,
+  design: DELIVERABLE_PANEL_TITLES.design_brief,
+  meeting_follow_up: DELIVERABLE_PANEL_TITLES.follow_up_message,
+  planning: DELIVERABLE_PANEL_TITLES.action_plan,
+  testing: DELIVERABLE_PANEL_TITLES.code_implementation_prompt,
+  decision: DELIVERABLE_PANEL_TITLES.analysis_summary,
+  learning: DELIVERABLE_PANEL_TITLES.research_report,
+  website_change: DELIVERABLE_PANEL_TITLES.website_change_prompt,
+  scheduling: DELIVERABLE_PANEL_TITLES.calendar_invite_draft,
+  follow_up: DELIVERABLE_PANEL_TITLES.follow_up_message,
+  analysis: DELIVERABLE_PANEL_TITLES.analysis_summary,
+  document: DELIVERABLE_PANEL_TITLES.document_draft,
+  other: DELIVERABLE_PANEL_TITLES.generic_next_steps
 };
 
 export const promptLabelByWorkspaceType: Partial<Record<MeetingTaskWorkspaceType, string>> = {
@@ -122,20 +133,14 @@ export const promptLabelByWorkspaceType: Partial<Record<MeetingTaskWorkspaceType
 };
 
 function getSegmentIds(topic: MeetingTopic | null) {
-  if (!topic || !Array.isArray(topic.segment_ids)) {
-    return [];
-  }
-
-  return topic.segment_ids.filter((item): item is string => typeof item === "string");
+  return getSegmentIdsFromTopic(topic?.segment_ids);
 }
 
 export function normalizeWorkspaceType(
   workspaceType: string | null | undefined
 ): MeetingTaskWorkspaceType {
-  const allowed = Object.keys(artifactTypeByWorkspaceType) as MeetingTaskWorkspaceType[];
-  return allowed.includes(workspaceType as MeetingTaskWorkspaceType)
-    ? (workspaceType as MeetingTaskWorkspaceType)
-    : "other";
+  const normalized = normalizeTaskCategory(workspaceType);
+  return normalized as MeetingTaskWorkspaceType;
 }
 
 export function getArtifactTypeForTask(task: Pick<MeetingTask, "workspace_type">) {
@@ -216,33 +221,16 @@ export async function getTaskWorkspaceContext(
     .maybeSingle();
 
   const typedTopic = (topic as MeetingTopic | null) ?? null;
-  const segmentIds = getSegmentIds(typedTopic);
-  const [{ data: segments, error: segmentsError }, { data: aliases, error: aliasesError }] =
-    segmentIds.length > 0
-      ? await Promise.all([
-          supabaseAdmin
-            .from("transcript_segments")
-            .select("*")
-            .eq("meeting_id", typedTask.meeting_id)
-            .in("id", segmentIds)
-            .order("timestamp", { ascending: true }),
-          supabaseAdmin
-            .from("meeting_speaker_aliases")
-            .select("*")
-            .eq("meeting_id", typedTask.meeting_id)
-        ])
-      : await Promise.all([
-          supabaseAdmin
-            .from("transcript_segments")
-            .select("*")
-            .eq("meeting_id", typedTask.meeting_id)
-            .order("timestamp", { ascending: true })
-            .limit(8),
-          supabaseAdmin
-            .from("meeting_speaker_aliases")
-            .select("*")
-            .eq("meeting_id", typedTask.meeting_id)
-        ]);
+  const {
+    segments,
+    aliases,
+    segmentsError,
+    aliasesError
+  } = await loadResolvedMeetingTranscriptSegments({
+    meetingId: typedTask.meeting_id,
+    segmentIds: getSegmentIds(typedTopic),
+    limit: 12
+  });
 
   if (segmentsError) {
     return {
@@ -262,7 +250,7 @@ export async function getTaskWorkspaceContext(
     };
   }
 
-  const typedAliases = (aliases ?? []) as MeetingSpeakerAlias[];
+  const typedAliases = aliases;
   return {
     ok: true,
     context: {
@@ -272,10 +260,7 @@ export async function getTaskWorkspaceContext(
       },
       meeting: meeting as Meeting,
       topic: typedTopic,
-      segments: applySpeakerAliases(
-        (segments ?? []) as TranscriptSegment[],
-        typedAliases
-      )
+      segments
     }
   };
 }
@@ -375,13 +360,16 @@ export async function generateTaskGuide(
   }
 }
 
-export async function generateTaskArtifactDraft(
+export async function generateTaskDeliverableDraft(
   context: TaskWorkspaceContext
 ): Promise<
   | { ok: true; artifact: GeneratedArtifactDraft }
   | { ok: false; error: string; details?: string }
 > {
-  const artifactType = getArtifactTypeForTask(context.task);
+  const categorization = getTaskCategorization(context.task);
+  const deliverableType = categorization.deliverable_type;
+  const panelTitle = getDeliverablePanelTitle(deliverableType);
+  const formatInstructions = DELIVERABLE_FORMAT_INSTRUCTIONS[deliverableType];
 
   try {
     const response = await openai.responses.create({
@@ -389,20 +377,33 @@ export async function generateTaskArtifactDraft(
       input: [
         {
           role: "system",
-          content:
-            "You are Parfait, an AI execution assistant. Your job is to produce a useful first draft of the deliverable needed to complete this task. Use the task, source quote, suggested steps, workspace type, meeting topic, and transcript context. Do not invent unsupported facts. Mark assumptions clearly."
+          content: [
+            "You are Parfait, an AI task execution assistant.",
+            "Generate the best possible deliverable for the task.",
+            "Generate a practical, usable deliverable.",
+            "If information is missing, use clear placeholders like [Recipient Name], [Date], or [Your Name].",
+            "Do not say you cannot complete the task unless absolutely necessary.",
+            "Do not include unnecessary explanation before the deliverable.",
+            "Match the deliverable format to the deliverable type.",
+            formatInstructions
+          ].join("\n")
         },
         {
           role: "user",
-          content: `Generate a ${artifactType}. The result should be practical, structured, and immediately useful.\n\n${buildTaskContextPrompt(
-            context
-          )}`
+          content: [
+            `Task title: ${context.task.task}`,
+            `Task description: ${context.task.workspace_summary ?? "Not provided."}`,
+            `Category: ${categorization.category}`,
+            `Deliverable type: ${deliverableType}`,
+            "",
+            buildTaskContextPrompt(context)
+          ].join("\n")
         }
       ],
       text: {
         format: {
           type: "json_schema",
-          name: "task_artifact_draft",
+          name: "task_deliverable_draft",
           strict: true,
           schema: generatedArtifactJsonSchema
         }
@@ -410,26 +411,41 @@ export async function generateTaskArtifactDraft(
     });
 
     const raw = response.output_text?.trim();
-    if (!raw) return { ok: false, error: "OpenAI returned empty artifact output." };
+    if (!raw) return { ok: false, error: "OpenAI returned empty deliverable output." };
 
     const parsed = JSON.parse(raw) as unknown;
     const validated = generatedArtifactSchema.safeParse(parsed);
     if (!validated.success) {
       return {
         ok: false,
-        error: "Artifact output did not match expected schema.",
+        error: "Deliverable output did not match expected schema.",
         details: validated.error.message
       };
     }
 
-    return { ok: true, artifact: validated.data };
+    return {
+      ok: true,
+      artifact: {
+        title: validated.data.title || panelTitle,
+        content: validated.data.content
+      }
+    };
   } catch (error) {
     return {
       ok: false,
-      error: "Failed to generate task artifact.",
+      error: "Failed to generate task deliverable.",
       details: error instanceof Error ? error.message : "Unknown error"
     };
   }
+}
+
+export async function generateTaskArtifactDraft(
+  context: TaskWorkspaceContext
+): Promise<
+  | { ok: true; artifact: GeneratedArtifactDraft }
+  | { ok: false; error: string; details?: string }
+> {
+  return generateTaskDeliverableDraft(context);
 }
 
 export async function generateTaskPrompt(

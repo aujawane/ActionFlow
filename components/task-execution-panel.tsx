@@ -1,7 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { TaskCategoryBadge } from "@/components/task-category-badge";
+import { useOptionalTaskWorkspaceState } from "@/components/task-workspace-task-state";
+import {
+  getDeliverableButtonLabel,
+  getDeliverablePanelTitle,
+  getTaskCategorization
+} from "@/lib/task-deliverables";
 import type { MeetingTaskWorkspaceType, TaskArtifact, TaskGuide, TaskPrompt } from "@/lib/types";
 
 type ApiError = {
@@ -21,7 +28,9 @@ const promptLabelByWorkspaceType: Partial<Record<MeetingTaskWorkspaceType, strin
   design: "Generate Design Prompt",
   testing: "Generate Test Prompt",
   planning: "Generate Planning Prompt",
-  research: "Generate Research Prompt"
+  research: "Generate Research Prompt",
+  website_change: "Generate Dev Prompt",
+  analysis: "Generate Analysis Prompt"
 };
 
 async function parseJson<T>(response: Response) {
@@ -33,14 +42,26 @@ export function TaskExecutionPanel({
   workspaceType,
   initialArtifacts
 }: TaskExecutionPanelProps) {
+  const workspaceState = useOptionalTaskWorkspaceState();
+  const task = workspaceState?.task;
+  const categorization = task ? getTaskCategorization(task) : null;
+  const deliverableButtonLabel =
+    categorization?.suggested_button_label ??
+    getDeliverableButtonLabel(categorization?.deliverable_type);
+
   const [guide, setGuide] = useState<TaskGuide | null>(null);
   const [taskPrompt, setTaskPrompt] = useState<TaskPrompt | null>(null);
   const [artifacts, setArtifacts] = useState<TaskArtifact[]>(initialArtifacts);
   const [selectedArtifact, setSelectedArtifact] = useState<TaskArtifact | null>(
     initialArtifacts[0] ?? null
   );
+  const [showDeliverablePanel, setShowDeliverablePanel] = useState(
+    Boolean(initialArtifacts[0])
+  );
   const [editableTitle, setEditableTitle] = useState(initialArtifacts[0]?.title ?? "");
-  const [editableContent, setEditableContent] = useState(initialArtifacts[0]?.content ?? "");
+  const [editableContent, setEditableContent] = useState(
+    initialArtifacts[0]?.content ?? ""
+  );
   const [guideLoading, setGuideLoading] = useState(false);
   const [promptLoading, setPromptLoading] = useState(false);
   const [artifactLoading, setArtifactLoading] = useState(false);
@@ -49,14 +70,28 @@ export function TaskExecutionPanel({
   const [promptError, setPromptError] = useState<string | null>(null);
   const [artifactError, setArtifactError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+
   const promptLabel = promptLabelByWorkspaceType[workspaceType];
 
-  function selectArtifact(artifact: TaskArtifact) {
+  useEffect(() => {
+    setArtifacts(initialArtifacts);
+    if (initialArtifacts[0]) {
+      setSelectedArtifact(initialArtifacts[0]);
+      setEditableTitle(initialArtifacts[0].title);
+      setEditableContent(initialArtifacts[0].content);
+      setShowDeliverablePanel(true);
+    }
+  }, [initialArtifacts]);
+
+  const selectArtifact = useCallback((artifact: TaskArtifact) => {
     setSelectedArtifact(artifact);
     setEditableTitle(artifact.title);
     setEditableContent(artifact.content);
+    setShowDeliverablePanel(true);
     setSaveMessage(null);
-  }
+    setCopyMessage(null);
+  }, []);
 
   async function generateGuide() {
     setGuideLoading(true);
@@ -74,12 +109,20 @@ export function TaskExecutionPanel({
     setGuide(result.guide);
   }
 
-  async function generateDeliverable() {
+  async function generateDeliverable(regenerate = false) {
     setArtifactLoading(true);
     setArtifactError(null);
+    setSaveMessage(null);
 
-    const response = await fetch(`/api/tasks/${taskId}/generate`, { method: "POST" });
-    const result = await parseJson<{ artifact?: TaskArtifact } & ApiError>(response);
+    const response = await fetch(
+      `/api/tasks/${taskId}/generate-deliverable?regenerate=${regenerate ? "true" : "false"}`,
+      { method: "POST" }
+    );
+    const result = await parseJson<{
+      artifact?: TaskArtifact;
+      task?: Parameters<NonNullable<typeof workspaceState>["setTask"]>[0];
+      reused?: boolean;
+    } & ApiError>(response);
     setArtifactLoading(false);
 
     if (!response.ok || !result.artifact) {
@@ -87,8 +130,16 @@ export function TaskExecutionPanel({
       return;
     }
 
-    setArtifacts((current) => [result.artifact!, ...current]);
+    if (result.task && workspaceState) {
+      workspaceState.setTask(result.task);
+    }
+
+    setArtifacts((current) => {
+      const withoutDuplicate = current.filter((item) => item.id !== result.artifact!.id);
+      return [result.artifact!, ...withoutDuplicate];
+    });
     selectArtifact(result.artifact);
+    setSaveMessage(result.reused ? "Showing saved deliverable." : "Deliverable generated.");
   }
 
   async function generatePrompt() {
@@ -107,16 +158,17 @@ export function TaskExecutionPanel({
     setTaskPrompt(result.taskPrompt);
   }
 
-  async function saveArtifact() {
+  async function saveDeliverable() {
     if (!selectedArtifact) return;
 
     setSaveLoading(true);
     setSaveMessage(null);
 
-    const response = await fetch(`/api/task-artifacts/${selectedArtifact.id}`, {
+    const response = await fetch(`/api/tasks/${taskId}/deliverable`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        artifactId: selectedArtifact.id,
         title: editableTitle,
         content: editableContent
       })
@@ -125,7 +177,7 @@ export function TaskExecutionPanel({
     setSaveLoading(false);
 
     if (!response.ok || !result.artifact) {
-      setSaveMessage(result.error || "Unable to save artifact.");
+      setSaveMessage(result.error || "Unable to save deliverable.");
       return;
     }
 
@@ -135,11 +187,36 @@ export function TaskExecutionPanel({
       )
     );
     selectArtifact(result.artifact);
-    setSaveMessage("Artifact saved.");
+    setSaveMessage("Deliverable saved.");
   }
+
+  async function copyDeliverable() {
+    if (!editableContent.trim()) return;
+    try {
+      await navigator.clipboard.writeText(editableContent);
+      setCopyMessage("Copied to clipboard.");
+    } catch {
+      setCopyMessage("Unable to copy deliverable.");
+    }
+  }
+
+  const panelTitle = selectedArtifact
+    ? getDeliverablePanelTitle(
+        selectedArtifact.deliverable_type ?? categorization?.deliverable_type
+      )
+    : "Deliverable";
 
   return (
     <div className="space-y-6">
+      {task ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <TaskCategoryBadge task={task} />
+          {categorization?.reason ? (
+            <p className="text-xs text-slate-500">{categorization.reason}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       <section className="premium-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -188,42 +265,6 @@ export function TaskExecutionPanel({
                 ))}
               </ol>
             </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Recommended Approach
-              </p>
-              <p className="mt-1 text-sm leading-6 text-slate-700">
-                {guide.recommendedApproach}
-              </p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Resources
-                </p>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                  {guide.resources.map((resource) => (
-                    <li key={resource}>{resource}</li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Success Criteria
-                </p>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                  {guide.successCriteria.map((criterion) => (
-                    <li key={criterion}>{criterion}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Estimated Effort
-              </p>
-              <p className="mt-1 text-sm leading-6 text-slate-700">{guide.estimatedEffort}</p>
-            </div>
           </div>
         ) : null}
       </section>
@@ -233,16 +274,16 @@ export function TaskExecutionPanel({
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Do It For Me</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Generate and save a first draft deliverable for this task.
+              Generate a smart deliverable tailored to this task category.
             </p>
           </div>
           <button
             type="button"
-            onClick={generateDeliverable}
+            onClick={() => generateDeliverable(false)}
             disabled={artifactLoading}
             className="premium-button"
           >
-            {artifactLoading ? "Generating..." : "Generate Deliverable"}
+            {artifactLoading ? "Generating..." : deliverableButtonLabel}
           </button>
         </div>
 
@@ -251,7 +292,11 @@ export function TaskExecutionPanel({
             {artifactError}
           </p>
         ) : null}
-
+        {saveMessage ? (
+          <p className="mt-4 rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-800">
+            {saveMessage}
+          </p>
+        ) : null}
       </section>
 
       {promptLabel ? (
@@ -297,32 +342,58 @@ export function TaskExecutionPanel({
         </section>
       ) : null}
 
-      {selectedArtifact ? (
+      {selectedArtifact && showDeliverablePanel ? (
         <section className="premium-card p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-brand-800">
-                Current Artifact
+                {panelTitle}
               </p>
               <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                {selectedArtifact.title}
+                {editableTitle || selectedArtifact.title}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 {selectedArtifact.artifact_type} v{selectedArtifact.version}
+                {selectedArtifact.status ? ` · ${selectedArtifact.status}` : ""}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={saveArtifact}
-                disabled={saveLoading}
-                className="premium-button"
+                onClick={copyDeliverable}
+                className="secondary-button px-3 py-2 text-xs"
               >
-                {saveLoading ? "Saving..." : "Save Artifact"}
+                Copy
               </button>
-              {saveMessage ? <p className="text-sm text-slate-600">{saveMessage}</p> : null}
+              <button
+                type="button"
+                onClick={() => generateDeliverable(true)}
+                disabled={artifactLoading}
+                className="secondary-button px-3 py-2 text-xs"
+              >
+                Regenerate
+              </button>
+              <button
+                type="button"
+                onClick={saveDeliverable}
+                disabled={saveLoading}
+                className="premium-button px-3 py-2 text-xs"
+              >
+                {saveLoading ? "Saving..." : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDeliverablePanel(false)}
+                className="secondary-button px-3 py-2 text-xs"
+              >
+                Close
+              </button>
             </div>
           </div>
+
+          {copyMessage ? (
+            <p className="mt-4 text-xs font-medium text-slate-500">{copyMessage}</p>
+          ) : null}
 
           <div className="mt-6 space-y-4">
             <div>
@@ -337,7 +408,7 @@ export function TaskExecutionPanel({
             </div>
             <div>
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Document
+                Deliverable
               </label>
               <textarea
                 value={editableContent}
@@ -350,9 +421,9 @@ export function TaskExecutionPanel({
       ) : null}
 
       <section className="premium-card p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Artifacts</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Saved Deliverables</h2>
         <p className="mt-1 text-xs text-slate-500">
-          Saved deliverables for this task. Select an artifact to edit it.
+          Previously generated deliverables for this task.
         </p>
 
         {artifacts.length > 0 ? (
@@ -371,15 +442,16 @@ export function TaskExecutionPanel({
                 <p className="text-sm font-semibold">{artifact.title}</p>
                 <p className="mt-2 text-xs text-slate-500">
                   {artifact.artifact_type} v{artifact.version}
+                  {artifact.status ? ` · ${artifact.status}` : ""}
                 </p>
               </button>
             ))}
           </div>
         ) : (
           <div className="premium-empty mt-5 p-6 text-left">
-            <p className="text-sm font-semibold text-slate-800">No artifacts yet.</p>
+            <p className="text-sm font-semibold text-slate-800">No deliverables yet.</p>
             <p className="mt-1 text-sm text-slate-600">
-              Generate a deliverable to save the first artifact for this task.
+              Use the smart action button above to generate the first deliverable.
             </p>
           </div>
         )}

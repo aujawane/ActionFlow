@@ -1,5 +1,6 @@
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { parseTaskCommentMetadata } from "@/lib/task-comment-metadata";
+import { loadMeetingTranscriptSegments, getSegmentIdsFromTopic } from "@/lib/transcript-segments";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Meeting, MeetingTask, TaskComment } from "@/lib/types";
 
 export async function getAccessibleTask(taskId: string, userId: string) {
@@ -50,24 +51,15 @@ export async function getTaskTranscriptSnippets(task: MeetingTask) {
     .eq("id", task.topic_id)
     .eq("meeting_id", task.meeting_id)
     .maybeSingle();
-  const segmentIds = Array.isArray(topic?.segment_ids)
-    ? topic.segment_ids.filter((value): value is string => typeof value === "string")
-    : [];
-
-  let query = supabaseAdmin
-    .from("transcript_segments")
-    .select("speaker, text, timestamp")
-    .eq("meeting_id", task.meeting_id)
-    .order("timestamp", { ascending: true })
-    .limit(12);
-  if (segmentIds.length > 0) {
-    query = query.in("id", segmentIds);
-  }
-
-  const { data, error } = await query;
+  const segmentIds = getSegmentIdsFromTopic(topic?.segment_ids);
+  const { segments, error } = await loadMeetingTranscriptSegments({
+    meetingId: task.meeting_id,
+    segmentIds,
+    limit: 12
+  });
   if (error) return { snippets: [], error };
   return {
-    snippets: (data ?? []).map((segment) => {
+    snippets: segments.map((segment) => {
       const speaker = segment.speaker?.trim() || "Unknown Speaker";
       const text = segment.text?.trim().replace(/\s+/g, " ") || "";
       return `${speaker}: ${text.slice(0, 600)}`;

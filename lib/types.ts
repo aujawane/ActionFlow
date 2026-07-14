@@ -90,15 +90,49 @@ export interface MeetingTopic {
 export type MeetingTaskType = "commitment" | "implicit_commitment" | "unassigned_work";
 export type MeetingTaskPriority = "low" | "medium" | "high";
 export type MeetingTaskStatus = "pending" | "in_progress" | "completed" | "dismissed";
-export type MeetingTaskWorkspaceType =
-  | "research"
+export type TaskCategory =
   | "email"
+  | "research"
+  | "website_change"
+  | "design"
+  | "scheduling"
+  | "follow_up"
+  | "coding"
+  | "planning"
+  | "analysis"
+  | "document"
+  | "other";
+
+export type TaskDeliverableType =
+  | "email_draft"
+  | "research_report"
+  | "website_change_prompt"
+  | "design_brief"
+  | "calendar_invite_draft"
+  | "follow_up_message"
+  | "code_implementation_prompt"
+  | "action_plan"
+  | "analysis_summary"
+  | "document_draft"
+  | "generic_next_steps";
+
+export type TaskArtifactStatus = "generated" | "edited" | "failed";
+
+export interface TaskCategorizationMetadata {
+  category: TaskCategory;
+  deliverable_type: TaskDeliverableType;
+  confidence: number;
+  reason: string;
+  missing_info: string[];
+  suggested_button_label: string;
+}
+
+export type MeetingTaskWorkspaceType =
+  | TaskCategory
   | "proposal"
   | "coding"
   | "documentation"
-  | "design"
   | "meeting_follow_up"
-  | "planning"
   | "testing"
   | "decision"
   | "learning"
@@ -119,6 +153,7 @@ export interface MeetingTask {
   due_date?: string | null;
   workspace_type: MeetingTaskWorkspaceType;
   workspace_summary: string | null;
+  categorization_metadata?: TaskCategorizationMetadata | JsonValue;
   rationale?: string | null;
   supporting_context?: string | null;
   created_at: string;
@@ -153,9 +188,12 @@ export interface TaskArtifact {
   id: string;
   task_id: string;
   artifact_type: string;
+  deliverable_type?: TaskDeliverableType | string | null;
   title: string;
   content: string;
   version: number;
+  status?: TaskArtifactStatus;
+  metadata?: Record<string, JsonValue> | JsonValue;
   created_at: string;
   updated_at: string;
 }

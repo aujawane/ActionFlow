@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 
+import { TaskCategoryBadge } from "@/components/task-category-badge";
 import { normalizeSuggestedSteps } from "@/lib/ai/task-chat-patch";
 import type { MeetingTask } from "@/lib/types";
 
@@ -76,9 +77,7 @@ export function TaskWorkspaceHeader() {
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <span className="rounded-full border border-brand-100 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">
-            {formatLabel(task.workspace_type, "other")}
-          </span>
+          <TaskCategoryBadge task={task} />
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold capitalize text-slate-700">
             {formatLabel(task.status, "pending")}
           </span>

@@ -92,7 +92,7 @@ export default async function MeetingDetailPage({
       supabaseAdmin
         .from("meeting_tasks")
         .select(
-          "id, meeting_id, topic_id, task, owner, task_type, priority, suggested_steps, source_quote, confidence, status, due_date, workspace_type, workspace_summary, rationale, supporting_context, created_at"
+          "id, meeting_id, topic_id, task, owner, task_type, priority, suggested_steps, source_quote, confidence, status, due_date, workspace_type, workspace_summary, rationale, supporting_context, categorization_metadata, created_at"
         )
         .eq("meeting_id", id)
         .order("created_at", { ascending: true }),

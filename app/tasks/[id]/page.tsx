@@ -12,25 +12,18 @@ import {
 } from "@/components/task-workspace-task-state";
 import { requireUser } from "@/lib/auth";
 import {
-  applySpeakerAliases,
   resolveTaskOwner
 } from "@/lib/speaker-aliases";
+import {
+  getSegmentIdsFromTopic,
+  loadResolvedMeetingTranscriptSegments
+} from "@/lib/transcript-segments";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
-  MeetingSpeakerAlias,
   MeetingTask,
   MeetingTopic,
-  TaskArtifact,
-  TranscriptSegment
+  TaskArtifact
 } from "@/lib/types";
-
-function getSegmentIds(value: MeetingTopic["segment_ids"]) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((item): item is string => typeof item === "string");
-}
 
 function formatTime(timestamp: string) {
   return new Intl.DateTimeFormat("en", {
@@ -79,43 +72,29 @@ export default async function TaskWorkspacePage({
     .maybeSingle();
 
   const typedTopic = topic as MeetingTopic | null;
-  const segmentIds = typedTopic ? getSegmentIds(typedTopic.segment_ids) : [];
-  const [{ data: contextSegments }, { data: aliases }] =
-    segmentIds.length > 0
-      ? await Promise.all([
-          supabaseAdmin
-            .from("transcript_segments")
-            .select("*")
-            .eq("meeting_id", typedTask.meeting_id)
-            .in("id", segmentIds)
-            .order("timestamp", { ascending: true }),
-          supabaseAdmin
-            .from("meeting_speaker_aliases")
-            .select("*")
-            .eq("meeting_id", typedTask.meeting_id)
-        ])
-      : await Promise.all([
-          supabaseAdmin
-            .from("transcript_segments")
-            .select("*")
-            .eq("meeting_id", typedTask.meeting_id)
-            .order("timestamp", { ascending: true })
-            .limit(8),
-          supabaseAdmin
-            .from("meeting_speaker_aliases")
-            .select("*")
-            .eq("meeting_id", typedTask.meeting_id)
-        ]);
+  const {
+    segments,
+    aliases,
+    segmentsError
+  } = await loadResolvedMeetingTranscriptSegments({
+    meetingId: typedTask.meeting_id,
+    segmentIds: getSegmentIdsFromTopic(typedTopic?.segment_ids),
+    limit: 8
+  });
 
-  const typedAliases = (aliases ?? []) as MeetingSpeakerAlias[];
+  if (segmentsError) {
+    console.warn("[task workspace] Failed to load transcript context", {
+      task_id: typedTask.id,
+      meeting_id: typedTask.meeting_id,
+      details: segmentsError.message
+    });
+  }
+
+  const typedAliases = aliases;
   const resolvedTask = {
     ...typedTask,
     owner: resolveTaskOwner(typedTask.owner, typedAliases)
   };
-  const segments = applySpeakerAliases(
-    (contextSegments ?? []) as TranscriptSegment[],
-    typedAliases
-  );
   const { data: artifacts } = await supabaseAdmin
     .from("task_artifacts")
     .select("*")
