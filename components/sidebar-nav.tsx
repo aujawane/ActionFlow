@@ -7,7 +7,8 @@ import type { Route } from "next";
 const navItems = [
   { href: "/dashboard" as Route, label: "Dashboard" },
   { href: "/meetings/new" as Route, label: "New Meeting" },
-  { href: "/account" as Route, label: "Account" }
+  { href: "/account" as Route, label: "Account" },
+  { href: "/account/integrations" as Route, label: "Integrations" }
 ];
 
 export function SidebarNav() {

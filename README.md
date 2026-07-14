@@ -38,7 +38,12 @@ Required variables:
 - `NEXT_PUBLIC_APP_URL`  
   Public app base URL.  
   - Local dev: `http://localhost:3000`
-  - Webhook testing with ngrok: set this to your ngrok HTTPS URL
+- `INTERNAL_APP_URL`  
+  Server-side app base URL for internal calls.
+  - Local dev: `http://localhost:3000`
+- `RECALL_WEBHOOK_URL`  
+  Public webhook endpoint configured in Recall.ai.
+  - Local dev with ngrok: `https://<your-current-ngrok-domain>/api/recall/webhook`
 - `NEXT_PUBLIC_SUPABASE_URL`  
   Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`  
@@ -88,16 +93,16 @@ What schema creates:
 4. Ensure the meeting host has an active Google Meet open before creating the bot.
 5. User pastes the Google Meet URL in `/meetings/new`.
 6. Parfait sends a bot named `Parfait Notetaker` to that Google Meet URL.
-7. For local testing, expose local app with ngrok and set:
-   - `NEXT_PUBLIC_APP_URL=https://<your-ngrok-subdomain>.ngrok-free.app`
+7. For local testing, expose local app with ngrok and configure Recall.ai with:
+   - `https://<your-ngrok-subdomain>.ngrok-free.app/api/recall/webhook`
 
 Notes:
 
 - Recall API calls are server-side only (`lib/recall/client.ts` + `POST /api/meetings`).
 - `RECALL_API_KEY` is never exposed to browser code.
 - Local webhook testing requires ngrok.
-- When testing Recall webhooks, set `NEXT_PUBLIC_APP_URL` to your ngrok HTTPS URL.
-- Configure Recall.ai webhook URL as: `${NEXT_PUBLIC_APP_URL}/api/recall/webhook`.
+- Keep `NEXT_PUBLIC_APP_URL` and `INTERNAL_APP_URL` pointed at `http://localhost:3000` for local dev.
+- Configure Recall.ai webhook URL as: `https://<your-current-ngrok-domain>/api/recall/webhook`.
 
 ## OpenAI Setup
 
@@ -134,15 +139,18 @@ ngrok http 3000
 
 3. Copy HTTPS forwarding URL from ngrok, e.g.:
    - `https://abc123.ngrok-free.app`
-4. Set in `.env.local`:
-   - `NEXT_PUBLIC_APP_URL=https://abc123.ngrok-free.app`
-5. Restart dev server after env change:
+4. Keep local app URLs in `.env.local`:
+   - `NEXT_PUBLIC_APP_URL=http://localhost:3000`
+   - `INTERNAL_APP_URL=http://localhost:3000`
+5. Configure the Recall.ai webhooks dashboard endpoint to:
+   - `https://abc123.ngrok-free.app/api/recall/webhook`
+6. Restart dev server after env changes:
 
 ```bash
 npm run dev
 ```
 
-Use the ngrok URL as `NEXT_PUBLIC_APP_URL` so Recall can deliver webhook events to your local `/api/recall/webhook`.
+Use the ngrok URL only in the Recall.ai webhooks dashboard so Recall can deliver webhook events to your local `/api/recall/webhook`.
 
 ## How to Test Creating a Meeting Bot
 

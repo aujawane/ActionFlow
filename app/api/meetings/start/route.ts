@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireApiUser } from "@/lib/api-auth";
+import { GOOGLE_INTEGRATION_PROVIDER } from "@/lib/google-integration";
 import { createProviderMeeting } from "@/lib/meeting-providers";
 import { createRecallBot } from "@/lib/recall/client";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { UserIntegration } from "@/lib/types";
 
 const payloadSchema = z.object({
   platform: z.enum(["zoom", "google_meet"]),
@@ -38,9 +40,34 @@ export async function POST(request: Request) {
     );
   }
 
+  let googleRefreshToken: string | null = null;
+  if (parsed.data.platform === "google_meet") {
+    const { data: integration, error: integrationError } = await supabaseAdmin
+      .from("user_integrations")
+      .select("*")
+      .eq("user_id", auth.user.id)
+      .eq("provider", GOOGLE_INTEGRATION_PROVIDER)
+      .maybeSingle();
+
+    const googleIntegration = integration as UserIntegration | null;
+    if (integrationError || !googleIntegration?.refresh_token) {
+      return NextResponse.json(
+        {
+          error: "Google Meet is not connected.",
+          details: "Connect Google from Account Integrations before starting Google Meet."
+        },
+        { status: 400 }
+      );
+    }
+
+    googleRefreshToken = googleIntegration.refresh_token;
+  }
+
   let providerMeeting: Awaited<ReturnType<typeof createProviderMeeting>>;
   try {
-    providerMeeting = await createProviderMeeting(parsed.data.platform, parsed.data.title);
+    providerMeeting = await createProviderMeeting(parsed.data.platform, parsed.data.title, {
+      googleRefreshToken
+    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -80,7 +107,7 @@ export async function POST(request: Request) {
       .from("meetings")
       .update({
         recall_bot_id: bot.id,
-        status: "joining"
+        status: "recording"
       })
       .eq("id", meeting.id)
       .select("*")

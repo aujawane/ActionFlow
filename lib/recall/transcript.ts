@@ -20,6 +20,7 @@ export interface RecallTranscriptEntry {
   participant?: RecallTranscriptParticipant | string | null;
   participant_name?: string | null;
   speaker?: { name?: string | null } | string | null;
+  speaker_id?: string | number | null;
   speaker_name?: string | null;
   speaker_label?: string | null;
   diarized_speaker?: string | null;
@@ -103,6 +104,7 @@ function extractSpeaker(utterance: JsonObject): string | null {
     asNonEmptyString(speaker?.name) ??
     asNonEmptyString(typedUtterance.speaker_name) ??
     asNonEmptyString(typedUtterance.speaker) ??
+    formatSpeakerLabel(typedUtterance.speaker_id) ??
     asNonEmptyString(typedUtterance.participant) ??
     null
   );
@@ -138,6 +140,7 @@ function extractDiarizedSpeaker(utterance: JsonObject): string | null {
     formatSpeakerLabel(typedUtterance.diarized_speaker) ??
     formatSpeakerLabel(typedUtterance.diarized_speaker_label) ??
     formatSpeakerLabel(typedUtterance.speaker_label) ??
+    formatSpeakerLabel(typedUtterance.speaker_id) ??
     formatSpeakerLabel(speaker?.label as string | number | null | undefined) ??
     formatSpeakerLabel(speaker?.id as string | number | null | undefined) ??
     formatSpeakerLabel(firstWord?.speaker as string | number | null | undefined) ??
@@ -206,6 +209,39 @@ function pickUtteranceArray(payload: unknown): unknown[] {
   return [];
 }
 
+function findTranscriptDownloadUrl(value: unknown, depth = 0): string | null {
+  if (depth > 8) return null;
+
+  const object = asObject(value);
+  if (!object) return null;
+
+  const data = asObject(object.data);
+  const directDownloadUrl = asNonEmptyString(data?.download_url);
+  if (directDownloadUrl) return directDownloadUrl;
+
+  const mediaShortcuts = asObject(object.media_shortcuts);
+  const mediaTranscript = asObject(mediaShortcuts?.transcript);
+  const mediaTranscriptData = asObject(mediaTranscript?.data);
+  const shortcutDownloadUrl = asNonEmptyString(mediaTranscriptData?.download_url);
+  if (shortcutDownloadUrl) return shortcutDownloadUrl;
+
+  for (const key of ["recordings", "transcripts", "transcript_artifacts", "artifacts"]) {
+    const array = object[key];
+    if (!Array.isArray(array)) continue;
+
+    for (const item of array) {
+      const nestedDownloadUrl = findTranscriptDownloadUrl(item, depth + 1);
+      if (nestedDownloadUrl) return nestedDownloadUrl;
+    }
+  }
+
+  const nestedDataDownloadUrl = data ? findTranscriptDownloadUrl(data, depth + 1) : null;
+  if (nestedDataDownloadUrl) return nestedDataDownloadUrl;
+
+  const bot = asObject(object.bot);
+  return bot ? findTranscriptDownloadUrl(bot, depth + 1) : null;
+}
+
 export function parseRecallTranscriptToSegments(payload: unknown): ParsedTranscriptSegment[] {
   const utterances = pickUtteranceArray(payload);
 
@@ -231,23 +267,16 @@ export function parseRecallTranscriptToSegments(payload: unknown): ParsedTranscr
   return segments;
 }
 
-export async function fetchRecallTranscript(transcriptId: string): Promise<unknown> {
+export async function fetchRecallTranscript(recallBotId: string): Promise<unknown> {
   const apiKey = process.env.RECALL_API_KEY?.trim();
-  const region = process.env.RECALL_REGION?.trim();
+  const region = process.env.RECALL_REGION?.trim() || "us-west-2";
 
   if (!apiKey) {
     throw new Error("Missing RECALL_API_KEY");
   }
 
-  if (!region) {
-    throw new Error("Missing RECALL_REGION");
-  }
-
-  const isDev = process.env.NODE_ENV !== "production";
-  const metadataUrl = `https://${region}.recall.ai/api/v1/transcript/${encodeURIComponent(transcriptId)}/`;
-  console.info("Recall transcript metadata fetch request", { request_url: metadataUrl });
-
-  const metadataResponse = await fetch(metadataUrl, {
+  const botUrl = `https://${region}.recall.ai/api/v1/bot/${encodeURIComponent(recallBotId)}/`;
+  const botResponse = await fetch(botUrl, {
     method: "GET",
     headers: {
       Authorization: `Token ${apiKey}`,
@@ -255,73 +284,70 @@ export async function fetchRecallTranscript(transcriptId: string): Promise<unkno
     }
   });
 
-  const metadataBodyText = await metadataResponse.text();
-  let metadataBody: unknown = metadataBodyText;
+  const botBodyText = await botResponse.text();
+  let botBody: unknown = botBodyText;
   try {
-    metadataBody = metadataBodyText ? (JSON.parse(metadataBodyText) as unknown) : {};
+    botBody = botBodyText ? (JSON.parse(botBodyText) as unknown) : {};
   } catch {
-    metadataBody = metadataBodyText;
+    botBody = botBodyText;
   }
 
-  if (!metadataResponse.ok) {
-    console.error("Recall transcript metadata fetch failed", {
-      status: metadataResponse.status,
-      body: metadataBodyText
+  if (!botResponse.ok) {
+    console.error("Recall bot metadata fetch failed", {
+      bot_id: recallBotId,
+      status: botResponse.status,
+      body: botBodyText
     });
-    throw new Error(
-      `Recall transcript fetch failed: ${metadataResponse.status} ${metadataBodyText}`
-    );
+    throw new Error(`Recall bot metadata fetch failed: ${botResponse.status}`);
   }
 
-  const metadataObject = asObject(metadataBody);
-  const metadataData = asObject(metadataObject?.data);
-  const downloadUrl =
-    asString(metadataData?.download_url) ?? asString(metadataData?.provider_data_download_url);
-
+  const downloadUrl = findTranscriptDownloadUrl(botBody);
   if (!downloadUrl) {
-    throw new Error("Recall transcript metadata missing data.download_url");
+    console.info("Recall transcript download URL not ready", {
+      bot_id: recallBotId,
+      transcript_entry_count: 0,
+      sample_speakers: []
+    });
+    return [];
   }
 
-  const contentResponse = await fetch(downloadUrl, { method: "GET" });
-  console.info("Recall transcript content fetch response", {
-    status: contentResponse.status
+  const transcriptResponse = await fetch(downloadUrl, { method: "GET" });
+  const transcriptBodyText = await transcriptResponse.text();
+  let transcriptBody: unknown = transcriptBodyText;
+  try {
+    transcriptBody = transcriptBodyText ? (JSON.parse(transcriptBodyText) as unknown) : [];
+  } catch {
+    transcriptBody = transcriptBodyText;
+  }
+
+  if (!transcriptResponse.ok) {
+    console.error("Recall transcript download failed", {
+      bot_id: recallBotId,
+      status: transcriptResponse.status,
+      body: transcriptBodyText
+    });
+    throw new Error(`Recall transcript download failed: ${transcriptResponse.status}`);
+  }
+
+  const entries = Array.isArray(transcriptBody) ? transcriptBody : pickUtteranceArray(transcriptBody);
+  const sampleSpeakers = entries
+    .slice(0, 5)
+    .map((entry) => {
+      const object = asObject(entry);
+      const participant = asObject(object?.participant);
+      return (
+        asNonEmptyString(participant?.name) ??
+        asNonEmptyString(object?.speaker) ??
+        asNonEmptyString(object?.speaker_id) ??
+        "Unknown Speaker"
+      );
+    });
+
+  console.info("Recall transcript downloaded", {
+    bot_id: recallBotId,
+    transcript_entry_count: entries.length,
+    sample_speakers: sampleSpeakers
   });
 
-  const contentBodyText = await contentResponse.text();
-  let contentBody: unknown = contentBodyText;
-  try {
-    contentBody = contentBodyText ? (JSON.parse(contentBodyText) as unknown) : {};
-  } catch {
-    contentBody = contentBodyText;
-  }
-
-  if (!contentResponse.ok) {
-    console.error("Recall transcript content fetch failed", {
-      status: contentResponse.status,
-      body: contentBodyText
-    });
-    throw new Error(
-      `Recall transcript content fetch failed: ${contentResponse.status} ${contentBodyText}`
-    );
-  }
-
-  if (isDev) {
-    const contentObject = asObject(contentBody);
-    console.info("Recall transcript content keys", {
-      keys: contentObject ? Object.keys(contentObject) : []
-    });
-
-    const candidates = [
-      contentObject?.utterances,
-      contentObject?.segments,
-      contentObject?.transcript,
-      contentObject?.results
-    ].find((value) => Array.isArray(value)) as unknown[] | undefined;
-
-    console.info("Recall transcript first items", {
-      first_three: candidates ? candidates.slice(0, 3) : []
-    });
-  }
-
-  return contentBody;
+  return transcriptBody;
 }

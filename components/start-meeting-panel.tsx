@@ -30,13 +30,12 @@ export function StartMeetingPanel() {
   const [title, setTitle] = useState("");
   const [busyPlatform, setBusyPlatform] = useState<StartMeetingPlatform | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [meetingUrlToOpen, setMeetingUrlToOpen] = useState<string | null>(null);
 
   async function startMeeting(platform: StartMeetingPlatform) {
     setBusyPlatform(platform);
     setError(null);
-
-    // Open synchronously from the click path so browsers do not block the final navigation.
-    const meetingWindow = window.open("", "_blank", "noopener,noreferrer");
+    setMeetingUrlToOpen(null);
 
     try {
       const response = await fetch("/api/meetings/start", {
@@ -51,7 +50,6 @@ export function StartMeetingPanel() {
       setBusyPlatform(null);
 
       if (!response.ok || !data.meetingUrl || !data.meetingId) {
-        meetingWindow?.close();
         setError(
           data.details
             ? `${data.error ?? "Failed to start meeting"}: ${data.details}`
@@ -60,16 +58,14 @@ export function StartMeetingPanel() {
         return;
       }
 
-      if (meetingWindow) {
-        meetingWindow.location.href = data.meetingUrl;
-      } else {
-        window.open(data.meetingUrl, "_blank", "noopener,noreferrer");
+      const openedWindow = window.open(data.meetingUrl, "_blank", "noopener,noreferrer");
+      if (!openedWindow) {
+        setMeetingUrlToOpen(data.meetingUrl);
       }
 
       router.push(`/meetings/${data.meetingId}`);
       router.refresh();
     } catch {
-      meetingWindow?.close();
       setBusyPlatform(null);
       setError("Request failed. Check your connection and try again.");
     }
@@ -116,6 +112,22 @@ export function StartMeetingPanel() {
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {error}
         </p>
+      ) : null}
+
+      {meetingUrlToOpen ? (
+        <div className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2">
+          <p className="text-sm text-brand-800">
+            Your meeting was created, but the popup was blocked.
+          </p>
+          <a
+            href={meetingUrlToOpen}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-flex rounded-xl bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-700"
+          >
+            Open Meeting
+          </a>
+        </div>
       ) : null}
     </div>
   );

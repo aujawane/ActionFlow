@@ -4,6 +4,7 @@ const stylesByStatus: Record<Meeting["status"], string> = {
   pending: "bg-slate-100 text-slate-700 border-slate-200",
   joining: "bg-brand-50 text-brand-800 border-brand-200",
   recording: "bg-amber-50 text-amber-700 border-amber-200",
+  processing: "bg-purple-50 text-purple-700 border-purple-200",
   completed: "bg-brand-50 text-brand-800 border-brand-200",
   failed: "bg-rose-50 text-rose-700 border-rose-200"
 };

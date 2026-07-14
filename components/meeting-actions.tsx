@@ -11,7 +11,7 @@ export function MeetingActions({
   showDevReimport?: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"analyze" | "reimport" | null>(null);
+  const [busy, setBusy] = useState<"analyze" | "sync" | "reimport" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   async function triggerAnalyze() {
@@ -91,6 +91,37 @@ export function MeetingActions({
     }
   }
 
+  async function syncStatus() {
+    setBusy("sync");
+    setMessage(null);
+
+    try {
+      const response = await fetch(`/api/meetings/${meetingId}/sync-status`, {
+        method: "POST"
+      });
+      const data = await response.json();
+      setBusy(null);
+
+      if (!response.ok) {
+        const details = typeof data?.details === "string" ? data.details : null;
+        setMessage(
+          details
+            ? `${data.error ?? "Failed to sync status"}: ${details}`
+            : data.error ?? "Failed to sync status"
+        );
+        return;
+      }
+
+      setMessage(
+        `Status synced to ${data.status}. Inserted ${data.insertedSegments ?? 0} transcript segments.`
+      );
+      router.refresh();
+    } catch {
+      setBusy(null);
+      setMessage("Request failed. Check your connection and try again.");
+    }
+  }
+
   return (
     <div className="premium-card space-y-3 p-4">
       <div>
@@ -108,13 +139,22 @@ export function MeetingActions({
           {busy === "analyze" ? "Analyzing..." : "Analyze Meeting"}
         </button>
         {showDevReimport ? (
-          <button
-            onClick={reimportTranscript}
-            disabled={busy !== null}
-            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busy === "reimport" ? "Reimporting..." : "Reimport Transcript"}
-          </button>
+          <>
+            <button
+              onClick={syncStatus}
+              disabled={busy !== null}
+              className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy === "sync" ? "Syncing..." : "Sync Status"}
+            </button>
+            <button
+              onClick={reimportTranscript}
+              disabled={busy !== null}
+              className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy === "reimport" ? "Reimporting..." : "Reimport Transcript"}
+            </button>
+          </>
         ) : null}
       </div>
       {message ? (

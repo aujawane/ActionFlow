@@ -3,10 +3,7 @@ import crypto from "node:crypto";
 import { mkdir, appendFile } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  fetchRecallTranscript,
-  parseRecallTranscriptToSegments
-} from "@/lib/recall/transcript";
+import { replaceMeetingTranscriptFromRecall } from "@/lib/recall/processing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type JsonObject = Record<string, unknown>;
@@ -146,52 +143,38 @@ export async function POST(request: Request) {
   const transcriptId =
     asString(transcript.id) ??
     (typeof transcript.id === "number" ? String(transcript.id) : null);
-  if (eventType === "transcript.done" && transcriptId) {
+  if (eventType === "transcript.done" && recallBotId) {
     try {
       console.info("Recall transcript.done received", {
         transcript_id: transcriptId,
+        bot_id: recallBotId,
         meeting_id: meetingId
       });
 
-      const transcriptContent = await fetchRecallTranscript(transcriptId);
-      const parsedRows = parseRecallTranscriptToSegments(transcriptContent);
-      console.info("Recall transcript content rows found", {
-        transcript_id: transcriptId,
-        row_count: parsedRows.length
+      await supabaseAdmin
+        .from("meetings")
+        .update({ status: "processing" })
+        .eq("id", meetingId);
+
+      const { insertedCount, parsedCount, ready } = await replaceMeetingTranscriptFromRecall({
+        meetingId,
+        recallBotId
       });
 
-      let insertedCount = 0;
-      if (parsedRows.length > 0) {
-        const { data: insertedRows, error: insertError } = await supabaseAdmin
-          .from("transcript_segments")
-          .insert(
-            parsedRows.map((row) => ({
-              meeting_id: meetingId,
-              speaker: row.speaker,
-              participant_name: row.participant_name,
-              diarized_speaker: row.diarized_speaker,
-              speaker_confidence: row.speaker_confidence,
-              text: row.text,
-              timestamp: row.timestamp,
-              raw_payload: row.raw_payload
-            }))
-          )
-          .select("id");
-
-        if (insertError) {
-          console.error("Recall transcript.done insert failed", {
-            transcript_id: transcriptId,
-            meeting_id: meetingId,
-            error: insertError.message
-          });
-        } else {
-          insertedCount = insertedRows?.length ?? 0;
-        }
+      if (!ready) {
+        console.info("Recall transcript.done not ready for import", {
+          transcript_id: transcriptId,
+          bot_id: recallBotId,
+          meeting_id: meetingId
+        });
+        return NextResponse.json({ ok: true });
       }
 
       console.info("Recall transcript segments inserted", {
         transcript_id: transcriptId,
+        bot_id: recallBotId,
         meeting_id: meetingId,
+        row_count: parsedCount,
         inserted_count: insertedCount
       });
 
@@ -202,6 +185,7 @@ export async function POST(request: Request) {
     } catch (error) {
       console.error("Recall transcript.done processing failed", {
         transcript_id: transcriptId,
+        bot_id: recallBotId,
         meeting_id: meetingId,
         error: error instanceof Error ? error.message : "Unknown error"
       });

@@ -14,6 +14,9 @@ import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { MeetingSpeakerAlias, MeetingTopic, TranscriptSegment } from "@/lib/types";
 
+const MIN_ANALYSIS_WORDS = 25;
+const MIN_ANALYSIS_SEGMENTS = 2;
+
 function isMissingRelationError(
   error: { code?: string; message?: string } | null,
   relation: string
@@ -30,6 +33,13 @@ function isMissingColumnError(
   if (!error) return false;
   if (error.code === "42703") return true;
   return error.message?.toLowerCase().includes(column.toLowerCase()) ?? false;
+}
+
+function countTranscriptWords(segments: TranscriptSegment[]) {
+  return segments.reduce((total, segment) => {
+    const words = segment.text.trim().split(/\s+/).filter(Boolean);
+    return total + words.length;
+  }, 0);
 }
 
 export async function POST(
@@ -92,6 +102,25 @@ export async function POST(
       { error: "No transcript available yet" },
       { status: 400 }
     );
+  }
+
+  const transcriptWordCount = countTranscriptWords(safeSegments);
+  if (safeSegments.length < MIN_ANALYSIS_SEGMENTS || transcriptWordCount < MIN_ANALYSIS_WORDS) {
+    console.info("[analyze] Skipping analysis for short transcript", {
+      meeting_id: id,
+      segment_count: safeSegments.length,
+      word_count: transcriptWordCount
+    });
+
+    return NextResponse.json({
+      skipped: true,
+      skip_reason: "Transcript imported, but there is not enough meeting content to analyze yet.",
+      segment_count: safeSegments.length,
+      word_count: transcriptWordCount,
+      topics: [],
+      insights: [],
+      tasks: []
+    });
   }
 
   const runWholeMeetingFallback = async (reason: string) => {

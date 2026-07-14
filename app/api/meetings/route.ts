@@ -100,7 +100,7 @@ export async function POST(request: Request) {
       .from("meetings")
       .update({
         recall_bot_id: bot.id,
-        status: "joining"
+        status: "recording"
       })
       .eq("id", meeting.id)
       .select("*")

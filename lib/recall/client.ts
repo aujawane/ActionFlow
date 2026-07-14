@@ -8,6 +8,14 @@ interface RecallBotResponse {
   status: string;
 }
 
+export type RecallBotStatusResult = {
+  id: string;
+  status: string;
+  raw: unknown;
+  transcriptId: string | null;
+  transcriptAvailable: boolean;
+};
+
 function getRecallApiKey() {
   const apiKey = process.env.RECALL_API_KEY?.trim();
   if (!apiKey) {
@@ -113,4 +121,125 @@ export async function createRecallBot(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function idToString(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return asString(value);
+}
+
+function findTranscriptId(value: unknown, depth = 0): string | null {
+  if (depth > 6) return null;
+
+  const object = asObject(value);
+  if (!object) return null;
+
+  const directTranscript = asObject(object.transcript);
+  const directTranscriptId = idToString(directTranscript?.id) ?? idToString(object.transcript_id);
+  if (directTranscriptId) return directTranscriptId;
+
+  for (const key of ["transcripts", "transcript_artifacts", "recordings", "artifacts"]) {
+    const array = object[key];
+    if (!Array.isArray(array)) continue;
+    for (const item of array) {
+      const itemObject = asObject(item);
+      const itemTranscriptId =
+        idToString(itemObject?.transcript_id) ??
+        idToString(asObject(itemObject?.transcript)?.id) ??
+        idToString(itemObject?.id);
+      if (itemTranscriptId) return itemTranscriptId;
+      const nested = findTranscriptId(item, depth + 1);
+      if (nested) return nested;
+    }
+  }
+
+  const data = asObject(object.data);
+  return data ? findTranscriptId(data, depth + 1) : null;
+}
+
+function hasTranscriptDownloadUrl(value: unknown, depth = 0): boolean {
+  if (depth > 8) return false;
+
+  const object = asObject(value);
+  if (!object) return false;
+
+  const data = asObject(object.data);
+  if (asString(data?.download_url)) return true;
+
+  const mediaShortcuts = asObject(object.media_shortcuts);
+  const transcript = asObject(mediaShortcuts?.transcript);
+  const transcriptData = asObject(transcript?.data);
+  if (asString(transcriptData?.download_url)) return true;
+
+  for (const key of ["recordings", "transcripts", "transcript_artifacts", "artifacts"]) {
+    const array = object[key];
+    if (!Array.isArray(array)) continue;
+    if (array.some((item) => hasTranscriptDownloadUrl(item, depth + 1))) return true;
+  }
+
+  const nestedData = data ? hasTranscriptDownloadUrl(data, depth + 1) : false;
+  if (nestedData) return true;
+
+  const bot = asObject(object.bot);
+  return bot ? hasTranscriptDownloadUrl(bot, depth + 1) : false;
+}
+
+function extractBotStatus(value: unknown): string {
+  const object = asObject(value) ?? {};
+  const data = asObject(object.data);
+  const bot = asObject(object.bot) ?? asObject(data?.bot);
+
+  return (
+    asString(object.status) ??
+    asString(asObject(object.status)?.code) ??
+    asString(bot?.status) ??
+    asString(asObject(bot?.status)?.code) ??
+    asString(data?.status) ??
+    asString(asObject(data?.status)?.code) ??
+    "unknown"
+  );
+}
+
+export async function fetchRecallBotStatus(botId: string): Promise<RecallBotStatusResult> {
+  const apiKey = getRecallApiKey();
+  const region = process.env.RECALL_REGION?.trim() || "us-west-2";
+  const response = await fetch(
+    `https://${region}.recall.ai/api/v1/bot/${encodeURIComponent(botId)}/`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
+
+  const responseText = await response.text();
+  let responseJson: unknown = responseText;
+  try {
+    responseJson = responseText ? (JSON.parse(responseText) as unknown) : {};
+  } catch {
+    responseJson = responseText;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Recall bot status fetch failed: ${response.status}`);
+  }
+
+  const transcriptId = findTranscriptId(responseJson);
+  return {
+    id: idToString((asObject(responseJson) ?? {}).id) ?? botId,
+    status: extractBotStatus(responseJson),
+    raw: responseJson,
+    transcriptId,
+    transcriptAvailable: Boolean(transcriptId || hasTranscriptDownloadUrl(responseJson))
+  };
 }

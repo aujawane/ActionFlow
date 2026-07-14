@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -89,6 +90,14 @@ export function AccountMenu({ fullName, email, initials }: AccountMenuProps) {
             className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:-translate-y-0.5 hover:bg-brand-50 hover:text-brand-800"
           >
             Account Settings
+          </Link>
+          <Link
+            href={"/account/integrations" as Route}
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:-translate-y-0.5 hover:bg-brand-50 hover:text-brand-800"
+          >
+            Integrations
           </Link>
           <Link
             href="/account?changePassword=1"

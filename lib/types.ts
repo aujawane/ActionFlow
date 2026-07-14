@@ -146,9 +146,22 @@ export interface Meeting {
   meeting_url: string;
   platform: "google_meet" | "zoom" | "unknown";
   recall_bot_id: string | null;
-  status: "pending" | "joining" | "recording" | "completed" | "failed";
+  status: "pending" | "joining" | "recording" | "processing" | "completed" | "failed";
   is_pinned: boolean;
   deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserIntegration {
+  id: string;
+  user_id: string;
+  provider: string;
+  access_token: string | null;
+  refresh_token: string | null;
+  expires_at: string | null;
+  scope: string | null;
+  provider_account_email: string | null;
   created_at: string;
   updated_at: string;
 }

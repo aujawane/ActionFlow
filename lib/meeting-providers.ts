@@ -76,10 +76,10 @@ export async function createZoomMeeting(title?: string): Promise<CreatedProvider
   return { meetingUrl: data.join_url, platform: "zoom" };
 }
 
-async function createGoogleAccessToken() {
+async function createGoogleAccessToken(refreshTokenOverride?: string | null) {
   const clientId = getRequiredEnv("GOOGLE_CLIENT_ID");
   const clientSecret = getRequiredEnv("GOOGLE_CLIENT_SECRET");
-  const refreshToken = getRequiredEnv("GOOGLE_REFRESH_TOKEN");
+  const refreshToken = refreshTokenOverride?.trim() || getRequiredEnv("GOOGLE_REFRESH_TOKEN");
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -108,8 +108,10 @@ async function createGoogleAccessToken() {
   return data.access_token;
 }
 
-export async function createGoogleMeetMeeting(): Promise<CreatedProviderMeeting> {
-  const accessToken = await createGoogleAccessToken();
+export async function createGoogleMeetMeeting(
+  refreshToken?: string | null
+): Promise<CreatedProviderMeeting> {
+  const accessToken = await createGoogleAccessToken(refreshToken);
   const response = await fetch("https://meet.googleapis.com/v2/spaces", {
     method: "POST",
     headers: {
@@ -135,11 +137,12 @@ export async function createGoogleMeetMeeting(): Promise<CreatedProviderMeeting>
 
 export async function createProviderMeeting(
   platform: DirectMeetingPlatform,
-  title?: string
+  title?: string,
+  options?: { googleRefreshToken?: string | null }
 ): Promise<CreatedProviderMeeting> {
   if (platform === "zoom") {
     return createZoomMeeting(title);
   }
 
-  return createGoogleMeetMeeting();
+  return createGoogleMeetMeeting(options?.googleRefreshToken);
 }
