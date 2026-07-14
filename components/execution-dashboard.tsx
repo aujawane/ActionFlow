@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useMemo, useState } from "react";
 
+import { TaskClarifications } from "@/components/task-clarifications";
 import type { MeetingTask } from "@/lib/types";
 
 type ExecutionDashboardProps = {
@@ -342,6 +343,7 @@ function TaskCard({
         ) : null}
       </select>
       {updating ? <p className="mt-2 text-xs text-slate-500">Updating owner...</p> : null}
+      <TaskClarifications taskId={task.id} />
     </article>
   );
 }

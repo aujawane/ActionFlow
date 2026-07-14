@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 
+import { TaskClarifications } from "@/components/task-clarifications";
 import type { MeetingTask } from "@/lib/types";
 
 function formatTaskType(taskType: MeetingTask["task_type"]) {
@@ -91,6 +92,8 @@ function TaskCard({ task }: { task: MeetingTask }) {
           &ldquo;{task.source_quote}&rdquo;
         </blockquote>
       ) : null}
+
+      <TaskClarifications taskId={task.id} />
 
       <div className="mt-4">
         <Link href={`/tasks/${task.id}` as Route} className="secondary-button px-3 py-1.5 text-xs">

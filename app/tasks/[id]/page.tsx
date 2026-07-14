@@ -3,7 +3,13 @@ import type { Route } from "next";
 import { notFound } from "next/navigation";
 
 import { MeetingStatusBadge } from "@/components/meeting-status-badge";
+import { TaskClarifications } from "@/components/task-clarifications";
 import { TaskExecutionPanel } from "@/components/task-execution-panel";
+import {
+  TaskWorkspaceEditableDetails,
+  TaskWorkspaceHeader,
+  TaskWorkspaceTaskProvider
+} from "@/components/task-workspace-task-state";
 import { requireUser } from "@/lib/auth";
 import {
   applySpeakerAliases,
@@ -17,26 +23,6 @@ import type {
   TaskArtifact,
   TranscriptSegment
 } from "@/lib/types";
-
-function formatLabel(value: string | null | undefined, fallback = "Unknown") {
-  return (value || fallback)
-    .split("_")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
-function getSuggestedSteps(value: MeetingTask["suggested_steps"]) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.reduce<string[]>((steps, step) => {
-    if (typeof step === "string" && step.trim().length > 0) {
-      steps.push(step.trim());
-    }
-    return steps;
-  }, []);
-}
 
 function getSegmentIds(value: MeetingTopic["segment_ids"]) {
   if (!Array.isArray(value)) {
@@ -126,7 +112,6 @@ export default async function TaskWorkspacePage({
     ...typedTask,
     owner: resolveTaskOwner(typedTask.owner, typedAliases)
   };
-  const suggestedSteps = getSuggestedSteps(resolvedTask.suggested_steps);
   const segments = applySpeakerAliases(
     (contextSegments ?? []) as TranscriptSegment[],
     typedAliases
@@ -139,85 +124,13 @@ export default async function TaskWorkspacePage({
   const initialArtifacts = (artifacts ?? []) as TaskArtifact[];
 
   return (
-    <section className="space-y-6">
-      <div className="premium-card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="max-w-3xl">
-            <p className="text-sm font-semibold text-brand-700">Task Workspace</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-              {resolvedTask.task}
-            </h1>
-            {resolvedTask.workspace_summary ? (
-              <p className="mt-3 text-sm leading-6 text-slate-600">
-                {resolvedTask.workspace_summary}
-              </p>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-brand-100 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">
-              {formatLabel(resolvedTask.workspace_type, "other")}
-            </span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold capitalize text-slate-700">
-              {formatLabel(resolvedTask.status, "pending")}
-            </span>
-          </div>
-        </div>
-      </div>
+    <TaskWorkspaceTaskProvider initialTask={resolvedTask}>
+      <section className="space-y-6">
+        <TaskWorkspaceHeader />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
-        <div className="space-y-6">
-          <section className="premium-card p-5">
-            <h2 className="text-sm font-semibold text-slate-900">Task Summary</h2>
-            <dl className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Owner
-                </dt>
-                <dd className="mt-1 text-sm font-medium text-slate-900">
-                  {resolvedTask.owner || "Unassigned"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Priority
-                </dt>
-                <dd className="mt-1 text-sm font-medium capitalize text-slate-900">
-                  {resolvedTask.priority}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Task Type
-                </dt>
-                <dd className="mt-1 text-sm font-medium text-slate-900">
-                  {formatLabel(resolvedTask.task_type, "other")}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Confidence
-                </dt>
-                <dd className="mt-1 text-sm font-medium text-slate-900">
-                  {resolvedTask.confidence === null
-                    ? "N/A"
-                    : `${Math.round(resolvedTask.confidence * 100)}%`}
-                </dd>
-              </div>
-            </dl>
-          </section>
-
-          <section className="premium-card p-5">
-            <h2 className="text-sm font-semibold text-slate-900">Suggested Next Steps</h2>
-            {suggestedSteps.length > 0 ? (
-              <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-700">
-                {suggestedSteps.map((step) => (
-                  <li key={step}>{step}</li>
-                ))}
-              </ol>
-            ) : (
-              <p className="mt-3 text-sm text-slate-500">No suggested steps were generated.</p>
-            )}
-          </section>
+        <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
+          <div className="space-y-6">
+            <TaskWorkspaceEditableDetails />
 
           <section className="premium-card p-5">
             <h2 className="text-sm font-semibold text-slate-900">Source Quote</h2>
@@ -250,6 +163,8 @@ export default async function TaskWorkspacePage({
         </div>
 
         <aside className="space-y-6">
+          <TaskClarifications taskId={resolvedTask.id} variant="panel" />
+
           <section className="premium-card p-5">
             <h2 className="text-sm font-semibold text-slate-900">Related Meeting</h2>
             <div className="mt-4 space-y-3">
@@ -293,6 +208,7 @@ export default async function TaskWorkspacePage({
         workspaceType={resolvedTask.workspace_type}
         initialArtifacts={initialArtifacts}
       />
-    </section>
+      </section>
+    </TaskWorkspaceTaskProvider>
   );
 }

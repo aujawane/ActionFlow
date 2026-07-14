@@ -116,8 +116,36 @@ export interface MeetingTask {
   source_quote: string | null;
   confidence: number | null;
   status: MeetingTaskStatus;
+  due_date?: string | null;
   workspace_type: MeetingTaskWorkspaceType;
   workspace_summary: string | null;
+  rationale?: string | null;
+  supporting_context?: string | null;
+  created_at: string;
+}
+
+export type TaskCommentRole = "user" | "assistant" | "system";
+export type TaskProposalStatus = "pending" | "applied" | "superseded";
+
+export interface TaskCommentProposal {
+  id: string;
+  patch: Record<string, JsonValue>;
+  confidence: number;
+  status: TaskProposalStatus;
+  source: "agent" | "fallback";
+}
+
+export interface TaskCommentMetadata {
+  proposal?: TaskCommentProposal;
+}
+
+export interface TaskComment {
+  id: string;
+  task_id: string;
+  user_id: string | null;
+  role: TaskCommentRole;
+  message: string;
+  metadata?: TaskCommentMetadata;
   created_at: string;
 }
 

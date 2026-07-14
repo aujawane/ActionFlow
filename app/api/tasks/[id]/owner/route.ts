@@ -47,7 +47,7 @@ export async function PATCH(
     .update({ owner })
     .eq("id", id)
     .select(
-      "id, meeting_id, topic_id, task, owner, task_type, priority, suggested_steps, source_quote, confidence, status, workspace_type, workspace_summary, created_at"
+      "id, meeting_id, topic_id, task, owner, task_type, priority, suggested_steps, source_quote, confidence, status, due_date, workspace_type, workspace_summary, rationale, supporting_context, created_at"
     )
     .single();
 
