@@ -5,7 +5,10 @@ import { notFound } from "next/navigation";
 import { MeetingStatusBadge } from "@/components/meeting-status-badge";
 import { TaskExecutionPanel } from "@/components/task-execution-panel";
 import { requireUser } from "@/lib/auth";
-import { applySpeakerAliases } from "@/lib/speaker-aliases";
+import {
+  applySpeakerAliases,
+  resolveTaskOwner
+} from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   MeetingSpeakerAlias,
@@ -118,10 +121,15 @@ export default async function TaskWorkspacePage({
             .eq("meeting_id", typedTask.meeting_id)
         ]);
 
-  const suggestedSteps = getSuggestedSteps(typedTask.suggested_steps);
+  const typedAliases = (aliases ?? []) as MeetingSpeakerAlias[];
+  const resolvedTask = {
+    ...typedTask,
+    owner: resolveTaskOwner(typedTask.owner, typedAliases)
+  };
+  const suggestedSteps = getSuggestedSteps(resolvedTask.suggested_steps);
   const segments = applySpeakerAliases(
     (contextSegments ?? []) as TranscriptSegment[],
-    (aliases ?? []) as MeetingSpeakerAlias[]
+    typedAliases
   );
   const { data: artifacts } = await supabaseAdmin
     .from("task_artifacts")
@@ -137,20 +145,20 @@ export default async function TaskWorkspacePage({
           <div className="max-w-3xl">
             <p className="text-sm font-semibold text-brand-700">Task Workspace</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-              {typedTask.task}
+              {resolvedTask.task}
             </h1>
-            {typedTask.workspace_summary ? (
+            {resolvedTask.workspace_summary ? (
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                {typedTask.workspace_summary}
+                {resolvedTask.workspace_summary}
               </p>
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full border border-brand-100 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">
-              {formatLabel(typedTask.workspace_type, "other")}
+              {formatLabel(resolvedTask.workspace_type, "other")}
             </span>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold capitalize text-slate-700">
-              {formatLabel(typedTask.status, "pending")}
+              {formatLabel(resolvedTask.status, "pending")}
             </span>
           </div>
         </div>
@@ -166,7 +174,7 @@ export default async function TaskWorkspacePage({
                   Owner
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-slate-900">
-                  {typedTask.owner || "Unassigned"}
+                  {resolvedTask.owner || "Unassigned"}
                 </dd>
               </div>
               <div>
@@ -174,7 +182,7 @@ export default async function TaskWorkspacePage({
                   Priority
                 </dt>
                 <dd className="mt-1 text-sm font-medium capitalize text-slate-900">
-                  {typedTask.priority}
+                  {resolvedTask.priority}
                 </dd>
               </div>
               <div>
@@ -182,7 +190,7 @@ export default async function TaskWorkspacePage({
                   Task Type
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-slate-900">
-                  {formatLabel(typedTask.task_type, "other")}
+                  {formatLabel(resolvedTask.task_type, "other")}
                 </dd>
               </div>
               <div>
@@ -190,9 +198,9 @@ export default async function TaskWorkspacePage({
                   Confidence
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-slate-900">
-                  {typedTask.confidence === null
+                  {resolvedTask.confidence === null
                     ? "N/A"
-                    : `${Math.round(typedTask.confidence * 100)}%`}
+                    : `${Math.round(resolvedTask.confidence * 100)}%`}
                 </dd>
               </div>
             </dl>
@@ -213,9 +221,9 @@ export default async function TaskWorkspacePage({
 
           <section className="premium-card p-5">
             <h2 className="text-sm font-semibold text-slate-900">Source Quote</h2>
-            {typedTask.source_quote ? (
+            {resolvedTask.source_quote ? (
               <blockquote className="mt-3 border-l-2 border-brand-200 pl-3 text-sm italic leading-6 text-slate-600">
-                &ldquo;{typedTask.source_quote}&rdquo;
+                &ldquo;{resolvedTask.source_quote}&rdquo;
               </blockquote>
             ) : (
               <p className="mt-3 text-sm text-slate-500">No source quote was captured.</p>
@@ -281,8 +289,8 @@ export default async function TaskWorkspacePage({
       </div>
 
       <TaskExecutionPanel
-        taskId={typedTask.id}
-        workspaceType={typedTask.workspace_type}
+        taskId={resolvedTask.id}
+        workspaceType={resolvedTask.workspace_type}
         initialArtifacts={initialArtifacts}
       />
     </section>

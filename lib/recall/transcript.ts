@@ -39,6 +39,7 @@ export interface ParsedTranscriptSegment {
   speaker: string | null;
   participant_name: string | null;
   diarized_speaker: string | null;
+  resolved_speaker: string | null;
   speaker_confidence: number | null;
   text: string;
   timestamp: string;
@@ -257,6 +258,7 @@ export function parseRecallTranscriptToSegments(payload: unknown): ParsedTranscr
       speaker: extractSpeaker(utterance),
       participant_name: extractParticipantName(utterance),
       diarized_speaker: extractDiarizedSpeaker(utterance),
+      resolved_speaker: null,
       speaker_confidence: extractSpeakerConfidence(utterance),
       text,
       timestamp: extractTimestamp(utterance),

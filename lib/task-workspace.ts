@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { OPENAI_MODEL, openai } from "@/lib/openai";
-import { applySpeakerAliases } from "@/lib/speaker-aliases";
+import {
+  applySpeakerAliases,
+  resolveTaskOwner
+} from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   Meeting,
@@ -259,15 +262,19 @@ export async function getTaskWorkspaceContext(
     };
   }
 
+  const typedAliases = (aliases ?? []) as MeetingSpeakerAlias[];
   return {
     ok: true,
     context: {
-      task: typedTask,
+      task: {
+        ...typedTask,
+        owner: resolveTaskOwner(typedTask.owner, typedAliases)
+      },
       meeting: meeting as Meeting,
       topic: typedTopic,
       segments: applySpeakerAliases(
         (segments ?? []) as TranscriptSegment[],
-        (aliases ?? []) as MeetingSpeakerAlias[]
+        typedAliases
       )
     }
   };

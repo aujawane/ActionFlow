@@ -5,7 +5,15 @@ import {
   parseRecallTranscriptToSegments,
   type RecallTranscriptEntry
 } from "@/lib/recall/transcript";
+import {
+  buildSpeakerAliasMap,
+  getAmbiguousParticipantNames,
+  getMappedSpeakerName,
+  getRawSpeakerLabel,
+  getResolvedSpeakerName
+} from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { MeetingSpeakerAlias } from "@/lib/types";
 
 type ReimportTranscriptRequest = {
   meetingId?: unknown;
@@ -55,11 +63,29 @@ export async function POST(request: Request) {
   }
 
   const parsedRows = parseRecallTranscriptToSegments(transcript as RecallTranscriptEntry[]);
-  const speakers = parsedRows.map((row) => row.speaker ?? "Unknown Speaker");
+  const { data: aliases } = await supabaseAdmin
+    .from("meeting_speaker_aliases")
+    .select("*")
+    .eq("meeting_id", meetingId);
+  const aliasMap = buildSpeakerAliasMap((aliases ?? []) as MeetingSpeakerAlias[]);
+  const ambiguousParticipants = getAmbiguousParticipantNames(parsedRows);
+  const resolvedRows = parsedRows.map((row) => {
+    const resolvedSpeaker = getMappedSpeakerName(getRawSpeakerLabel(row), aliasMap);
+    return {
+      ...row,
+      resolved_speaker: resolvedSpeaker,
+      speaker: getResolvedSpeakerName(
+        { ...row, resolved_speaker: resolvedSpeaker },
+        aliasMap,
+        ambiguousParticipants
+      )
+    };
+  });
+  const speakers = resolvedRows.map((row) => row.speaker ?? "Unknown Speaker");
   console.info("[dev/reimport-transcript] entries received", {
     meeting_id: meetingId,
     entry_count: transcript.length,
-    parsed_segment_count: parsedRows.length,
+    parsed_segment_count: resolvedRows.length,
     sample_speakers: getSampleSpeakers(speakers)
   });
 
@@ -76,15 +102,16 @@ export async function POST(request: Request) {
   }
 
   let insertedCount = 0;
-  if (parsedRows.length > 0) {
+  if (resolvedRows.length > 0) {
     const { data: insertedRows, error: insertError } = await supabaseAdmin
       .from("transcript_segments")
       .insert(
-        parsedRows.map((row) => ({
+        resolvedRows.map((row) => ({
           meeting_id: meetingId,
           speaker: row.speaker ?? "Unknown Speaker",
           participant_name: row.participant_name,
           diarized_speaker: row.diarized_speaker,
+          resolved_speaker: row.resolved_speaker,
           speaker_confidence: row.speaker_confidence,
           text: row.text,
           timestamp: row.timestamp,

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
+import {
+  getMeetingSpeakerResolution,
+  saveMeetingSpeakerMappings
+} from "@/lib/speaker-resolution";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type AliasInput = {
@@ -33,20 +37,18 @@ export async function GET(
     return NextResponse.json({ error: "Meeting not found." }, { status: 404 });
   }
 
-  const { data: aliases, error } = await supabaseAdmin
-    .from("meeting_speaker_aliases")
-    .select("*")
-    .eq("meeting_id", id)
-    .order("raw_speaker_label", { ascending: true });
-
-  if (error) {
+  try {
+    const result = await getMeetingSpeakerResolution(id);
+    return NextResponse.json({ aliases: result.aliases });
+  } catch (error) {
     return NextResponse.json(
-      { error: "Failed to load speaker aliases.", details: error.message },
+      {
+        error: "Failed to load speaker aliases.",
+        details: error instanceof Error ? error.message : "Unknown error"
+      },
       { status: 500 }
     );
   }
-
-  return NextResponse.json({ aliases: aliases ?? [] });
 }
 
 export async function PATCH(
@@ -68,34 +70,34 @@ export async function PATCH(
     return NextResponse.json({ error: "aliases must be an array." }, { status: 400 });
   }
 
-  const rows = aliases
+  const mappings = aliases
     .map((alias) => ({
-      meeting_id: id,
-      raw_speaker_label:
-        typeof alias.raw_speaker_label === "string" ? alias.raw_speaker_label.trim() : "",
-      display_name: typeof alias.display_name === "string" ? alias.display_name.trim() : ""
+      rawSpeakerLabel:
+        typeof alias.raw_speaker_label === "string"
+          ? alias.raw_speaker_label.trim()
+          : "",
+      displayName:
+        typeof alias.display_name === "string" ? alias.display_name.trim() : ""
     }))
-    .filter((alias) => alias.raw_speaker_label && alias.display_name);
+    .filter((alias) => alias.rawSpeakerLabel && alias.displayName);
 
-  if (rows.length === 0) {
+  if (mappings.length === 0) {
     return NextResponse.json(
       { error: "At least one alias with raw_speaker_label and display_name is required." },
       { status: 400 }
     );
   }
 
-  const { data: savedAliases, error } = await supabaseAdmin
-    .from("meeting_speaker_aliases")
-    .upsert(rows, { onConflict: "meeting_id,raw_speaker_label" })
-    .select("*")
-    .order("raw_speaker_label", { ascending: true });
-
-  if (error) {
+  try {
+    const result = await saveMeetingSpeakerMappings(id, mappings);
+    return NextResponse.json({ aliases: result.aliases });
+  } catch (error) {
     return NextResponse.json(
-      { error: "Failed to save speaker aliases.", details: error.message },
+      {
+        error: "Failed to save speaker aliases.",
+        details: error instanceof Error ? error.message : "Unknown error"
+      },
       { status: 500 }
     );
   }
-
-  return NextResponse.json({ aliases: savedAliases ?? [] });
 }

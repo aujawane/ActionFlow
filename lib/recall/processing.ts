@@ -1,5 +1,13 @@
 import { fetchRecallTranscript, parseRecallTranscriptToSegments } from "@/lib/recall/transcript";
+import {
+  buildSpeakerAliasMap,
+  getAmbiguousParticipantNames,
+  getMappedSpeakerName,
+  getRawSpeakerLabel,
+  getResolvedSpeakerName
+} from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { MeetingSpeakerAlias } from "@/lib/types";
 
 export type RecallMeetingProcessingResult =
   | {
@@ -26,30 +34,85 @@ export async function replaceMeetingTranscriptFromRecall({
 }) {
   const transcriptContent = await fetchRecallTranscript(recallBotId);
   const parsedRows = parseRecallTranscriptToSegments(transcriptContent);
-  const sampleSpeakers = parsedRows
+  const { data: aliasRows, error: aliasesError } = await supabaseAdmin
+    .from("meeting_speaker_aliases")
+    .select("*")
+    .eq("meeting_id", meetingId);
+  if (aliasesError) {
+    throw new Error(aliasesError.message);
+  }
+
+  const aliases = (aliasRows ?? []) as MeetingSpeakerAlias[];
+  const aliasMap = buildSpeakerAliasMap(aliases);
+  const ambiguousParticipants = getAmbiguousParticipantNames(parsedRows);
+  const resolvedRows = parsedRows.map((row) => {
+    const rawSpeakerLabel = getRawSpeakerLabel(row);
+    const resolvedSpeaker = getMappedSpeakerName(rawSpeakerLabel, aliasMap);
+    return {
+      ...row,
+      resolved_speaker: resolvedSpeaker,
+      speaker: getResolvedSpeakerName(
+        { ...row, resolved_speaker: resolvedSpeaker },
+        aliasMap,
+        ambiguousParticipants
+      )
+    };
+  });
+  const sampleSpeakers = resolvedRows
     .slice(0, 5)
     .map((row) => row.speaker ?? row.participant_name ?? row.diarized_speaker ?? "Unknown Speaker");
+  const participantNames = Array.from(
+    new Set(
+      resolvedRows
+        .map((row) => row.participant_name?.trim())
+        .filter((name): name is string => Boolean(name))
+    )
+  );
+  const diarizedSpeakers = Array.from(
+    new Set(
+      resolvedRows
+        .map((row) => row.diarized_speaker?.trim())
+        .filter((name): name is string => Boolean(name))
+    )
+  );
+  const segmentCountBySpeaker = resolvedRows.reduce<Record<string, number>>((counts, row) => {
+    const speaker = row.speaker?.trim() || "Unknown Speaker";
+    counts[speaker] = (counts[speaker] ?? 0) + 1;
+    return counts;
+  }, {});
 
   console.info("Recall transcript rows parsed", {
     bot_id: recallBotId,
-    transcript_entry_count: parsedRows.length,
-    sample_speakers: sampleSpeakers
+    transcript_entry_count: resolvedRows.length,
+    sample_speakers: sampleSpeakers,
+    participant_names: participantNames,
+    diarized_speakers: diarizedSpeakers,
+    ambiguous_participants: Array.from(ambiguousParticipants),
+    preferred_diarized_labels: ambiguousParticipants.size > 0,
+    segment_count_by_speaker: segmentCountBySpeaker
   });
 
-  if (parsedRows.length === 0) {
+  if (resolvedRows.length === 0) {
     return { insertedCount: 0, parsedCount: 0, ready: false };
   }
 
-  await supabaseAdmin.from("transcript_segments").delete().eq("meeting_id", meetingId);
+  const { error: deleteError } = await supabaseAdmin
+    .from("transcript_segments")
+    .delete()
+    .eq("meeting_id", meetingId);
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
 
   const { data: insertedRows, error: insertError } = await supabaseAdmin
     .from("transcript_segments")
     .insert(
-      parsedRows.map((row) => ({
+      resolvedRows.map((row) => ({
         meeting_id: meetingId,
         speaker: row.speaker,
         participant_name: row.participant_name,
         diarized_speaker: row.diarized_speaker,
+        resolved_speaker: row.resolved_speaker,
         speaker_confidence: row.speaker_confidence,
         text: row.text,
         timestamp: row.timestamp,
@@ -64,7 +127,7 @@ export async function replaceMeetingTranscriptFromRecall({
 
   return {
     insertedCount: insertedRows?.length ?? 0,
-    parsedCount: parsedRows.length,
+    parsedCount: resolvedRows.length,
     ready: true
   };
 }

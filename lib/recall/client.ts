@@ -28,12 +28,13 @@ export async function createRecallBot(
   input: CreateRecallBotInput
 ): Promise<RecallBotResponse> {
   const apiKey = getRecallApiKey();
+  const region = process.env.RECALL_REGION?.trim() || "us-west-2";
   const meetingUrl = input.meetingUrl.trim();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
 
   try {
-    const requestUrl = "https://us-west-2.recall.ai/api/v1/bot/";
+    const requestUrl = `https://${region}.recall.ai/api/v1/bot/`;
     const botName = "Parfait Notetaker";
     const authorizationHeader = `Token ${apiKey}`;
     const requestBody = {

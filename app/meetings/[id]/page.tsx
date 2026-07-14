@@ -9,7 +9,11 @@ import { PromptsPanel } from "@/components/prompts-panel";
 import { SpeakerMappingPanel } from "@/components/speaker-mapping-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
-import { applySpeakerAliases, getMappableSpeakerLabels } from "@/lib/speaker-aliases";
+import {
+  applySpeakerAliases,
+  applySpeakerAliasesToTasks,
+  buildMeetingSpeakerRoster
+} from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   MeetingSpeakerAlias,
@@ -102,12 +106,17 @@ export default async function MeetingDetailPage({
   const topicsMissingTable = isMissingRelationError(topicsError, "meeting_topics");
   const tasksMissingTable = isMissingRelationError(tasksError, "meeting_tasks");
   const safeTopics = topicsMissingTable ? [] : (topics ?? []);
-  const safeTasks = (tasksMissingTable ? [] : (tasks ?? [])) as MeetingTask[];
+  const rawTasks = (tasksMissingTable ? [] : (tasks ?? [])) as MeetingTask[];
   const typedTopics = safeTopics as MeetingTopic[];
   const safeAliases = (aliases ?? []) as MeetingSpeakerAlias[];
   const rawSegments = (segments ?? []) as TranscriptSegment[];
   const safeSegments = applySpeakerAliases(rawSegments, safeAliases);
-  const mappableSpeakerLabels = getMappableSpeakerLabels(rawSegments);
+  const safeTasks = applySpeakerAliasesToTasks(rawTasks, safeAliases);
+  const speakerRoster = buildMeetingSpeakerRoster({
+    segments: rawSegments,
+    aliases: safeAliases,
+    tasks: rawTasks
+  });
   const participants = Array.from(
     new Set(
       safeSegments
@@ -247,8 +256,7 @@ export default async function MeetingDetailPage({
 
       <SpeakerMappingPanel
         meetingId={meeting.id}
-        speakerLabels={mappableSpeakerLabels}
-        initialAliases={safeAliases}
+        initialSpeakers={speakerRoster}
       />
 
       <ExecutionDashboard participants={participants} tasks={safeTasks} />

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { MeetingTask } from "@/lib/types";
 
@@ -87,6 +87,10 @@ export function ExecutionDashboard({ participants, tasks }: ExecutionDashboardPr
   const [localTasks, setLocalTasks] = useState(tasks);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLocalTasks(tasks);
+  }, [tasks]);
 
   const participantNames = useMemo(() => {
     const taskOwners = localTasks.map((task) => task.owner);

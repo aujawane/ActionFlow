@@ -25,6 +25,7 @@ export interface TranscriptSegment {
   speaker: string | null;
   participant_name: string | null;
   diarized_speaker: string | null;
+  resolved_speaker: string | null;
   speaker_confidence: number | null;
   text: string;
   timestamp: string;
@@ -39,6 +40,19 @@ export interface MeetingSpeakerAlias {
   display_name: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface MeetingSpeakerRosterItem {
+  rawSpeakerLabel: string;
+  displayName: string;
+  participantName: string | null;
+  diarizedSpeaker: string | null;
+  isResolved: boolean;
+  isAmbiguous: boolean;
+  segmentCount: number;
+  taskCount: number;
+  exampleQuotes: string[];
+  possibleNameHints: string[];
 }
 
 export interface ExtractedInsight {
