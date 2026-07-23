@@ -269,7 +269,149 @@ export function parseRecallTranscriptToSegments(payload: unknown): ParsedTranscr
   return segments;
 }
 
-export async function fetchRecallTranscript(recallBotId: string): Promise<unknown> {
+export function getRecallTranscriptDiagnostics(payload: unknown) {
+  const entries = pickUtteranceArray(payload);
+  const participantNames = new Set<string>();
+  const diarizedSpeakerLabels = new Set<string>();
+  const parserDerivedDiarizedLabels = new Set<string>();
+  const speakerIds = new Set<string>();
+
+  for (const entry of entries.slice(0, 25)) {
+    const utterance = asObject(entry);
+    if (!utterance) continue;
+    const typedUtterance = utterance as RecallTranscriptEntry;
+    const speaker = asObject(typedUtterance.speaker);
+    const words = Array.isArray(typedUtterance.words) ? typedUtterance.words : [];
+    const firstWord = asObject(words[0]);
+    const participantName = extractParticipantName(utterance);
+    const explicitDiarizedSpeaker =
+      formatSpeakerLabel(typedUtterance.diarized_speaker) ??
+      formatSpeakerLabel(typedUtterance.diarized_speaker_label) ??
+      formatSpeakerLabel(typedUtterance.speaker_label) ??
+      formatSpeakerLabel(speaker?.label as string | number | null | undefined) ??
+      formatSpeakerLabel(firstWord?.speaker as string | number | null | undefined) ??
+      formatSpeakerLabel(
+        firstWord?.speaker_label as string | number | null | undefined
+      ) ??
+      formatSpeakerLabel(typedUtterance.channel);
+    const parserDerivedDiarizedSpeaker = extractDiarizedSpeaker(utterance);
+    const speakerId =
+      idToDiagnosticString(typedUtterance.speaker_id) ??
+      idToDiagnosticString(speaker?.id);
+    if (participantName) participantNames.add(participantName);
+    if (explicitDiarizedSpeaker) diarizedSpeakerLabels.add(explicitDiarizedSpeaker);
+    if (parserDerivedDiarizedSpeaker) {
+      parserDerivedDiarizedLabels.add(parserDerivedDiarizedSpeaker);
+    }
+    if (speakerId) speakerIds.add(speakerId);
+  }
+
+  return {
+    transcript_entry_count: entries.length,
+    sample_participant_names: Array.from(participantNames).slice(0, 5),
+    sample_diarized_speaker_labels: Array.from(diarizedSpeakerLabels).slice(0, 5),
+    sample_parser_derived_diarized_labels: Array.from(
+      parserDerivedDiarizedLabels
+    ).slice(0, 5),
+    sample_speaker_ids: Array.from(speakerIds).slice(0, 5),
+    sample_raw_entry_keys: entries.slice(0, 3).map((entry) => {
+      const object = asObject(entry);
+      return object ? Object.keys(object).sort() : [];
+    })
+  };
+}
+
+function idToDiagnosticString(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return asNonEmptyString(value);
+}
+
+function getStatus(value: unknown) {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  const object = asObject(value);
+  return (
+    asNonEmptyString(object?.code) ??
+    asNonEmptyString(object?.status) ??
+    null
+  );
+}
+
+function getProvider(value: unknown): string | string[] | null {
+  const providerName = asNonEmptyString(value);
+  if (providerName) return providerName;
+  const provider = asObject(value);
+  return provider ? Object.keys(provider).sort() : null;
+}
+
+function getTranscriptConfig(transcript: JsonObject) {
+  const metadata = asObject(transcript.metadata);
+  const transcriptConfig =
+    asObject(metadata?.transcript_config) ??
+    asObject(metadata?.config) ??
+    metadata;
+  return {
+    provider:
+      getProvider(transcript.provider) ??
+      getProvider(transcriptConfig?.provider),
+    diarization:
+      asObject(transcript.diarization) ??
+      asObject(transcriptConfig?.diarization) ??
+      null,
+    status: getStatus(transcript.status) ?? getStatus(transcript.data)
+  };
+}
+
+function getBotRecordingTranscript(payload: unknown) {
+  const root = asObject(payload);
+  const data = asObject(root?.data);
+  const bot = asObject(root?.bot) ?? asObject(data?.bot) ?? root;
+  const recordingConfig = asObject(bot?.recording_config);
+  const botTranscriptConfig = asObject(recordingConfig?.transcript);
+  const recordings = Array.isArray(bot?.recordings) ? bot.recordings : [];
+  const recordingValue =
+    recordings.find((value) => {
+      const recording = asObject(value);
+      const mediaShortcuts = asObject(recording?.media_shortcuts);
+      return Boolean(asObject(mediaShortcuts?.transcript));
+    }) ?? recordings[0];
+  const recording = asObject(recordingValue);
+  const mediaShortcuts = asObject(recording?.media_shortcuts);
+  const transcript = asObject(mediaShortcuts?.transcript);
+
+  return {
+    recordingId: idToDiagnosticString(recording?.id),
+    transcript,
+    transcriptArtifactId: idToDiagnosticString(transcript?.id),
+    botTranscriptConfig
+  };
+}
+
+export type RecallTranscriptFetchDiagnostics = {
+  botRequestUrl: string;
+  botResponseStatus: number | null;
+  botResponse: unknown;
+  recordingId: string | null;
+  transcriptArtifactId: string | null;
+  transcriptProvider: string | string[] | null;
+  transcriptDiarizationConfig: JsonObject | null;
+  transcriptStatus: string | null;
+  transcriptRetrieveUrl: string | null;
+  transcriptRetrieveStatus: number | null;
+  transcriptArtifactResponse: unknown;
+  transcriptDownloadStatus: number | null;
+};
+
+export class RecallTranscriptFetchError extends Error {
+  diagnostics: RecallTranscriptFetchDiagnostics;
+
+  constructor(message: string, diagnostics: RecallTranscriptFetchDiagnostics) {
+    super(message);
+    this.name = "RecallTranscriptFetchError";
+    this.diagnostics = diagnostics;
+  }
+}
+
+export async function fetchRecallTranscriptWithDiagnostics(recallBotId: string) {
   const apiKey = process.env.RECALL_API_KEY?.trim();
   const region = process.env.RECALL_REGION?.trim() || "us-west-2";
 
@@ -277,79 +419,129 @@ export async function fetchRecallTranscript(recallBotId: string): Promise<unknow
     throw new Error("Missing RECALL_API_KEY");
   }
 
-  const directTranscriptUrl = `https://${region}.recall.ai/api/v1/bot/${encodeURIComponent(recallBotId)}/transcript/`;
-  const directResponse = await fetch(directTranscriptUrl, {
+  const botRequestUrl = `https://${region}.recall.ai/api/v1/bot/${encodeURIComponent(recallBotId)}/`;
+  const diagnostics: RecallTranscriptFetchDiagnostics = {
+    botRequestUrl,
+    botResponseStatus: null,
+    botResponse: null,
+    recordingId: null,
+    transcriptArtifactId: null,
+    transcriptProvider: null,
+    transcriptDiarizationConfig: null,
+    transcriptStatus: null,
+    transcriptRetrieveUrl: null,
+    transcriptRetrieveStatus: null,
+    transcriptArtifactResponse: null,
+    transcriptDownloadStatus: null
+  };
+
+  const botResponse = await fetch(botRequestUrl, {
     method: "GET",
     headers: {
       Authorization: `Token ${apiKey}`,
-      "Content-Type": "application/json"
-    }
+      Accept: "application/json"
+    },
+    cache: "no-store"
   });
-  const directBodyText = await directResponse.text();
-
-  if (directResponse.ok) {
-    let directBody: unknown = directBodyText;
-    try {
-      directBody = directBodyText ? (JSON.parse(directBodyText) as unknown) : [];
-    } catch {
-      directBody = directBodyText;
-    }
-
-    const directEntries = Array.isArray(directBody)
-      ? directBody
-      : pickUtteranceArray(directBody);
-    console.info("Recall bot transcript endpoint fetched", {
-      bot_id: recallBotId,
-      transcript_entry_count: directEntries.length
-    });
-    return directBody;
-  }
-
-  // Some Recall workspaces return a legacy-endpoint response here. Fall back
-  // to the current bot recording transcript download URL without ever using
-  // /api/v1/transcript/{transcript_id}/.
-  console.info("Recall bot transcript endpoint unavailable; checking bot recording", {
-    bot_id: recallBotId,
-    status: directResponse.status
-  });
-
-  const botUrl = `https://${region}.recall.ai/api/v1/bot/${encodeURIComponent(recallBotId)}/`;
-  const botResponse = await fetch(botUrl, {
-    method: "GET",
-    headers: {
-      Authorization: `Token ${apiKey}`,
-      "Content-Type": "application/json"
-    }
-  });
-
+  diagnostics.botResponseStatus = botResponse.status;
   const botBodyText = await botResponse.text();
-  let botBody: unknown = botBodyText;
+  let botBody: unknown = null;
   try {
     botBody = botBodyText ? (JSON.parse(botBodyText) as unknown) : {};
   } catch {
     botBody = botBodyText;
   }
+  diagnostics.botResponse = botBody;
 
   if (!botResponse.ok) {
-    console.error("Recall bot metadata fetch failed", {
-      bot_id: recallBotId,
-      status: botResponse.status,
-      body: botBodyText
-    });
-    throw new Error(`Recall bot metadata fetch failed: ${botResponse.status}`);
+    throw new RecallTranscriptFetchError(
+      `Recall bot metadata fetch failed: ${botResponse.status}`,
+      diagnostics
+    );
   }
 
-  const downloadUrl = findTranscriptDownloadUrl(botBody);
-  if (!downloadUrl) {
-    console.info("Recall transcript download URL not ready", {
-      bot_id: recallBotId,
-      transcript_entry_count: 0,
-      sample_speakers: []
+  const shortcut = getBotRecordingTranscript(botBody);
+  diagnostics.recordingId = shortcut.recordingId;
+  diagnostics.transcriptArtifactId = shortcut.transcriptArtifactId;
+  const initialTranscriptConfig =
+    shortcut.transcript ?? shortcut.botTranscriptConfig;
+  if (initialTranscriptConfig) {
+    const config = getTranscriptConfig(initialTranscriptConfig);
+    diagnostics.transcriptProvider = config.provider;
+    diagnostics.transcriptDiarizationConfig = config.diarization;
+    diagnostics.transcriptStatus = config.status;
+  }
+
+  let transcriptArtifact: unknown = shortcut.transcript;
+  if (shortcut.transcriptArtifactId) {
+    const retrieveUrl = `https://${region}.recall.ai/api/v1/transcript/${encodeURIComponent(shortcut.transcriptArtifactId)}/`;
+    diagnostics.transcriptRetrieveUrl = retrieveUrl;
+    const transcriptResponse = await fetch(retrieveUrl, {
+      method: "GET",
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        Accept: "application/json"
+      },
+      cache: "no-store"
     });
-    return [];
+    diagnostics.transcriptRetrieveStatus = transcriptResponse.status;
+    const transcriptResponseText = await transcriptResponse.text();
+    try {
+      transcriptArtifact = transcriptResponseText
+        ? (JSON.parse(transcriptResponseText) as unknown)
+        : {};
+    } catch {
+      transcriptArtifact = transcriptResponseText;
+    }
+    diagnostics.transcriptArtifactResponse = transcriptArtifact;
+
+    if (!transcriptResponse.ok) {
+      throw new RecallTranscriptFetchError(
+        `Recall transcript retrieve failed: ${transcriptResponse.status}`,
+        diagnostics
+      );
+    }
+
+    const artifactObject = asObject(transcriptArtifact);
+    if (artifactObject) {
+      const config = getTranscriptConfig(artifactObject);
+      diagnostics.transcriptProvider =
+        config.provider ?? diagnostics.transcriptProvider;
+      diagnostics.transcriptDiarizationConfig =
+        config.diarization ?? diagnostics.transcriptDiarizationConfig;
+      diagnostics.transcriptStatus =
+        config.status ?? diagnostics.transcriptStatus;
+    }
+  } else {
+    diagnostics.transcriptArtifactResponse = shortcut.transcript;
+  }
+
+  const downloadUrl = findTranscriptDownloadUrl(transcriptArtifact);
+  console.info("[recall] Transcript artifact resolved", {
+    bot_id: recallBotId,
+    recording_id: diagnostics.recordingId,
+    transcript_artifact_id: diagnostics.transcriptArtifactId,
+    transcript_provider: diagnostics.transcriptProvider,
+    transcript_diarization_config: diagnostics.transcriptDiarizationConfig,
+    transcript_status: diagnostics.transcriptStatus
+  });
+
+  if (!downloadUrl) {
+    console.info("[recall] Transcript data not ready", {
+      bot_id: recallBotId,
+      recording_id: diagnostics.recordingId,
+      transcript_artifact_id: diagnostics.transcriptArtifactId,
+      transcript_provider: diagnostics.transcriptProvider,
+      transcript_diarization_config: diagnostics.transcriptDiarizationConfig,
+      transcript_status: diagnostics.transcriptStatus,
+      transcript_entry_count: 0,
+      first_entry_keys: []
+    });
+    return { transcript: [], diagnostics };
   }
 
   const transcriptResponse = await fetch(downloadUrl, { method: "GET" });
+  diagnostics.transcriptDownloadStatus = transcriptResponse.status;
   const transcriptBodyText = await transcriptResponse.text();
   let transcriptBody: unknown = transcriptBodyText;
   try {
@@ -359,33 +551,28 @@ export async function fetchRecallTranscript(recallBotId: string): Promise<unknow
   }
 
   if (!transcriptResponse.ok) {
-    console.error("Recall transcript download failed", {
-      bot_id: recallBotId,
-      status: transcriptResponse.status,
-      body: transcriptBodyText
-    });
-    throw new Error(`Recall transcript download failed: ${transcriptResponse.status}`);
+    throw new RecallTranscriptFetchError(
+      `Recall transcript download failed: ${transcriptResponse.status}`,
+      diagnostics
+    );
   }
 
-  const entries = Array.isArray(transcriptBody) ? transcriptBody : pickUtteranceArray(transcriptBody);
-  const sampleSpeakers = entries
-    .slice(0, 5)
-    .map((entry) => {
-      const object = asObject(entry);
-      const participant = asObject(object?.participant);
-      return (
-        asNonEmptyString(participant?.name) ??
-        asNonEmptyString(object?.speaker) ??
-        asNonEmptyString(object?.speaker_id) ??
-        "Unknown Speaker"
-      );
-    });
-
-  console.info("Recall transcript downloaded", {
+  const transcriptDiagnostics = getRecallTranscriptDiagnostics(transcriptBody);
+  console.info("[recall] Transcript downloaded", {
     bot_id: recallBotId,
-    transcript_entry_count: entries.length,
-    sample_speakers: sampleSpeakers
+    recording_id: diagnostics.recordingId,
+    transcript_artifact_id: diagnostics.transcriptArtifactId,
+    transcript_provider: diagnostics.transcriptProvider,
+    transcript_diarization_config: diagnostics.transcriptDiarizationConfig,
+    transcript_status: diagnostics.transcriptStatus,
+    transcript_entry_count: transcriptDiagnostics.transcript_entry_count,
+    first_entry_keys: transcriptDiagnostics.sample_raw_entry_keys[0] ?? []
   });
 
-  return transcriptBody;
+  return { transcript: transcriptBody, diagnostics };
+}
+
+export async function fetchRecallTranscript(recallBotId: string): Promise<unknown> {
+  const result = await fetchRecallTranscriptWithDiagnostics(recallBotId);
+  return result.transcript;
 }

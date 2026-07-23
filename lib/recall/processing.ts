@@ -1,4 +1,8 @@
-import { fetchRecallTranscript, parseRecallTranscriptToSegments } from "@/lib/recall/transcript";
+import {
+  fetchRecallTranscript,
+  getRecallTranscriptDiagnostics,
+  parseRecallTranscriptToSegments
+} from "@/lib/recall/transcript";
 import {
   buildSpeakerAliasMap,
   getAmbiguousParticipantNames,
@@ -33,6 +37,10 @@ export async function replaceMeetingTranscriptFromRecall({
   recallBotId: string;
 }) {
   const transcriptContent = await fetchRecallTranscript(recallBotId);
+  console.info("[recall-processing] Transcript import diagnostics", {
+    bot_id: recallBotId,
+    ...getRecallTranscriptDiagnostics(transcriptContent)
+  });
   const parsedRows = parseRecallTranscriptToSegments(transcriptContent);
   const { data: aliasRows, error: aliasesError } = await supabaseAdmin
     .from("meeting_speaker_aliases")
@@ -67,14 +75,14 @@ export async function replaceMeetingTranscriptFromRecall({
         .map((row) => row.participant_name?.trim())
         .filter((name): name is string => Boolean(name))
     )
-  );
+  ).slice(0, 5);
   const diarizedSpeakers = Array.from(
     new Set(
       resolvedRows
         .map((row) => row.diarized_speaker?.trim())
         .filter((name): name is string => Boolean(name))
     )
-  );
+  ).slice(0, 5);
   const segmentCountBySpeaker = resolvedRows.reduce<Record<string, number>>((counts, row) => {
     const speaker = row.speaker?.trim() || "Unknown Speaker";
     counts[speaker] = (counts[speaker] ?? 0) + 1;
@@ -133,19 +141,9 @@ export async function replaceMeetingTranscriptFromRecall({
 }
 
 async function analyzeImportedMeeting(meetingId: string, requestOrigin?: string) {
-  const internalSecret = process.env.RECALL_WEBHOOK_SECRET?.trim();
-  if (!internalSecret) {
-    throw new Error("Missing RECALL_WEBHOOK_SECRET for internal meeting analysis.");
-  }
-
-  const baseUrl =
-    process.env.INTERNAL_APP_URL?.trim() ||
-    (process.env.NODE_ENV !== "production"
-      ? "http://localhost:3000"
-      : requestOrigin?.replace(/\/$/, ""));
-  if (!baseUrl) {
-    throw new Error("Missing internal app URL for meeting analysis.");
-  }
+  const { getAppBaseUrl, requireEnv } = await import("@/lib/env");
+  const internalSecret = requireEnv("RECALL_WEBHOOK_SECRET");
+  const baseUrl = getAppBaseUrl({ requestOrigin });
 
   const response = await fetch(`${baseUrl}/api/meetings/${meetingId}/analyze`, {
     method: "POST",

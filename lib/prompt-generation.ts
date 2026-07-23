@@ -1,4 +1,4 @@
-import { OPENAI_MODEL, openai } from "@/lib/openai";
+import { getOpenAIModel, openai } from "@/lib/openai";
 import type { ExtractedInsight } from "@/lib/types";
 
 export type PromptTarget = "general" | "lovable";
@@ -205,7 +205,7 @@ export async function generateBuildPromptForTarget(input: {
   ];
 
   const response = await openai.responses.create({
-    model: OPENAI_MODEL,
+    model: getOpenAIModel(),
     input: [
       {
         role: "system",

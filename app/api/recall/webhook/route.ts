@@ -5,6 +5,14 @@ import { NextResponse } from "next/server";
 import { processCompletedRecallMeeting } from "@/lib/recall/processing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+/**
+ * Vercel plan assumption: Pro (maxDuration up to 300s).
+ * Webhook completion can import a transcript, retry, and trigger analysis.
+ * Hobby (10s) is not sufficient for this route.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
 type JsonObject = Record<string, unknown>;
 
 function asObject(value: unknown): JsonObject | null {
@@ -62,21 +70,34 @@ function isJoiningEvent(eventType: string) {
 }
 
 async function verifyWebhook(request: Request, rawBody: string) {
-  if (process.env.NODE_ENV !== "production") return true;
+  if (process.env.NODE_ENV !== "production") {
+    return true;
+  }
 
-  const webhookSecret = process.env.RECALL_WEBHOOK_SECRET;
+  const webhookSecret = process.env.RECALL_WEBHOOK_SECRET?.trim();
   const signature = request.headers.get("x-recall-signature");
   if (!webhookSecret || !signature || !rawBody) {
-    console.warn("Recall webhook signature verification unavailable.");
-    return true;
+    console.error("Recall webhook signature verification failed: missing secret or signature.");
+    return false;
   }
 
   const incoming = signature.startsWith("sha256=")
     ? signature.slice("sha256=".length)
     : signature;
-  const expected = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
-  const incomingBuffer = Buffer.from(incoming, "hex");
-  const expectedBuffer = Buffer.from(expected, "hex");
+
+  let incomingBuffer: Buffer;
+  let expectedBuffer: Buffer;
+  try {
+    const expected = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
+    incomingBuffer = Buffer.from(incoming, "hex");
+    expectedBuffer = Buffer.from(expected, "hex");
+  } catch (error) {
+    console.error("Recall webhook signature verification failed: invalid signature encoding.", {
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
+    return false;
+  }
+
   return (
     incomingBuffer.length === expectedBuffer.length &&
     crypto.timingSafeEqual(incomingBuffer, expectedBuffer)

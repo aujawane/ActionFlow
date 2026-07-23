@@ -14,7 +14,9 @@ export async function categorizeMeetingTasksBestEffort(input: {
 
   const batchInput = input.tasks.map((task) => ({
     task,
-    meetingContext: input.meetingContextByTopicId.get(task.topic_id) ?? ""
+    meetingContext: task.topic_id
+      ? input.meetingContextByTopicId.get(task.topic_id) ?? ""
+      : ""
   }));
 
   const batch = await categorizeTasksBatchWithOpenAI({ tasks: batchInput });

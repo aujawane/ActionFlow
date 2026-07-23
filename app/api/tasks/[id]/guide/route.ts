@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { generateTaskGuide, getTaskWorkspaceContext } from "@/lib/task-workspace";
 
+/**
+ * Vercel plan assumption: Pro. Guide generation is a single OpenAI call.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function POST(
   _request: Request,
   context: { params: Promise<{ id: string }> }

@@ -90,6 +90,29 @@ export interface MeetingTopic {
 export type MeetingTaskType = "commitment" | "implicit_commitment" | "unassigned_work";
 export type MeetingTaskPriority = "low" | "medium" | "high";
 export type MeetingTaskStatus = "pending" | "in_progress" | "completed" | "dismissed";
+export type CommitmentType =
+  | "personal"
+  | "assignment"
+  | "implicit"
+  | "unassigned"
+  | "reminder"
+  | "conditional"
+  | "recurring"
+  | "group"
+  | "team"
+  | "company";
+export type CommitmentCompletionState =
+  | "open"
+  | "in_progress"
+  | "blocked"
+  | "completed"
+  | "cancelled";
+export type CommitmentStatus =
+  | "pending"
+  | "in_progress"
+  | "completed"
+  | "dismissed"
+  | "blocked";
 export type TaskCategory =
   | "email"
   | "research"
@@ -141,9 +164,11 @@ export type MeetingTaskWorkspaceType =
 export interface MeetingTask {
   id: string;
   meeting_id: string;
-  topic_id: string;
+  topic_id: string | null;
+  commitment_id?: string | null;
   task: string;
   owner: string | null;
+  owners?: string[] | JsonValue;
   task_type: MeetingTaskType;
   priority: MeetingTaskPriority;
   suggested_steps: string[] | JsonValue;
@@ -151,12 +176,38 @@ export interface MeetingTask {
   confidence: number | null;
   status: MeetingTaskStatus;
   due_date?: string | null;
+  due_date_text?: string | null;
+  source_segment_ids?: string[] | JsonValue;
+  inferred?: boolean;
+  extraction_metadata?: JsonValue;
   workspace_type: MeetingTaskWorkspaceType;
   workspace_summary: string | null;
   categorization_metadata?: TaskCategorizationMetadata | JsonValue;
   rationale?: string | null;
   supporting_context?: string | null;
   created_at: string;
+}
+
+export interface MeetingCommitment {
+  id: string;
+  meeting_id: string;
+  topic_id: string | null;
+  title: string;
+  description: string | null;
+  owner: string | null;
+  owners: string[] | JsonValue;
+  due_date: string | null;
+  due_date_text: string | null;
+  priority: MeetingTaskPriority;
+  status: CommitmentStatus;
+  confidence: number | null;
+  source_quote: string | null;
+  source_segment_ids: string[] | JsonValue;
+  type: CommitmentType;
+  completion_state: CommitmentCompletionState;
+  metadata: JsonValue;
+  created_at: string;
+  updated_at: string;
 }
 
 export type TaskCommentRole = "user" | "assistant" | "system";

@@ -8,6 +8,12 @@ import {
 import { requireApiUser } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+/**
+ * Vercel plan assumption: Pro. Prompt generation loops over targets with OpenAI.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 const TARGETS: PromptTarget[] = ["general", "lovable"];
 const requestSchema = z.object({
   topic_id: z.string().uuid().optional()

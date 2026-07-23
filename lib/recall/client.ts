@@ -63,12 +63,18 @@ export async function createRecallBot(
       }
     };
 
-    console.info("Recall request diagnostics", {
-      url: requestUrl,
-      bot_name: botName,
-      meeting_url: meetingUrl,
-      auth_starts_with_token: authorizationHeader.startsWith("Token "),
-      recording_config_exists: Boolean(requestBody.recording_config)
+    console.info("[recall] Create bot request diagnostics", {
+      endpoint: `https://${region}.recall.ai/api/v1/bot/`,
+      payload_keys: Object.keys(requestBody).sort(),
+      recording_config_keys: Object.keys(requestBody.recording_config).sort(),
+      transcript_config_keys: Object.keys(
+        requestBody.recording_config.transcript
+      ).sort(),
+      provider_keys: Object.keys(
+        requestBody.recording_config.transcript.provider
+      ).sort(),
+      transcription_options: null,
+      diarization: requestBody.recording_config.transcript.diarization
     });
 
     const response = await fetch(requestUrl, {
@@ -96,7 +102,14 @@ export async function createRecallBot(
           : responseText || "Unknown Recall response";
       console.error("Recall bot creation request failed", {
         status: response.status,
-        body: details
+        response_body_type: Array.isArray(responseJson)
+          ? "array"
+          : typeof responseJson,
+        response_body_keys:
+          responseJson && typeof responseJson === "object" && !Array.isArray(responseJson)
+            ? Object.keys(responseJson as Record<string, unknown>).sort()
+            : [],
+        response_body_length: responseText.length
       });
       throw new Error(`Recall bot creation failed: ${response.status} ${details}`);
     }
@@ -152,6 +165,15 @@ function findTranscriptId(value: unknown, depth = 0): string | null {
     if (!Array.isArray(array)) continue;
     for (const item of array) {
       const itemObject = asObject(item);
+      if (key === "recordings") {
+        const mediaShortcuts = asObject(itemObject?.media_shortcuts);
+        const recordingTranscript = asObject(mediaShortcuts?.transcript);
+        const recordingTranscriptId = idToString(recordingTranscript?.id);
+        if (recordingTranscriptId) return recordingTranscriptId;
+        const nested = findTranscriptId(item, depth + 1);
+        if (nested) return nested;
+        continue;
+      }
       const itemTranscriptId =
         idToString(itemObject?.transcript_id) ??
         idToString(asObject(itemObject?.transcript)?.id) ??

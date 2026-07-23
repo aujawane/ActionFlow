@@ -1,13 +1,7 @@
 import { z } from "zod";
 
-import { OPENAI_MODEL, openai } from "@/lib/openai";
-import type {
-  InsightCategory,
-  MeetingTaskPriority,
-  MeetingTaskType,
-  MeetingTaskWorkspaceType,
-  MeetingTopic
-} from "@/lib/types";
+import { getOpenAIModel, openai } from "@/lib/openai";
+import type { InsightCategory } from "@/lib/types";
 
 const transcriptAnalysisSchema = z
   .object({
@@ -43,41 +37,6 @@ const topicSegmentationSchema = z
   .strict();
 
 export type TopicSegmentationResult = z.infer<typeof topicSegmentationSchema>;
-
-const topicTaskExtractionSchema = z
-  .object({
-    tasks: z.array(
-      z
-        .object({
-          task: z.string().min(1),
-          owner: z.string().nullable(),
-          task_type: z.enum(["commitment", "implicit_commitment", "unassigned_work"]),
-          priority: z.enum(["low", "medium", "high"]).default("medium"),
-          suggested_steps: z.array(z.string()),
-          source_quote: z.string().nullable(),
-          confidence: z.number().min(0).max(1).nullable(),
-          workspace_type: z.enum([
-            "research",
-            "email",
-            "proposal",
-            "coding",
-            "documentation",
-            "design",
-            "meeting_follow_up",
-            "planning",
-            "testing",
-            "decision",
-            "learning",
-            "other"
-          ]),
-          workspace_summary: z.string().nullable()
-        })
-        .strict()
-    )
-  })
-  .strict();
-
-export type TopicTaskExtractionResult = z.infer<typeof topicTaskExtractionSchema>;
 
 const transcriptAnalysisJsonSchema: Record<string, unknown> = {
   type: "object",
@@ -135,68 +94,6 @@ const transcriptAnalysisJsonSchema: Record<string, unknown> = {
   ]
 };
 
-const topicTaskExtractionJsonSchema: Record<string, unknown> = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    tasks: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          task: { type: "string" },
-          owner: { type: ["string", "null"] },
-          task_type: {
-            type: "string",
-            enum: ["commitment", "implicit_commitment", "unassigned_work"]
-          },
-          priority: {
-            type: "string",
-            enum: ["low", "medium", "high"]
-          },
-          suggested_steps: {
-            type: "array",
-            items: { type: "string" }
-          },
-          source_quote: { type: ["string", "null"] },
-          confidence: { type: ["number", "null"] },
-          workspace_type: {
-            type: "string",
-            enum: [
-              "research",
-              "email",
-              "proposal",
-              "coding",
-              "documentation",
-              "design",
-              "meeting_follow_up",
-              "planning",
-              "testing",
-              "decision",
-              "learning",
-              "other"
-            ]
-          },
-          workspace_summary: { type: ["string", "null"] }
-        },
-        required: [
-          "task",
-          "owner",
-          "task_type",
-          "priority",
-          "suggested_steps",
-          "source_quote",
-          "confidence",
-          "workspace_type",
-          "workspace_summary"
-        ]
-      }
-    }
-  },
-  required: ["tasks"]
-};
-
 export function buildCleanTranscript(
   segments: Array<{ speaker: string | null; text: string; timestamp: string }>
 ) {
@@ -231,7 +128,7 @@ export async function analyzeTranscriptWithOpenAI(transcript: string): Promise<
 > {
   try {
     const response = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: getOpenAIModel(),
       input: [
         {
           role: "system",
@@ -283,147 +180,6 @@ export async function analyzeTranscriptWithOpenAI(transcript: string): Promise<
     return {
       ok: false,
       error: "Failed to analyze transcript with OpenAI.",
-      details: error instanceof Error ? error.message : "Unknown error"
-    };
-  }
-}
-
-export async function extractTopicTasksWithOpenAI(
-  topic: Pick<MeetingTopic, "title" | "summary">,
-  transcriptSegments: Array<{ speaker: string | null; text: string; timestamp: string }>
-): Promise<
-  | { ok: true; data: TopicTaskExtractionResult }
-  | { ok: false; error: string; details?: string }
-> {
-  const transcript = buildCleanTranscript(transcriptSegments);
-
-  const taskExtractionPrompt = [
-    "You extract post-meeting action items from exactly one topic in a software product meeting.",
-    "",
-    "Scope rules:",
-    "- Use only the topic and transcript excerpt provided.",
-    "- Do not combine tasks across unrelated topics.",
-    "- Do not invent tasks unrelated to the transcript.",
-    "- If no clear action items exist, return an empty tasks array.",
-    "",
-    "Extract these task types:",
-    "- commitment: a person explicitly commits to doing something, e.g. \"I'll send the email.\"",
-    "- implicit_commitment: vague personal follow-up language, e.g. \"I'll look into it\", \"I'll research that\", \"Let me check\", \"I can send that over\".",
-    "- unassigned_work: work mentioned without a clear owner, e.g. \"Someone needs to\", \"We should figure out\", \"We need to follow up on\".",
-    "",
-    "Owner inference rules:",
-    "- The transcript excerpt uses this format: [timestamp] Speaker Name: spoken text.",
-    "- Prefer the displayed speaker name as owner when that speaker personally commits.",
-    "- If a speaker says \"I'll...\", \"I will...\", \"I can...\", \"Let me...\", \"I'm going to...\", \"I'll take care of...\", or \"I can handle...\", set owner to that speaker.",
-    "- If someone names another person as responsible, use that person as owner, e.g. \"Sarah will send the email\" or \"John is going to handle backend\".",
-    "- If the displayed speaker name is generic like \"Speaker 1\", \"Unknown Speaker\", \"Unknown\", or \"Participant\", look for self-identification in the spoken text, e.g. \"This is Maya, I'll prepare the proposal\" means owner is \"Maya\".",
-    "- If no reliable owner can be inferred, use owner null.",
-    "- Only use task_type unassigned_work when work is mentioned but nobody commits to owning it.",
-    "- Do not invent owners without transcript evidence.",
-    "",
-    "Normalization rules:",
-    "- Convert vague commitments into clear concrete tasks using nearby context.",
-    "- Preserve the transcript meaning; do not add unrelated work.",
-    "- Include a short source_quote when possible.",
-    "- Generate 2-5 practical suggested next steps for each task.",
-    "- Use priority low, medium, or high. Default to medium when unclear.",
-    "",
-    "Workspace classification rules:",
-    "- Research tasks should become research.",
-    "- Email, draft, send message, or outreach tasks should become email.",
-    "- Build, implement, fix, code, or engineering tasks should become coding.",
-    "- Create proposal, pitch, or proposal-style plan docs should become proposal.",
-    "- Write docs, specs, PRDs, or requirements should become documentation.",
-    "- UI, UX, visual, or design tasks should become design.",
-    "- Follow-up, schedule, check back, or circle-back tasks should become meeting_follow_up.",
-    "- Planning, roadmap, timeline, sequencing, or coordination tasks should become planning.",
-    "- Testing, QA, validation, or verification tasks should become testing.",
-    "- Decide, choose, approve, or finalize tasks should become decision.",
-    "- Learn, study, understand, or get familiar tasks should become learning.",
-    "- Unknown tasks should become other.",
-    "- workspace_summary should be one concise sentence describing the workspace focus.",
-    "",
-    "Ownership examples:",
-    "Transcript: Aditya: I'll research pricing.",
-    "Output: owner \"Aditya\", task_type \"commitment\".",
-    "",
-    "Transcript: Sarah: Let me draft the follow-up email.",
-    "Output: owner \"Sarah\", task_type \"commitment\".",
-    "",
-    "Transcript: John: I can look into the API issue.",
-    "Output: owner \"John\", task_type \"implicit_commitment\".",
-    "",
-    "Transcript: Unknown Speaker: This is Maya, I'll prepare the proposal.",
-    "Output: owner \"Maya\", task_type \"commitment\".",
-    "",
-    "Transcript: Alex: Someone needs to write onboarding docs.",
-    "Output: owner null, task_type \"unassigned_work\".",
-    "- Return valid JSON only."
-  ].join("\n");
-
-  try {
-    const response = await openai.responses.create({
-      model: OPENAI_MODEL,
-      input: [
-        {
-          role: "system",
-          content: taskExtractionPrompt
-        },
-        {
-          role: "user",
-          content: [
-            `Topic: ${topic.title}`,
-            topic.summary ? `Topic summary: ${topic.summary}` : null,
-            "",
-            "Important: Each transcript line includes the speaker label before the colon. Use that speaker label for ownership when the speaker commits.",
-            "",
-            "Transcript excerpt:",
-            transcript
-          ]
-            .filter(Boolean)
-            .join("\n")
-        }
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "topic_task_extraction",
-          strict: true,
-          schema: topicTaskExtractionJsonSchema
-        }
-      }
-    });
-
-    const raw = response.output_text?.trim();
-    if (!raw) {
-      return { ok: false, error: "OpenAI returned empty task extraction output." };
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return {
-        ok: false,
-        error: "OpenAI returned invalid task extraction JSON.",
-        details: raw.slice(0, 400)
-      };
-    }
-
-    const validated = topicTaskExtractionSchema.safeParse(parsed);
-    if (!validated.success) {
-      return {
-        ok: false,
-        error: "Task extraction JSON did not match schema.",
-        details: validated.error.message
-      };
-    }
-
-    return { ok: true, data: validated.data };
-  } catch (error) {
-    return {
-      ok: false,
-      error: "Failed to extract topic tasks with OpenAI.",
       details: error instanceof Error ? error.message : "Unknown error"
     };
   }
@@ -505,7 +261,7 @@ export async function segmentMeetingTopicsWithOpenAI(transcript: string): Promis
 
   try {
     const response = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: getOpenAIModel(),
       input: [
         { role: "system", content: segmentationPrompt },
         { role: "user", content: transcript }
@@ -641,36 +397,3 @@ export function buildInsightsPayload(input: {
   ];
 }
 
-export function buildMeetingTasksPayload(input: {
-  meetingId: string;
-  topicId: string;
-  extraction: TopicTaskExtractionResult;
-}): Array<{
-  meeting_id: string;
-  topic_id: string;
-  task: string;
-  owner: string | null;
-  task_type: MeetingTaskType;
-  priority: MeetingTaskPriority;
-  suggested_steps: string[];
-  source_quote: string | null;
-  confidence: number | null;
-  workspace_type: MeetingTaskWorkspaceType;
-  workspace_summary: string | null;
-}> {
-  return input.extraction.tasks.map((task) => ({
-    meeting_id: input.meetingId,
-    topic_id: input.topicId,
-    task: task.task.trim(),
-    owner: task.owner?.trim() || null,
-    task_type: task.task_type,
-    priority: task.priority,
-    suggested_steps: task.suggested_steps
-      .map((step) => step.trim())
-      .filter((step) => step.length > 0),
-    source_quote: task.source_quote?.trim() || null,
-    confidence: task.confidence,
-    workspace_type: task.workspace_type,
-    workspace_summary: task.workspace_summary?.trim() || null
-  }));
-}

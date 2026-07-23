@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { OPENAI_MODEL, openai } from "@/lib/openai";
+import { getOpenAIModel, openai } from "@/lib/openai";
 import type { MeetingTask } from "@/lib/types";
 
 export const FOLLOW_UP_EMAIL_SYSTEM_PROMPT = `You are Parfait, an AI meeting follow-up assistant.
@@ -233,7 +233,7 @@ export async function generateIndividualFollowUpDrafts(
 
   try {
     const response = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: getOpenAIModel(),
       input: [
         { role: "system", content: FOLLOW_UP_EMAIL_SYSTEM_PROMPT },
         { role: "user", content: individualUserPrompt(context, groups) }
@@ -288,7 +288,7 @@ export async function generateTeamFollowUpDraft(
 ) {
   try {
     const response = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: getOpenAIModel(),
       input: [
         { role: "system", content: FOLLOW_UP_EMAIL_SYSTEM_PROMPT },
         { role: "user", content: teamUserPrompt(context, context.tasks) }

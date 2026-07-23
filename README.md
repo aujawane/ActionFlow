@@ -6,6 +6,10 @@ Parfait is an AI-powered meeting companion that:
 - stores meetings and bot lifecycle state in Supabase
 - ingests Recall webhook transcript events into the database
 
+Parfait's execution model is **Commitments → Tasks → Deliverables**. See
+[`docs/execution-intelligence.md`](docs/execution-intelligence.md) for the
+architecture, extraction stages, persistence model, and evaluation harness.
+
 ## Project Overview
 
 Core product flow:
@@ -24,6 +28,22 @@ Core product flow:
 - Supabase (Auth + Postgres + RLS)
 - OpenAI API (`responses.create`)
 - Recall.ai API (bot creation + webhooks)
+
+## Deploy to Vercel
+
+Production deployment instructions live in:
+
+- [`docs/deployment-vercel.md`](docs/deployment-vercel.md)
+
+Summary:
+
+- Host the Next.js app on **Vercel Pro** (Hobby timeouts are too short for analyze/webhook).
+- Keep Supabase, OpenAI, Recall, Zoom, and Google as external services.
+- Do **not** Dockerize this Next.js app for Vercel.
+- Production Recall webhook: `https://<your-domain>/api/recall/webhook`
+- Production Google OAuth callback: `https://<your-domain>/api/integrations/google/callback`
+- Zoom has **no** OAuth callback URL (Server-to-Server OAuth only).
+- Health check: `GET /api/health`
 
 ## Environment Variables
 

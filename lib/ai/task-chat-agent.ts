@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { OPENAI_MODEL, openai } from "@/lib/openai";
+import { getOpenAIModel, openai } from "@/lib/openai";
 import type { Meeting, MeetingTask, TaskComment } from "@/lib/types";
 
 const agentPatchSchema = z
@@ -184,7 +184,7 @@ export async function runTaskChatAgent(input: {
 
   try {
     const response = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: getOpenAIModel(),
       input: [
         { role: "system", content: systemPrompt },
         {

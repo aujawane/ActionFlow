@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "tsx --test tests/**/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eval:execution": "tsx scripts/evaluate-execution-intelligence.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { CommitmentsPanel } from "@/components/commitments-panel";
 import { ExecutionDashboard } from "@/components/execution-dashboard";
 import { InsightsPanel } from "@/components/insights-panel";
 import { LiveMeetingStatusBadge } from "@/components/live-meeting-status-badge";
@@ -16,6 +17,7 @@ import {
 } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
+  MeetingCommitment,
   MeetingSpeakerAlias,
   MeetingTask,
   MeetingTopic,
@@ -66,6 +68,7 @@ export default async function MeetingDetailPage({
     { data: prompts, error: promptsError },
     { data: topics, error: topicsError },
     { data: tasks, error: tasksError },
+    { data: commitments, error: commitmentsError },
     { data: aliases, error: aliasesError }
   ] =
     await Promise.all([
@@ -92,8 +95,13 @@ export default async function MeetingDetailPage({
       supabaseAdmin
         .from("meeting_tasks")
         .select(
-          "id, meeting_id, topic_id, task, owner, task_type, priority, suggested_steps, source_quote, confidence, status, due_date, workspace_type, workspace_summary, rationale, supporting_context, categorization_metadata, created_at"
+          "id, meeting_id, topic_id, commitment_id, task, owner, owners, task_type, priority, suggested_steps, source_quote, source_segment_ids, confidence, status, due_date, due_date_text, workspace_type, workspace_summary, inferred, extraction_metadata, rationale, supporting_context, categorization_metadata, created_at"
         )
+        .eq("meeting_id", id)
+        .order("created_at", { ascending: true }),
+      supabaseAdmin
+        .from("meeting_commitments")
+        .select("*")
         .eq("meeting_id", id)
         .order("created_at", { ascending: true }),
       supabaseAdmin
@@ -105,6 +113,10 @@ export default async function MeetingDetailPage({
 
   const topicsMissingTable = isMissingRelationError(topicsError, "meeting_topics");
   const tasksMissingTable = isMissingRelationError(tasksError, "meeting_tasks");
+  const commitmentsMissingTable = isMissingRelationError(
+    commitmentsError,
+    "meeting_commitments"
+  );
   const safeTopics = topicsMissingTable ? [] : (topics ?? []);
   const rawTasks = (tasksMissingTable ? [] : (tasks ?? [])) as MeetingTask[];
   const typedTopics = safeTopics as MeetingTopic[];
@@ -112,6 +124,9 @@ export default async function MeetingDetailPage({
   const rawSegments = (segments ?? []) as TranscriptSegment[];
   const safeSegments = applySpeakerAliases(rawSegments, safeAliases);
   const safeTasks = applySpeakerAliasesToTasks(rawTasks, safeAliases);
+  const safeCommitments = (commitmentsMissingTable
+    ? []
+    : commitments ?? []) as MeetingCommitment[];
   const speakerRoster = buildMeetingSpeakerRoster({
     segments: rawSegments,
     aliases: safeAliases,
@@ -195,7 +210,8 @@ export default async function MeetingDetailPage({
         promptsError ||
         aliasesError ||
         (topicsError && !topicsMissingTable) ||
-        (tasksError && !tasksMissingTable)) && (
+        (tasksError && !tasksMissingTable) ||
+        (commitmentsError && !commitmentsMissingTable)) && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Some data sections could not be loaded. Try refreshing this page.
           {tasksError && !tasksMissingTable ? (
@@ -206,7 +222,7 @@ export default async function MeetingDetailPage({
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Transcript Segments
@@ -247,6 +263,14 @@ export default async function MeetingDetailPage({
             {safeTasks.length}
           </p>
         </div>
+        <div className="premium-card premium-card-hover p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Commitments
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {safeCommitments.length}
+          </p>
+        </div>
       </div>
 
       <MeetingActions
@@ -264,6 +288,8 @@ export default async function MeetingDetailPage({
         participants={participants}
         tasks={safeTasks}
       />
+
+      <CommitmentsPanel commitments={safeCommitments} tasks={safeTasks} />
 
       <TopicResults
         topics={typedTopics}

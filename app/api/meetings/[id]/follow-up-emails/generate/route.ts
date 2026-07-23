@@ -5,6 +5,12 @@ import { requireApiUser } from "@/lib/api-auth";
 import { generateMeetingFollowUpEmails } from "@/lib/meeting-follow-up-email-service";
 import type { FollowUpEmailMode } from "@/lib/types";
 
+/**
+ * Vercel plan assumption: Pro. Follow-up email generation uses OpenAI.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }

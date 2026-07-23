@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache";
 import { requireApiUser } from "@/lib/api-auth";
 import { ensureTaskIsCategorized } from "@/lib/task-deliverable-service";
 
+/**
+ * Vercel plan assumption: Pro. Categorization is a single OpenAI call.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function POST(
   _request: Request,
   context: { params: Promise<{ id: string }> }

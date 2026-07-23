@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 
+import { getGoogleRedirectUri as resolveGoogleRedirectUri } from "@/lib/env";
+
 export const GOOGLE_INTEGRATION_PROVIDER = "google";
 export const GOOGLE_MEET_SCOPE = "https://www.googleapis.com/auth/meetings.space.created";
 export const GOOGLE_OAUTH_SCOPES = ["openid", "email", "profile", GOOGLE_MEET_SCOPE].join(" ");
@@ -51,10 +53,7 @@ function signState(payload: string) {
 }
 
 export function getGoogleRedirectUri() {
-  return (
-    process.env.GOOGLE_REDIRECT_URI?.trim() ||
-    `${process.env.NEXT_PUBLIC_APP_URL}/api/integrations/google/callback`
-  );
+  return resolveGoogleRedirectUri();
 }
 
 export function createGoogleOAuthState(userId: string) {

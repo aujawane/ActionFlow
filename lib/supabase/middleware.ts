@@ -7,8 +7,8 @@ export async function updateSession(request: NextRequest) {
   });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || "",
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || "",
     {
       cookies: {
         getAll() {
@@ -39,7 +39,10 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const isProtectedRoute =
-    pathname.startsWith("/dashboard") || pathname.startsWith("/meetings");
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/meetings") ||
+    pathname.startsWith("/tasks") ||
+    pathname.startsWith("/account");
   const isAuthRoute =
     pathname.startsWith("/login") || pathname.startsWith("/forgot-password");
 

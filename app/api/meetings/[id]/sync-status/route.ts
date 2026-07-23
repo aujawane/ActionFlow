@@ -5,6 +5,12 @@ import { fetchRecallBotStatus } from "@/lib/recall/client";
 import { processCompletedRecallMeeting } from "@/lib/recall/processing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+/**
+ * Vercel plan assumption: Pro. Sync may trigger full transcript + analysis processing.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
 function isRecallDone(status: string) {
   const normalized = status.toLowerCase();
   return (

@@ -45,12 +45,14 @@ export async function getTaskComments(taskId: string) {
 }
 
 export async function getTaskTranscriptSnippets(task: MeetingTask) {
-  const { data: topic } = await supabaseAdmin
-    .from("meeting_topics")
-    .select("segment_ids")
-    .eq("id", task.topic_id)
-    .eq("meeting_id", task.meeting_id)
-    .maybeSingle();
+  const { data: topic } = task.topic_id
+    ? await supabaseAdmin
+        .from("meeting_topics")
+        .select("segment_ids")
+        .eq("id", task.topic_id)
+        .eq("meeting_id", task.meeting_id)
+        .maybeSingle()
+    : { data: null };
   const segmentIds = getSegmentIdsFromTopic(topic?.segment_ids);
   const { segments, error } = await loadMeetingTranscriptSegments({
     meetingId: task.meeting_id,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { OPENAI_MODEL, openai } from "@/lib/openai";
+import { getOpenAIModel, openai } from "@/lib/openai";
 import {
   buildFallbackCategorization,
   CATEGORY_TO_DELIVERABLE,
@@ -206,7 +206,7 @@ export async function categorizeTaskWithOpenAI(input: {
 
   try {
     const response = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: getOpenAIModel(),
       input: [
         { role: "system", content: SYSTEM_PROMPT },
         {
@@ -297,7 +297,7 @@ export async function categorizeTasksBatchWithOpenAI(input: {
 
   try {
     const response = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: getOpenAIModel(),
       input: [
         { role: "system", content: SYSTEM_PROMPT },
         {

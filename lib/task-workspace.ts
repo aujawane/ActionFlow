@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { OPENAI_MODEL, openai } from "@/lib/openai";
+import { getOpenAIModel, openai } from "@/lib/openai";
 import {
   DELIVERABLE_FORMAT_INSTRUCTIONS,
   DELIVERABLE_PANEL_TITLES,
@@ -213,12 +213,14 @@ export async function getTaskWorkspaceContext(
     };
   }
 
-  const { data: topic } = await supabaseAdmin
-    .from("meeting_topics")
-    .select("*")
-    .eq("id", typedTask.topic_id)
-    .eq("meeting_id", typedTask.meeting_id)
-    .maybeSingle();
+  const { data: topic } = typedTask.topic_id
+    ? await supabaseAdmin
+        .from("meeting_topics")
+        .select("*")
+        .eq("id", typedTask.topic_id)
+        .eq("meeting_id", typedTask.meeting_id)
+        .maybeSingle()
+    : { data: null };
 
   const typedTopic = (topic as MeetingTopic | null) ?? null;
   const {
@@ -313,7 +315,7 @@ export async function generateTaskGuide(
 > {
   try {
     const response = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: getOpenAIModel(),
       input: [
         {
           role: "system",
@@ -373,7 +375,7 @@ export async function generateTaskDeliverableDraft(
 
   try {
     const response = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: getOpenAIModel(),
       input: [
         {
           role: "system",
@@ -466,7 +468,7 @@ export async function generateTaskPrompt(
 
   try {
     const response = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: getOpenAIModel(),
       input: [
         {
           role: "system",

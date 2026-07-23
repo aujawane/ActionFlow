@@ -1,9 +1,27 @@
 import OpenAI from "openai";
 
-import { env } from "@/lib/env";
+import { getServerEnv } from "@/lib/env";
 
-export const openai = new OpenAI({
-  apiKey: env.OPENAI_API_KEY
+let openaiClient: OpenAI | null = null;
+
+export function getOpenAIClient() {
+  if (!openaiClient) {
+    openaiClient = new OpenAI({
+      apiKey: getServerEnv().OPENAI_API_KEY
+    });
+  }
+  return openaiClient;
+}
+
+/** Lazy proxy so importing this module during builds does not require secrets. */
+export const openai = new Proxy({} as OpenAI, {
+  get(_target, property, receiver) {
+    const client = getOpenAIClient() as unknown as Record<PropertyKey, unknown>;
+    const value = Reflect.get(client, property, receiver);
+    return typeof value === "function" ? value.bind(client) : value;
+  }
 });
 
-export const OPENAI_MODEL = env.OPENAI_MODEL;
+export function getOpenAIModel() {
+  return getServerEnv().OPENAI_MODEL;
+}

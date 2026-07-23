@@ -7,6 +7,12 @@ import {
   supportsTaskPrompt
 } from "@/lib/task-workspace";
 
+/**
+ * Vercel plan assumption: Pro. Prompt generation is a single OpenAI call.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function POST(
   _request: Request,
   context: { params: Promise<{ id: string }> }

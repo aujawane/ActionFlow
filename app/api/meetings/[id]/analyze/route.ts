@@ -4,16 +4,29 @@ import {
   analyzeTranscriptWithOpenAI,
   buildCleanTranscript,
   buildInsightsPayload,
-  buildMeetingTasksPayload,
   buildTranscriptWithSegmentIds,
-  extractTopicTasksWithOpenAI,
   segmentMeetingTopicsWithOpenAI
 } from "@/lib/analysis";
+import { runExecutionIntelligence } from "@/lib/execution-intelligence/pipeline";
 import { categorizeMeetingTasksBestEffort } from "@/lib/task-categorization-batch";
 import { requireApiUser } from "@/lib/api-auth";
 import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MeetingSpeakerAlias, MeetingTask, MeetingTopic, TranscriptSegment } from "@/lib/types";
+import type {
+  ExtractedInsight,
+  MeetingSpeakerAlias,
+  MeetingTask,
+  MeetingTopic,
+  TranscriptSegment
+} from "@/lib/types";
+
+/**
+ * Vercel plan assumption: Pro (maxDuration up to 300s).
+ * Topic segmentation + per-topic extraction + categorization can exceed 60s.
+ * Hobby (10s) is not sufficient for this route.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 300;
 
 const MIN_ANALYSIS_WORDS = 25;
 const MIN_ANALYSIS_SEGMENTS = 2;
@@ -63,7 +76,7 @@ export async function POST(
 
   let meetingQuery = supabaseAdmin
     .from("meetings")
-    .select("id")
+    .select("id, created_at")
     .eq("id", id)
     .is("deleted_at", null);
   if (userId) {
@@ -74,6 +87,7 @@ export async function POST(
   if (!meeting) {
     return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
   }
+  const meetingCreatedAt = meeting.created_at ?? new Date().toISOString();
 
   const [
     { data: segments, error: segmentsError },
@@ -116,22 +130,69 @@ export async function POST(
     );
   }
 
+  const segmentMap = new Map(safeSegments.map((segment) => [segment.id, segment]));
+  const segmentationTranscript = buildTranscriptWithSegmentIds(safeSegments);
+
+  async function executeGraph(input: {
+    topics: MeetingTopic[];
+    insights: ExtractedInsight[];
+    fallbackUsed: boolean;
+  }) {
+    return runExecutionIntelligence({
+      fallbackUsed: input.fallbackUsed,
+      source: {
+        meetingId: id,
+        meetingDate: meetingCreatedAt,
+        transcript: segmentationTranscript,
+        topics: input.topics.map((topic) => ({
+          id: topic.id,
+          title: topic.title,
+          summary: topic.summary,
+          segment_ids: topic.segment_ids
+        })),
+        insights: input.insights.map((insight) => ({
+          topic_id: insight.topic_id,
+          category: insight.category,
+          content: insight.content
+        }))
+      }
+    });
+  }
+
   const transcriptWordCount = countTranscriptWords(safeSegments);
   if (safeSegments.length < MIN_ANALYSIS_SEGMENTS || transcriptWordCount < MIN_ANALYSIS_WORDS) {
-    console.info("[analyze] Skipping analysis for short transcript", {
+    console.info("[analyze] Running execution-only analysis for short transcript", {
       meeting_id: id,
       segment_count: safeSegments.length,
       word_count: transcriptWordCount
     });
 
+    const execution = await executeGraph({
+      topics: [],
+      insights: [],
+      fallbackUsed: true
+    });
+    if (!execution.ok) {
+      return NextResponse.json(
+        {
+          error: "Short-transcript execution extraction failed",
+          details: execution.error,
+          metrics: execution.metrics
+        },
+        { status: execution.status }
+      );
+    }
     return NextResponse.json({
       skipped: true,
-      skip_reason: "Transcript imported, but there is not enough meeting content to analyze yet.",
+      skip_reason:
+        "Transcript was too short for topic/insight analysis; execution extraction still ran.",
       segment_count: safeSegments.length,
       word_count: transcriptWordCount,
       topics: [],
       insights: [],
-      tasks: []
+      commitments: execution.commitments,
+      tasks: execution.tasks,
+      execution_metrics: execution.metrics
     });
   }
 
@@ -139,32 +200,49 @@ export async function POST(
     console.warn("[analyze] Falling back to whole-meeting analysis:", reason);
     const analysis = await analyzeTranscriptWithOpenAI(transcript);
     if (!analysis.ok) {
-      return NextResponse.json(
-        {
-          error: "Transcript analysis failed",
-          details: analysis.details ?? analysis.error
-        },
-        { status: 502 }
-      );
+      console.warn("[analyze] Fallback insight analysis failed; execution extraction will continue", {
+        meeting_id: id,
+        error: analysis.error,
+        details: analysis.details
+      });
     }
 
-    // Reset to a consistent whole-meeting state. Best-effort topic delete so a
-    // missing meeting_topics table does not break the fallback.
-    await deleteMeetingTasks(id);
+    // Reset summaries/topics, but keep the previous execution graph until the
+    // new graph has passed verification and can be atomically replaced.
     await supabaseAdmin.from("meeting_topics").delete().eq("meeting_id", id);
     await supabaseAdmin.from("extracted_insights").delete().eq("meeting_id", id);
 
-    const payload = buildInsightsPayload({
-      meetingId: id,
-      analysis: analysis.data,
-      topicId: null
-    });
-    const { data: inserted, error: insertError } = await insertInsightsRows(payload);
+    let inserted: Array<Record<string, unknown>> = [];
+    if (analysis.ok) {
+      const payload = buildInsightsPayload({
+        meetingId: id,
+        analysis: analysis.data,
+        topicId: null
+      });
+      const insertResult = await insertInsightsRows(payload);
+      if (insertResult.error) {
+        console.warn("[analyze] Fallback insight persistence failed; execution extraction will continue", {
+          meeting_id: id,
+          error: insertResult.error.message
+        });
+      } else {
+        inserted = insertResult.data ?? [];
+      }
+    }
 
-    if (insertError) {
+    const execution = await executeGraph({
+      topics: [],
+      insights: inserted as unknown as ExtractedInsight[],
+      fallbackUsed: true
+    });
+    if (!execution.ok) {
       return NextResponse.json(
-        { error: "Failed to save insights", details: insertError.message },
-        { status: 500 }
+        {
+          error: "Fallback execution extraction failed",
+          details: execution.error,
+          metrics: execution.metrics
+        },
+        { status: execution.status }
       );
     }
 
@@ -173,12 +251,12 @@ export async function POST(
       fallback_reason: reason,
       topics: [],
       insights: inserted,
-      tasks: []
+      commitments: execution.commitments,
+      tasks: execution.tasks,
+      execution_metrics: execution.metrics
     });
   };
 
-  const segmentMap = new Map(safeSegments.map((segment) => [segment.id, segment]));
-  const segmentationTranscript = buildTranscriptWithSegmentIds(safeSegments);
   const topicSegmentation = await segmentMeetingTopicsWithOpenAI(segmentationTranscript);
 
   if (!topicSegmentation.ok || topicSegmentation.data.topics.length === 0) {
@@ -192,19 +270,8 @@ export async function POST(
     `[analyze] Segmentation produced ${topicSegmentation.data.topics.length} topic(s).`
   );
 
-  // Only clear previous data after a successful segmentation, so a failed or empty
-  // re-analysis never wipes existing topics/insights.
-  const deleteTasksResult = await deleteMeetingTasks(id);
-  if (deleteTasksResult.error) {
-    return NextResponse.json(
-      {
-        error: "Failed to reset previous action items",
-        details: deleteTasksResult.error.message
-      },
-      { status: 500 }
-    );
-  }
-
+  // Clear derived summaries/topics only after successful segmentation. The
+  // previous execution graph is replaced atomically after all verification.
   const { error: deleteInsightsError } = await supabaseAdmin
     .from("extracted_insights")
     .delete()
@@ -259,7 +326,6 @@ export async function POST(
   }
 
   const allTopicInsightRows: Array<Record<string, unknown>> = [];
-  const allTopicTaskRows: MeetingTask[] = [];
   const meetingContextByTopicId = new Map<string, string>();
 
   for (let index = 0; index < insertedTopics.length; index += 1) {
@@ -277,6 +343,12 @@ export async function POST(
     meetingContextByTopicId.set(topic.id, topicTranscript);
     const topicAnalysis = await analyzeTranscriptWithOpenAI(topicTranscript);
     if (!topicAnalysis.ok) {
+      console.warn("[analyze] Topic insight extraction failed; execution extraction will continue", {
+        meeting_id: id,
+        topic_id: topic.id,
+        error: topicAnalysis.error,
+        details: topicAnalysis.details
+      });
       continue;
     }
 
@@ -292,34 +364,29 @@ export async function POST(
     if (!topicInsightError && insertedTopicInsights) {
       allTopicInsightRows.push(...insertedTopicInsights);
     }
-
-    const taskExtraction = await extractTopicTasksWithOpenAI(topic, topicSegments);
-    if (taskExtraction.ok) {
-      const taskRows = buildMeetingTasksPayload({
-        meetingId: id,
-        topicId: topic.id,
-        extraction: taskExtraction.data
-      });
-
-      const { data: insertedTopicTasks, error: taskInsertError } =
-        await insertMeetingTaskRows(taskRows);
-
-      if (!taskInsertError && insertedTopicTasks) {
-        allTopicTaskRows.push(...(insertedTopicTasks as MeetingTask[]));
-      }
-    } else {
-      console.warn(
-        `[analyze] Task extraction failed for topic ${topic.id}:`,
-        taskExtraction.details ?? taskExtraction.error
-      );
-    }
   }
 
-  let tasksForResponse = allTopicTaskRows;
-  if (allTopicTaskRows.length > 0 && process.env.OPENAI_API_KEY) {
+  const execution = await executeGraph({
+    topics: insertedTopics as MeetingTopic[],
+    insights: allTopicInsightRows as unknown as ExtractedInsight[],
+    fallbackUsed: false
+  });
+  if (!execution.ok) {
+    return NextResponse.json(
+      {
+        error: "Execution graph extraction failed",
+        details: execution.error,
+        metrics: execution.metrics
+      },
+      { status: execution.status }
+    );
+  }
+
+  let tasksForResponse = execution.tasks;
+  if (tasksForResponse.length > 0 && process.env.OPENAI_API_KEY) {
     try {
       await categorizeMeetingTasksBestEffort({
-        tasks: allTopicTaskRows,
+        tasks: tasksForResponse,
         meetingContextByTopicId
       });
       const { data: refreshedTasks } = await supabaseAdmin
@@ -338,7 +405,9 @@ export async function POST(
     fallback: false,
     topics: insertedTopics,
     insights: allTopicInsightRows,
-    tasks: tasksForResponse
+    commitments: execution.commitments,
+    tasks: tasksForResponse,
+    execution_metrics: execution.metrics
   });
 
   async function insertInsightsRows(
@@ -372,64 +441,4 @@ export async function POST(
     return firstAttempt;
   }
 
-  async function deleteMeetingTasks(meetingId: string) {
-    const result = await supabaseAdmin
-      .from("meeting_tasks")
-      .delete()
-      .eq("meeting_id", meetingId);
-
-    if (result.error && isMissingRelationError(result.error, "meeting_tasks")) {
-      return { error: null };
-    }
-
-    return result;
-  }
-
-  async function insertMeetingTaskRows(
-    rows: Array<{
-      meeting_id: string;
-      topic_id: string;
-      task: string;
-      owner: string | null;
-      task_type: string;
-      priority: string;
-      suggested_steps: string[];
-      source_quote: string | null;
-      confidence: number | null;
-      workspace_type: string;
-      workspace_summary: string | null;
-    }>
-  ) {
-    if (rows.length === 0) {
-      return { data: [], error: null };
-    }
-
-    const seen = new Set<string>();
-    const dedupedRows = rows.filter((row) => {
-      const key = [
-        row.meeting_id,
-        row.topic_id,
-        row.task_type,
-        row.task.toLowerCase()
-      ].join(":");
-
-      if (seen.has(key)) {
-        return false;
-      }
-
-      seen.add(key);
-      return true;
-    });
-
-    const result = await supabaseAdmin
-      .from("meeting_tasks")
-      .insert(dedupedRows)
-      .select("*");
-
-    if (result.error && isMissingRelationError(result.error, "meeting_tasks")) {
-      return { data: [], error: null };
-    }
-
-    return result;
-  }
 }

@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache";
 import { requireApiUser } from "@/lib/api-auth";
 import { generateTaskDeliverable } from "@/lib/task-deliverable-service";
 
+/**
+ * Vercel plan assumption: Pro. Compatibility wrapper around deliverable generation.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }

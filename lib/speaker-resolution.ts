@@ -4,6 +4,7 @@ import {
 } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
+  MeetingCommitment,
   MeetingSpeakerAlias,
   MeetingSpeakerRosterItem,
   MeetingTask,
@@ -24,7 +25,8 @@ async function loadRows(meetingId: string) {
   const [
     { data: segments, error: segmentsError },
     { data: aliases, error: aliasesError },
-    { data: tasks, error: tasksError }
+    { data: tasks, error: tasksError },
+    { data: commitments, error: commitmentsError }
   ] = await Promise.all([
     supabaseAdmin
       .from("transcript_segments")
@@ -40,16 +42,22 @@ async function loadRows(meetingId: string) {
       .from("meeting_tasks")
       .select("*")
       .eq("meeting_id", meetingId)
+      .order("created_at", { ascending: true }),
+    supabaseAdmin
+      .from("meeting_commitments")
+      .select("*")
+      .eq("meeting_id", meetingId)
       .order("created_at", { ascending: true })
   ]);
 
-  const error = segmentsError ?? aliasesError ?? tasksError;
+  const error = segmentsError ?? aliasesError ?? tasksError ?? commitmentsError;
   if (error) throw new Error(error.message);
 
   return {
     segments: (segments ?? []) as TranscriptSegment[],
     aliases: (aliases ?? []) as MeetingSpeakerAlias[],
-    tasks: (tasks ?? []) as MeetingTask[]
+    tasks: (tasks ?? []) as MeetingTask[],
+    commitments: (commitments ?? []) as MeetingCommitment[]
   };
 }
 
@@ -148,6 +156,52 @@ export async function saveMeetingSpeakerMappings(
         .update({ owner: mapping.displayName })
         .in("id", matchingTaskIds);
       if (taskUpdateError) throw new Error(taskUpdateError.message);
+    }
+
+    const matchingCommitments = before.commitments.filter(
+      (commitment) =>
+        equalsName(commitment.owner, mapping.rawSpeakerLabel) ||
+        Boolean(
+          previousDisplayName &&
+            equalsName(commitment.owner, previousDisplayName)
+        ) ||
+        (Array.isArray(commitment.owners) &&
+          commitment.owners.some(
+            (owner) =>
+              typeof owner === "string" &&
+              (equalsName(owner, mapping.rawSpeakerLabel) ||
+                Boolean(
+                  previousDisplayName && equalsName(owner, previousDisplayName)
+                ))
+          ))
+    );
+    for (const commitment of matchingCommitments) {
+      const owners = Array.isArray(commitment.owners)
+        ? commitment.owners.map((owner) =>
+            typeof owner === "string" &&
+            (equalsName(owner, mapping.rawSpeakerLabel) ||
+              Boolean(
+                previousDisplayName && equalsName(owner, previousDisplayName)
+              ))
+              ? mapping.displayName
+              : owner
+          )
+        : [];
+      const { error: commitmentUpdateError } = await supabaseAdmin
+        .from("meeting_commitments")
+        .update({
+          owner:
+            equalsName(commitment.owner, mapping.rawSpeakerLabel) ||
+            Boolean(
+              previousDisplayName &&
+                equalsName(commitment.owner, previousDisplayName)
+            )
+              ? mapping.displayName
+              : commitment.owner,
+          owners
+        })
+        .eq("id", commitment.id);
+      if (commitmentUpdateError) throw new Error(commitmentUpdateError.message);
     }
   }
 

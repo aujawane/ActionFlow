@@ -1,0 +1,391 @@
+diff --git a/app/api/recall/webhook/route.ts b/app/api/recall/webhook/route.ts
+index 4c8c8e3..cf722e8 100644
+--- a/app/api/recall/webhook/route.ts
++++ b/app/api/recall/webhook/route.ts
+@@ -5,6 +5,14 @@ import { NextResponse } from "next/server";
+ import { processCompletedRecallMeeting } from "@/lib/recall/processing";
+ import { supabaseAdmin } from "@/lib/supabase/admin";
+ 
++/**
++ * Vercel plan assumption: Pro (maxDuration up to 300s).
++ * Webhook completion can import a transcript, retry, and trigger analysis.
++ * Hobby (10s) is not sufficient for this route.
++ */
++export const runtime = "nodejs";
++export const maxDuration = 300;
++
+ type JsonObject = Record<string, unknown>;
+ 
+ function asObject(value: unknown): JsonObject | null {
+@@ -62,21 +70,34 @@ function isJoiningEvent(eventType: string) {
+ }
+ 
+ async function verifyWebhook(request: Request, rawBody: string) {
+-  if (process.env.NODE_ENV !== "production") return true;
++  if (process.env.NODE_ENV !== "production") {
++    return true;
++  }
+ 
+-  const webhookSecret = process.env.RECALL_WEBHOOK_SECRET;
++  const webhookSecret = process.env.RECALL_WEBHOOK_SECRET?.trim();
+   const signature = request.headers.get("x-recall-signature");
+   if (!webhookSecret || !signature || !rawBody) {
+-    console.warn("Recall webhook signature verification unavailable.");
+-    return true;
++    console.error("Recall webhook signature verification failed: missing secret or signature.");
++    return false;
+   }
+ 
+   const incoming = signature.startsWith("sha256=")
+     ? signature.slice("sha256=".length)
+     : signature;
+-  const expected = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
+-  const incomingBuffer = Buffer.from(incoming, "hex");
+-  const expectedBuffer = Buffer.from(expected, "hex");
++
++  let incomingBuffer: Buffer;
++  let expectedBuffer: Buffer;
++  try {
++    const expected = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
++    incomingBuffer = Buffer.from(incoming, "hex");
++    expectedBuffer = Buffer.from(expected, "hex");
++  } catch (error) {
++    console.error("Recall webhook signature verification failed: invalid signature encoding.", {
++      error: error instanceof Error ? error.message : "Unknown error"
++    });
++    return false;
++  }
++
+   return (
+     incomingBuffer.length === expectedBuffer.length &&
+     crypto.timingSafeEqual(incomingBuffer, expectedBuffer)
+diff --git a/lib/env.ts b/lib/env.ts
+index 33f1a33..b2a380d 100644
+--- a/lib/env.ts
++++ b/lib/env.ts
+@@ -1,23 +1,171 @@
+ import { z } from "zod";
+ 
+-const envSchema = z.object({
+-  NEXT_PUBLIC_APP_URL: z.string().url(),
+-  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
+-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+-  OPENAI_API_KEY: z.string().min(1),
+-  OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
+-  RECALL_API_KEY: z.string().min(1),
+-  RECALL_WEBHOOK_SECRET: z.string().min(1)
++/**
++ * Server environment validation for Parfait.
++ *
++ * Required core variables are validated lazily on first server use so
++ * Next.js can collect route metadata during builds without crashing when
++ * secrets are injected only at runtime on Vercel.
++ *
++ * Zoom / Google credentials are optional at boot and validated when those
++ * integrations are actually used.
++ */
++
++function readEnv(name: string): string | undefined {
++  const value = process.env[name]?.trim();
++  return value ? value : undefined;
++}
++
++function emptyToUndefined(value: unknown) {
++  if (typeof value !== "string") return undefined;
++  const trimmed = value.trim();
++  return trimmed.length > 0 ? trimmed : undefined;
++}
++
++const optionalNonEmptyString = z.preprocess(
++  emptyToUndefined,
++  z.string().min(1).optional()
++);
++
++const optionalUrl = z.preprocess(emptyToUndefined, z.string().url().optional());
++
++const coreEnvSchema = z.object({
++  NEXT_PUBLIC_APP_URL: z.string().trim().url(),
++  NEXT_PUBLIC_SUPABASE_URL: z.string().trim().url(),
++  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().trim().min(1),
++  SUPABASE_SERVICE_ROLE_KEY: z.string().trim().min(1),
++  OPENAI_API_KEY: z.string().trim().min(1),
++  OPENAI_MODEL: z.string().trim().min(1).default("gpt-4.1-mini"),
++  RECALL_API_KEY: z.string().trim().min(1),
++  RECALL_REGION: z.string().trim().min(1).default("us-west-2"),
++  RECALL_WEBHOOK_SECRET: z.string().trim().min(1),
++  INTERNAL_APP_URL: optionalUrl,
++  RECALL_WEBHOOK_URL: optionalUrl,
++  GOOGLE_CLIENT_ID: optionalNonEmptyString,
++  GOOGLE_CLIENT_SECRET: optionalNonEmptyString,
++  GOOGLE_REDIRECT_URI: optionalUrl,
++  GOOGLE_REFRESH_TOKEN: optionalNonEmptyString,
++  ZOOM_CLIENT_ID: optionalNonEmptyString,
++  ZOOM_CLIENT_SECRET: optionalNonEmptyString,
++  ZOOM_ACCOUNT_ID: optionalNonEmptyString
+ });
+ 
+-export const env = envSchema.parse({
+-  NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+-  NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+-  NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+-  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+-  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+-  OPENAI_MODEL: process.env.OPENAI_MODEL,
+-  RECALL_API_KEY: process.env.RECALL_API_KEY,
+-  RECALL_WEBHOOK_SECRET: process.env.RECALL_WEBHOOK_SECRET
++export type ServerEnv = z.infer<typeof coreEnvSchema>;
++
++let cachedServerEnv: ServerEnv | null = null;
++
++function buildEnvInput() {
++  return {
++    NEXT_PUBLIC_APP_URL: readEnv("NEXT_PUBLIC_APP_URL"),
++    NEXT_PUBLIC_SUPABASE_URL: readEnv("NEXT_PUBLIC_SUPABASE_URL"),
++    NEXT_PUBLIC_SUPABASE_ANON_KEY: readEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
++    SUPABASE_SERVICE_ROLE_KEY: readEnv("SUPABASE_SERVICE_ROLE_KEY"),
++    OPENAI_API_KEY: readEnv("OPENAI_API_KEY"),
++    OPENAI_MODEL: readEnv("OPENAI_MODEL") ?? "gpt-4.1-mini",
++    RECALL_API_KEY: readEnv("RECALL_API_KEY"),
++    RECALL_REGION: readEnv("RECALL_REGION") ?? "us-west-2",
++    RECALL_WEBHOOK_SECRET: readEnv("RECALL_WEBHOOK_SECRET"),
++    INTERNAL_APP_URL: readEnv("INTERNAL_APP_URL"),
++    RECALL_WEBHOOK_URL: readEnv("RECALL_WEBHOOK_URL"),
++    GOOGLE_CLIENT_ID: readEnv("GOOGLE_CLIENT_ID"),
++    GOOGLE_CLIENT_SECRET: readEnv("GOOGLE_CLIENT_SECRET"),
++    GOOGLE_REDIRECT_URI: readEnv("GOOGLE_REDIRECT_URI"),
++    GOOGLE_REFRESH_TOKEN: readEnv("GOOGLE_REFRESH_TOKEN"),
++    ZOOM_CLIENT_ID: readEnv("ZOOM_CLIENT_ID"),
++    ZOOM_CLIENT_SECRET: readEnv("ZOOM_CLIENT_SECRET"),
++    ZOOM_ACCOUNT_ID: readEnv("ZOOM_ACCOUNT_ID")
++  };
++}
++
++export function getServerEnv(): ServerEnv {
++  if (cachedServerEnv) {
++    return cachedServerEnv;
++  }
++
++  const parsed = coreEnvSchema.safeParse(buildEnvInput());
++  if (!parsed.success) {
++    const details = parsed.error.issues
++      .map((issue) => `${issue.path.join(".") || "env"}: ${issue.message}`)
++      .join("; ");
++    throw new Error(`Invalid server environment configuration. ${details}`);
++  }
++
++  cachedServerEnv = parsed.data;
++  return cachedServerEnv;
++}
++
++/** @deprecated Prefer getServerEnv() for lazy validation. */
++export const env = new Proxy({} as ServerEnv, {
++  get(_target, property) {
++    return Reflect.get(getServerEnv() as object, property);
++  }
+ });
++
++export function getPublicSupabaseUrl() {
++  const value = readEnv("NEXT_PUBLIC_SUPABASE_URL");
++  if (!value) {
++    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
++  }
++  return value;
++}
++
++export function getPublicSupabaseAnonKey() {
++  const value = readEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
++  if (!value) {
++    throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
++  }
++  return value;
++}
++
++/**
++ * Resolve the app base URL for server-to-server calls and OAuth redirects.
++ * Production never falls back to localhost.
++ */
++export function getAppBaseUrl(options?: { requestOrigin?: string | null }) {
++  const internal = readEnv("INTERNAL_APP_URL");
++  if (internal) {
++    return internal.replace(/\/$/, "");
++  }
++
++  const publicUrl = readEnv("NEXT_PUBLIC_APP_URL");
++  if (publicUrl) {
++    return publicUrl.replace(/\/$/, "");
++  }
++
++  const requestOrigin = options?.requestOrigin?.trim().replace(/\/$/, "");
++  if (process.env.NODE_ENV !== "production") {
++    return requestOrigin || "http://localhost:3000";
++  }
++
++  if (requestOrigin) {
++    return requestOrigin;
++  }
++
++  throw new Error(
++    "Missing INTERNAL_APP_URL or NEXT_PUBLIC_APP_URL for production server URL resolution."
++  );
++}
++
++export function getGoogleRedirectUri() {
++  const configured = readEnv("GOOGLE_REDIRECT_URI");
++  if (configured) {
++    return configured;
++  }
++  return `${getAppBaseUrl()}/api/integrations/google/callback`;
++}
++
++export function requireEnv(name: string): string {
++  const value = readEnv(name);
++  if (!value) {
++    throw new Error(`Missing ${name}.`);
++  }
++  return value;
++}
++
++export function getRecallWebhookUrl() {
++  const configured = readEnv("RECALL_WEBHOOK_URL");
++  if (configured) {
++    return configured;
++  }
++  return `${getAppBaseUrl()}/api/recall/webhook`;
++}
+diff --git a/lib/recall/processing.ts b/lib/recall/processing.ts
+index ae2ecfe..6845276 100644
+--- a/lib/recall/processing.ts
++++ b/lib/recall/processing.ts
+@@ -1,4 +1,8 @@
+-import { fetchRecallTranscript, parseRecallTranscriptToSegments } from "@/lib/recall/transcript";
++import {
++  fetchRecallTranscript,
++  getRecallTranscriptDiagnostics,
++  parseRecallTranscriptToSegments
++} from "@/lib/recall/transcript";
+ import {
+   buildSpeakerAliasMap,
+   getAmbiguousParticipantNames,
+@@ -33,6 +37,10 @@ export async function replaceMeetingTranscriptFromRecall({
+   recallBotId: string;
+ }) {
+   const transcriptContent = await fetchRecallTranscript(recallBotId);
++  console.info("[recall-processing] Transcript import diagnostics", {
++    bot_id: recallBotId,
++    ...getRecallTranscriptDiagnostics(transcriptContent)
++  });
+   const parsedRows = parseRecallTranscriptToSegments(transcriptContent);
+   const { data: aliasRows, error: aliasesError } = await supabaseAdmin
+     .from("meeting_speaker_aliases")
+@@ -67,14 +75,14 @@ export async function replaceMeetingTranscriptFromRecall({
+         .map((row) => row.participant_name?.trim())
+         .filter((name): name is string => Boolean(name))
+     )
+-  );
++  ).slice(0, 5);
+   const diarizedSpeakers = Array.from(
+     new Set(
+       resolvedRows
+         .map((row) => row.diarized_speaker?.trim())
+         .filter((name): name is string => Boolean(name))
+     )
+-  );
++  ).slice(0, 5);
+   const segmentCountBySpeaker = resolvedRows.reduce<Record<string, number>>((counts, row) => {
+     const speaker = row.speaker?.trim() || "Unknown Speaker";
+     counts[speaker] = (counts[speaker] ?? 0) + 1;
+@@ -133,19 +141,9 @@ export async function replaceMeetingTranscriptFromRecall({
+ }
+ 
+ async function analyzeImportedMeeting(meetingId: string, requestOrigin?: string) {
+-  const internalSecret = process.env.RECALL_WEBHOOK_SECRET?.trim();
+-  if (!internalSecret) {
+-    throw new Error("Missing RECALL_WEBHOOK_SECRET for internal meeting analysis.");
+-  }
+-
+-  const baseUrl =
+-    process.env.INTERNAL_APP_URL?.trim() ||
+-    (process.env.NODE_ENV !== "production"
+-      ? "http://localhost:3000"
+-      : requestOrigin?.replace(/\/$/, ""));
+-  if (!baseUrl) {
+-    throw new Error("Missing internal app URL for meeting analysis.");
+-  }
++  const { getAppBaseUrl, requireEnv } = await import("@/lib/env");
++  const internalSecret = requireEnv("RECALL_WEBHOOK_SECRET");
++  const baseUrl = getAppBaseUrl({ requestOrigin });
+ 
+   const response = await fetch(`${baseUrl}/api/meetings/${meetingId}/analyze`, {
+     method: "POST",
+diff --git a/lib/supabase/admin.ts b/lib/supabase/admin.ts
+index 2ed9786..98d7a1c 100644
+--- a/lib/supabase/admin.ts
++++ b/lib/supabase/admin.ts
+@@ -1,22 +1,37 @@
+-import { createClient } from "@supabase/supabase-js";
++import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+ 
+-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
++import { getPublicSupabaseUrl, requireEnv } from "@/lib/env";
+ 
+-if (!supabaseUrl) {
+-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+-}
++/**
++ * Lazy Supabase service-role client.
++ *
++ * Avoids throwing during Next.js build-time route collection when secrets are
++ * only available at runtime (Vercel). The first real request initializes the
++ * client and fails fast if configuration is missing.
++ */
++let supabaseAdminClient: SupabaseClient | null = null;
+ 
+-if (!serviceRoleKey) {
+-  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+-}
++export function getSupabaseAdmin(): SupabaseClient {
++  if (supabaseAdminClient) {
++    return supabaseAdminClient;
++  }
++
++  const supabaseUrl = getPublicSupabaseUrl();
++  const serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+ 
+-export const supabaseAdmin = createClient(
+-  supabaseUrl,
+-  serviceRoleKey,
+-  {
++  supabaseAdminClient = createClient(supabaseUrl, serviceRoleKey, {
+     auth: {
+       persistSession: false
+     }
++  });
++
++  return supabaseAdminClient;
++}
++
++export const supabaseAdmin: SupabaseClient = new Proxy({} as SupabaseClient, {
++  get(_target, property, receiver) {
++    const client = getSupabaseAdmin() as unknown as Record<PropertyKey, unknown>;
++    const value = Reflect.get(client, property, receiver);
++    return typeof value === "function" ? value.bind(client) : value;
+   }
+-);
++});
+diff --git a/next.config.ts b/next.config.ts
+index 84e4792..88c2b69 100644
+--- a/next.config.ts
++++ b/next.config.ts
+@@ -1,9 +1,7 @@
+ import type { NextConfig } from "next";
+ 
+ const nextConfig: NextConfig = {
+-  experimental: {
+-    typedRoutes: true
+-  }
++  typedRoutes: true
+ };
+ 
+ export default nextConfig;

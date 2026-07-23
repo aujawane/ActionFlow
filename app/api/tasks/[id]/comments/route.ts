@@ -33,6 +33,12 @@ import type {
   TaskCommentMetadata
 } from "@/lib/types";
 
+/**
+ * Vercel plan assumption: Pro. Task chat may call OpenAI and persist patches.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 async function applyTaskPatch(taskId: string, patch: AllowedTaskPatch) {
   const { data, error } = await supabaseAdmin
     .from("meeting_tasks")
