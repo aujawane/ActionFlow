@@ -113,6 +113,18 @@ declare
   commitment_count integer := 0;
   task_count integer := 0;
 begin
+  -- This server-only RPC runs with the caller's privileges. The service role
+  -- must still supply a real meeting; invalid IDs fail before any delete.
+  if not exists (
+    select 1
+    from public.meetings
+    where id = p_meeting_id
+      and deleted_at is null
+  ) then
+    raise exception 'Meeting % does not exist or has been deleted', p_meeting_id
+      using errcode = 'P0002';
+  end if;
+
   delete from public.meeting_tasks where meeting_id = p_meeting_id;
   delete from public.meeting_commitments where meeting_id = p_meeting_id;
 
@@ -230,3 +242,15 @@ begin
   );
 end;
 $$;
+
+comment on function public.replace_meeting_execution_graph(uuid, jsonb, jsonb) is
+  'Server-only atomic execution-graph replacement. Invoke only through the application service role after authorization and model validation.';
+
+revoke all on function public.replace_meeting_execution_graph(uuid, jsonb, jsonb)
+from public;
+revoke all on function public.replace_meeting_execution_graph(uuid, jsonb, jsonb)
+from anon;
+revoke all on function public.replace_meeting_execution_graph(uuid, jsonb, jsonb)
+from authenticated;
+grant execute on function public.replace_meeting_execution_graph(uuid, jsonb, jsonb)
+to service_role;
