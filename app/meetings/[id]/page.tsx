@@ -2,21 +2,28 @@ import { notFound } from "next/navigation";
 
 import { CommitmentsPanel } from "@/components/commitments-panel";
 import { ExecutionDashboard } from "@/components/execution-dashboard";
+import { IdeasRequirementsPanel } from "@/components/ideas-requirements-panel";
 import { InsightsPanel } from "@/components/insights-panel";
 import { LiveMeetingStatusBadge } from "@/components/live-meeting-status-badge";
 import { LiveTranscript } from "@/components/live-transcript";
 import { MeetingActions } from "@/components/meeting-actions";
+import { MeetingAnalysisStatusPanel } from "@/components/meeting-analysis-status";
 import { PromptsPanel } from "@/components/prompts-panel";
 import { SpeakerMappingPanel } from "@/components/speaker-mapping-panel";
+import { StandaloneTasksPanel } from "@/components/standalone-tasks-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
+import { partitionExecutionGraph } from "@/lib/execution-display";
+import { getLatestMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
 import {
   applySpeakerAliases,
   applySpeakerAliasesToTasks,
   buildMeetingSpeakerRoster
 } from "@/lib/speaker-aliases";
+import { loadMeetingTasksWithFallback } from "@/lib/meeting-task-query";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
+  MeetingAnalysisJob,
   MeetingCommitment,
   MeetingSpeakerAlias,
   MeetingTask,
@@ -69,7 +76,8 @@ export default async function MeetingDetailPage({
     { data: topics, error: topicsError },
     { data: tasks, error: tasksError },
     { data: commitments, error: commitmentsError },
-    { data: aliases, error: aliasesError }
+    { data: aliases, error: aliasesError },
+    latestAnalysisJob
   ] =
     await Promise.all([
       supabaseAdmin
@@ -92,13 +100,13 @@ export default async function MeetingDetailPage({
         .select("*")
         .eq("meeting_id", id)
         .order("created_at", { ascending: true }),
-      supabaseAdmin
-        .from("meeting_tasks")
-        .select(
-          "id, meeting_id, topic_id, commitment_id, task, owner, owners, task_type, priority, suggested_steps, source_quote, source_segment_ids, confidence, status, due_date, due_date_text, workspace_type, workspace_summary, inferred, extraction_metadata, rationale, supporting_context, categorization_metadata, created_at"
-        )
-        .eq("meeting_id", id)
-        .order("created_at", { ascending: true }),
+      loadMeetingTasksWithFallback((columns) =>
+        supabaseAdmin
+          .from("meeting_tasks")
+          .select(columns)
+          .eq("meeting_id", id)
+          .order("created_at", { ascending: true })
+      ),
       supabaseAdmin
         .from("meeting_commitments")
         .select("*")
@@ -108,7 +116,8 @@ export default async function MeetingDetailPage({
         .from("meeting_speaker_aliases")
         .select("*")
         .eq("meeting_id", id)
-        .order("raw_speaker_label", { ascending: true })
+        .order("raw_speaker_label", { ascending: true }),
+      getLatestMeetingAnalysisJob(id).catch(() => null as MeetingAnalysisJob | null)
     ]);
 
   const topicsMissingTable = isMissingRelationError(topicsError, "meeting_topics");
@@ -174,6 +183,11 @@ export default async function MeetingDetailPage({
     meetingWithOptionalError.error_message ??
     meetingWithOptionalError.recall_error ??
     null;
+
+  const partitioned = partitionExecutionGraph({
+    commitments: safeCommitments,
+    tasks: safeTasks
+  });
 
   return (
     <section className="space-y-6">
@@ -249,26 +263,26 @@ export default async function MeetingDetailPage({
         </div>
         <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Generated Prompts
+            Active Commitments
           </p>
           <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {(prompts ?? []).length}
+            {partitioned.activeCommitments.length}
           </p>
         </div>
         <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Action Items
+            Execution Tasks
           </p>
           <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {safeTasks.length}
+            {partitioned.executionTasks.length}
           </p>
         </div>
         <div className="premium-card premium-card-hover p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Commitments
+            Ideas / Requirements
           </p>
           <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {safeCommitments.length}
+            {partitioned.ideaCommitments.length + partitioned.ideaTasks.length}
           </p>
         </div>
       </div>
@@ -278,24 +292,42 @@ export default async function MeetingDetailPage({
         showDevReimport={process.env.NODE_ENV === "development"}
       />
 
+      <MeetingAnalysisStatusPanel
+        meetingId={meeting.id}
+        meetingStatus={meeting.status}
+        initialJob={latestAnalysisJob}
+        segmentCount={(segments ?? []).length}
+      />
+
       <SpeakerMappingPanel
         meetingId={meeting.id}
         initialSpeakers={speakerRoster}
       />
 
+      <CommitmentsPanel
+        commitments={partitioned.activeCommitments}
+        tasks={partitioned.executionTasks}
+      />
+
+      <StandaloneTasksPanel tasks={partitioned.standaloneTasks} />
+
+      <IdeasRequirementsPanel
+        commitments={partitioned.ideaCommitments}
+        tasks={partitioned.ideaTasks}
+      />
+
       <ExecutionDashboard
         meetingId={meeting.id}
         participants={participants}
-        tasks={safeTasks}
+        tasks={partitioned.executionTasks}
+        commitments={partitioned.activeCommitments}
       />
-
-      <CommitmentsPanel commitments={safeCommitments} tasks={safeTasks} />
 
       <TopicResults
         topics={typedTopics}
         insights={insights ?? []}
         prompts={prompts ?? []}
-        tasks={safeTasks}
+        tasks={partitioned.executionTasks}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">

@@ -2,6 +2,7 @@ import {
   buildMeetingSpeakerRoster,
   getRawSpeakerLabel
 } from "@/lib/speaker-aliases";
+import { mergeManualOverrideFields } from "@/lib/manual-overrides";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   MeetingCommitment,
@@ -89,6 +90,26 @@ function equalsName(left: string | null | undefined, right: string) {
   return left?.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
+export function replaceSpeakerOwnerFields(input: {
+  owner: string | null;
+  owners: unknown;
+  rawSpeakerLabel: string;
+  previousDisplayName?: string;
+  displayName: string;
+}) {
+  const matches = (value: string | null | undefined) =>
+    equalsName(value, input.rawSpeakerLabel) ||
+    Boolean(input.previousDisplayName && equalsName(value, input.previousDisplayName));
+  return {
+    owner: matches(input.owner) ? input.displayName : input.owner,
+    owners: Array.isArray(input.owners)
+      ? input.owners.map((owner) =>
+          typeof owner === "string" && matches(owner) ? input.displayName : owner
+        )
+      : []
+  };
+}
+
 export async function saveMeetingSpeakerMappings(
   meetingId: string,
   mappings: SpeakerMappingInput[]
@@ -143,18 +164,36 @@ export async function saveMeetingSpeakerMappings(
       if (segmentUpdateError) throw new Error(segmentUpdateError.message);
     }
 
-    const matchingTaskIds = before.tasks
-      .filter(
-        (task) =>
-          equalsName(task.owner, mapping.rawSpeakerLabel) ||
-          Boolean(previousDisplayName && equalsName(task.owner, previousDisplayName))
-      )
-      .map((task) => task.id);
-    if (matchingTaskIds.length > 0) {
+    const matchingTasks = before.tasks.filter((task) => {
+      const updated = replaceSpeakerOwnerFields({
+        owner: task.owner,
+        owners: task.owners,
+        rawSpeakerLabel: mapping.rawSpeakerLabel,
+        previousDisplayName,
+        displayName: mapping.displayName
+      });
+      return updated.owner !== task.owner ||
+        JSON.stringify(updated.owners) !== JSON.stringify(task.owners ?? []);
+    });
+    for (const task of matchingTasks) {
+      const updated = replaceSpeakerOwnerFields({
+        owner: task.owner,
+        owners: task.owners,
+        rawSpeakerLabel: mapping.rawSpeakerLabel,
+        previousDisplayName,
+        displayName: mapping.displayName
+      });
       const { error: taskUpdateError } = await supabaseAdmin
         .from("meeting_tasks")
-        .update({ owner: mapping.displayName })
-        .in("id", matchingTaskIds);
+        .update({
+          ...updated,
+          preserve_on_reanalysis: true,
+          manual_override_fields: mergeManualOverrideFields(
+            task.manual_override_fields,
+            ["owner", "owners"]
+          )
+        })
+        .eq("id", task.id);
       if (taskUpdateError) throw new Error(taskUpdateError.message);
     }
 
@@ -176,29 +215,22 @@ export async function saveMeetingSpeakerMappings(
           ))
     );
     for (const commitment of matchingCommitments) {
-      const owners = Array.isArray(commitment.owners)
-        ? commitment.owners.map((owner) =>
-            typeof owner === "string" &&
-            (equalsName(owner, mapping.rawSpeakerLabel) ||
-              Boolean(
-                previousDisplayName && equalsName(owner, previousDisplayName)
-              ))
-              ? mapping.displayName
-              : owner
-          )
-        : [];
+      const updated = replaceSpeakerOwnerFields({
+        owner: commitment.owner,
+        owners: commitment.owners,
+        rawSpeakerLabel: mapping.rawSpeakerLabel,
+        previousDisplayName,
+        displayName: mapping.displayName
+      });
       const { error: commitmentUpdateError } = await supabaseAdmin
         .from("meeting_commitments")
         .update({
-          owner:
-            equalsName(commitment.owner, mapping.rawSpeakerLabel) ||
-            Boolean(
-              previousDisplayName &&
-                equalsName(commitment.owner, previousDisplayName)
-            )
-              ? mapping.displayName
-              : commitment.owner,
-          owners
+          ...updated,
+          preserve_on_reanalysis: true,
+          manual_override_fields: mergeManualOverrideFields(
+            commitment.manual_override_fields,
+            ["owner", "owners"]
+          )
         })
         .eq("id", commitment.id);
       if (commitmentUpdateError) throw new Error(commitmentUpdateError.message);

@@ -7,6 +7,11 @@ import { MeetingStatusBadge } from "@/components/meeting-status-badge";
 import type { Meeting } from "@/lib/types";
 
 const ACTIVE_STATUSES: Meeting["status"][] = ["joining", "recording", "processing"];
+const TERMINAL_SYNC_STATUSES: Meeting["status"][] = [
+  "transcript_ready",
+  "completed",
+  "failed"
+];
 
 type MeetingStatusEventDetail = {
   meetingId: string;
@@ -26,7 +31,7 @@ export function LiveMeetingStatusBadge({
   const applyStatus = useCallback(
     (nextStatus: Meeting["status"]) => {
       setStatus(nextStatus);
-      if (nextStatus === "completed" || nextStatus === "failed") {
+      if (TERMINAL_SYNC_STATUSES.includes(nextStatus)) {
         router.refresh();
       }
     },

@@ -4,6 +4,7 @@ import {
   groupTasksByAssignee,
   toFollowUpTasks
 } from "@/lib/meeting-follow-up-emails";
+import { isCommittedWork } from "@/lib/execution-display";
 import { applySpeakerAliasesToTasks } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadResolvedMeetingTranscriptSegments } from "@/lib/transcript-segments";
@@ -227,11 +228,11 @@ export async function generateMeetingFollowUpEmails(input: {
 }) {
   const contextResult = await loadGenerationContext(input.meetingId, input.userId);
   if (!contextResult.ok) return contextResult;
-  if (contextResult.tasks.length === 0) {
+  if (contextResult.tasks.filter(isCommittedWork).length === 0) {
     return {
       ok: false as const,
       status: 400,
-      error: "No tasks found for this meeting yet."
+      error: "No committed tasks found for this meeting yet."
     };
   }
 
@@ -253,7 +254,16 @@ export async function generateMeetingFollowUpEmails(input: {
   const currentArtifacts = latestFollowUpArtifacts(
     allArtifacts.filter((artifact) => artifact.status !== "failed")
   );
-  const followUpTasks = toFollowUpTasks(contextResult.tasks);
+  const followUpTasks = toFollowUpTasks(
+    contextResult.tasks.filter(isCommittedWork)
+  );
+  if (followUpTasks.length === 0) {
+    return {
+      ok: false as const,
+      status: 400,
+      error: "No committed tasks found for follow-up emails."
+    };
+  }
   const generationContext = {
     meetingTitle: contextResult.meeting.title || "Untitled meeting",
     meetingDate: contextResult.meeting.created_at ?? null,

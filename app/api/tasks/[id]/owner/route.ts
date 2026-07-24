@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
+import { mergeManualOverrideFields } from "@/lib/manual-overrides";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export async function PATCH(
@@ -19,7 +20,7 @@ export async function PATCH(
 
   const { data: task, error: taskError } = await supabaseAdmin
     .from("meeting_tasks")
-    .select("id, meeting_id")
+    .select("id, meeting_id, manual_override_fields")
     .eq("id", id)
     .single();
 
@@ -44,7 +45,14 @@ export async function PATCH(
 
   const { data: updatedTask, error: updateError } = await supabaseAdmin
     .from("meeting_tasks")
-    .update({ owner })
+    .update({
+      owner,
+      preserve_on_reanalysis: true,
+      manual_override_fields: mergeManualOverrideFields(
+        task.manual_override_fields,
+        ["owner"]
+      )
+    })
     .eq("id", id)
     .select(
       "id, meeting_id, topic_id, commitment_id, task, owner, owners, task_type, priority, suggested_steps, source_quote, source_segment_ids, confidence, status, due_date, due_date_text, workspace_type, workspace_summary, inferred, extraction_metadata, categorization_metadata, rationale, supporting_context, created_at"

@@ -29,13 +29,41 @@ const optionalNonEmptyString = z.preprocess(
 
 const optionalUrl = z.preprocess(emptyToUndefined, z.string().url().optional());
 
+export const DEFAULT_EXECUTION_INTELLIGENCE_TIMEOUT_MS = 60_000;
+export const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
+
+const executionIntelligenceTimeoutSchema = z.preprocess(
+  emptyToUndefined,
+  z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(300_000)
+    .default(DEFAULT_EXECUTION_INTELLIGENCE_TIMEOUT_MS)
+);
+
+export function parseExecutionIntelligenceTimeoutMs(value: unknown) {
+  return executionIntelligenceTimeoutSchema.parse(value);
+}
+
+export function getExecutionIntelligenceTimeoutMs() {
+  return parseExecutionIntelligenceTimeoutMs(
+    readEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS")
+  );
+}
+
+export function getConfiguredOpenAIModel() {
+  return readEnv("OPENAI_MODEL") ?? DEFAULT_OPENAI_MODEL;
+}
+
 const coreEnvSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().trim().url(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().trim().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().trim().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().trim().min(1),
   OPENAI_API_KEY: z.string().trim().min(1),
-  OPENAI_MODEL: z.string().trim().min(1).default("gpt-4.1-mini"),
+  OPENAI_MODEL: z.string().trim().min(1).default(DEFAULT_OPENAI_MODEL),
+  EXECUTION_INTELLIGENCE_TIMEOUT_MS: executionIntelligenceTimeoutSchema,
   RECALL_API_KEY: z.string().trim().min(1),
   RECALL_REGION: z.string().trim().min(1).default("us-west-2"),
   RECALL_WEBHOOK_SECRET: z.string().trim().min(1),
@@ -61,7 +89,10 @@ function buildEnvInput() {
     NEXT_PUBLIC_SUPABASE_ANON_KEY: readEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
     SUPABASE_SERVICE_ROLE_KEY: readEnv("SUPABASE_SERVICE_ROLE_KEY"),
     OPENAI_API_KEY: readEnv("OPENAI_API_KEY"),
-    OPENAI_MODEL: readEnv("OPENAI_MODEL") ?? "gpt-4.1-mini",
+    OPENAI_MODEL: getConfiguredOpenAIModel(),
+    EXECUTION_INTELLIGENCE_TIMEOUT_MS: readEnv(
+      "EXECUTION_INTELLIGENCE_TIMEOUT_MS"
+    ),
     RECALL_API_KEY: readEnv("RECALL_API_KEY"),
     RECALL_REGION: readEnv("RECALL_REGION") ?? "us-west-2",
     RECALL_WEBHOOK_SECRET: readEnv("RECALL_WEBHOOK_SECRET"),

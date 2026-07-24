@@ -6,6 +6,11 @@ import { useRouter } from "next/navigation";
 import type { Meeting, TranscriptSegment } from "@/lib/types";
 
 const ACTIVE_STATUSES: Meeting["status"][] = ["joining", "recording", "processing"];
+const TERMINAL_SYNC_STATUSES: Meeting["status"][] = [
+  "transcript_ready",
+  "completed",
+  "failed"
+];
 
 export function LiveTranscript({
   meetingId,
@@ -59,7 +64,7 @@ export function LiveTranscript({
               detail: { meetingId, status: nextStatus }
             })
           );
-          if (nextStatus === "completed" || nextStatus === "failed") {
+          if (TERMINAL_SYNC_STATUSES.includes(nextStatus)) {
             router.refresh();
           }
         }

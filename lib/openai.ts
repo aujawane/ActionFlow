@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-import { getServerEnv } from "@/lib/env";
+import { getConfiguredOpenAIModel, getServerEnv } from "@/lib/env";
 
 let openaiClient: OpenAI | null = null;
 
@@ -23,5 +23,5 @@ export const openai = new Proxy({} as OpenAI, {
 });
 
 export function getOpenAIModel() {
-  return getServerEnv().OPENAI_MODEL;
+  return getConfiguredOpenAIModel();
 }

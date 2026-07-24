@@ -5,6 +5,7 @@ const stylesByStatus: Record<Meeting["status"], string> = {
   joining: "bg-brand-50 text-brand-800 border-brand-200",
   recording: "bg-amber-50 text-amber-700 border-amber-200",
   processing: "bg-purple-50 text-purple-700 border-purple-200",
+  transcript_ready: "bg-sky-50 text-sky-800 border-sky-200",
   completed: "bg-brand-50 text-brand-800 border-brand-200",
   failed: "bg-rose-50 text-rose-700 border-rose-200"
 };
@@ -15,7 +16,7 @@ export function MeetingStatusBadge({ status }: { status: Meeting["status"] }) {
       className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold capitalize shadow-sm ${stylesByStatus[status]}`}
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      {status.replace("_", " ")}
+      {status.replaceAll("_", " ")}
     </span>
   );
 }

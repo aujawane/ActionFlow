@@ -9,7 +9,10 @@
     "lint": "next lint",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "eval:execution": "tsx scripts/evaluate-execution-intelligence.ts"
+    "eval:execution": "tsx scripts/evaluate-execution-intelligence.ts",
+    "eval:execution:live": "tsx scripts/run-execution-intelligence-live-eval.ts",
+    "diagnose:execution-candidates": "tsx scripts/diagnose-execution-candidates.ts",
+    "copy-meeting": "tsx scripts/copy-meeting-to-staging.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

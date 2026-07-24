@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 
 export function MeetingActions({
   meetingId,
-  showDevReimport = false
+  showDevReimport = false,
+  onAnalysisQueued
 }: {
   meetingId: string;
   showDevReimport?: boolean;
+  onAnalysisQueued?: () => void;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"analyze" | "sync" | "reimport" | null>(null);
@@ -19,7 +21,9 @@ export function MeetingActions({
     setMessage(null);
 
     try {
-      const response = await fetch(`/api/meetings/${meetingId}/analyze`, { method: "POST" });
+      const response = await fetch(`/api/meetings/${meetingId}/analyze`, {
+        method: "POST"
+      });
       const data = await response.json();
       setBusy(null);
 
@@ -33,7 +37,12 @@ export function MeetingActions({
         return;
       }
 
-      setMessage("Insights updated from transcript.");
+      setMessage(
+        response.status === 202
+          ? "Analysis queued. Progress will update below."
+          : "Insights updated from transcript."
+      );
+      onAnalysisQueued?.();
       router.refresh();
     } catch {
       setBusy(null);
@@ -113,7 +122,9 @@ export function MeetingActions({
       }
 
       setMessage(
-        `Status synced to ${data.status}. Inserted ${data.insertedSegments ?? 0} transcript segments.`
+        typeof data.message === "string"
+          ? data.message
+          : `Status synced to ${data.status}. Inserted ${data.insertedSegments ?? 0} transcript segments.`
       );
       router.refresh();
     } catch {
@@ -127,7 +138,7 @@ export function MeetingActions({
       <div>
         <h2 className="text-sm font-semibold text-slate-900">Meeting Actions</h2>
         <p className="text-xs text-slate-500">
-          Analyze transcript and refresh extracted meeting intelligence.
+          Queue transcript analysis and refresh extracted meeting intelligence.
         </p>
       </div>
       <div className="flex gap-2">
@@ -136,7 +147,7 @@ export function MeetingActions({
           disabled={busy !== null}
           className="secondary-button px-3 py-2 text-xs"
         >
-          {busy === "analyze" ? "Analyzing..." : "Analyze Meeting"}
+          {busy === "analyze" ? "Queueing..." : "Analyze Meeting"}
         </button>
         {showDevReimport ? (
           <>

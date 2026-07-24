@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireApiUser } from "@/lib/api-auth";
+import { mergeManualOverrideFields } from "@/lib/manual-overrides";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const updateCommitmentSchema = z
@@ -45,7 +46,7 @@ export async function PATCH(
 
   const { data: commitment } = await supabaseAdmin
     .from("meeting_commitments")
-    .select("id, meeting_id")
+    .select("id, meeting_id, manual_override_fields")
     .eq("id", id)
     .maybeSingle();
   if (!commitment) {
@@ -70,7 +71,14 @@ export async function PATCH(
 
   const { data, error } = await supabaseAdmin
     .from("meeting_commitments")
-    .update(update)
+    .update({
+      ...update,
+      preserve_on_reanalysis: true,
+      manual_override_fields: mergeManualOverrideFields(
+        commitment.manual_override_fields,
+        Object.keys(update)
+      )
+    })
     .eq("id", id)
     .select("*")
     .single();

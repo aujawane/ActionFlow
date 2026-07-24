@@ -5,6 +5,15 @@ const nullableDate = z
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .nullable();
 
+export const executionClassificationSchema = z.enum([
+  "committed",
+  "proposed",
+  "requirement",
+  "future_consideration"
+]);
+
+export type ExecutionClassification = z.infer<typeof executionClassificationSchema>;
+
 export const commitmentCandidateSchema = z
   .object({
     client_ref: z.string().min(1),
@@ -38,7 +47,9 @@ export const commitmentCandidateSchema = z
       "blocked",
       "completed",
       "cancelled"
-    ])
+    ]),
+    execution_classification: executionClassificationSchema.optional(),
+    consolidated_from_refs: z.array(z.string()).optional()
   })
   .strict();
 
@@ -73,7 +84,9 @@ export const taskCandidateSchema = z
       "document",
       "other"
     ]),
-    suggested_steps: z.array(z.string())
+    suggested_steps: z.array(z.string()),
+    execution_classification: executionClassificationSchema.optional(),
+    consolidated_from_refs: z.array(z.string()).optional()
   })
   .strict();
 
@@ -87,6 +100,13 @@ export const executionGraphSchema = z
 export type CommitmentCandidate = z.infer<typeof commitmentCandidateSchema>;
 export type TaskCandidate = z.infer<typeof taskCandidateSchema>;
 export type ExecutionGraph = z.infer<typeof executionGraphSchema>;
+
+const classificationEnum = [
+  "committed",
+  "proposed",
+  "requirement",
+  "future_consideration"
+];
 
 export const executionGraphJsonSchema: Record<string, unknown> = {
   type: "object",
@@ -109,7 +129,10 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           priority: { type: "string", enum: ["low", "medium", "high"] },
           confidence: { type: "number", minimum: 0, maximum: 1 },
           source_quote: { type: "string" },
-          source_segment_ids: { type: "array", items: { type: "string" } },
+          source_segment_ids: {
+            type: "array",
+            items: { type: "string" }
+          },
           evidence_source: {
             type: "string",
             enum: ["transcript", "topic_summary", "insight"]
@@ -132,6 +155,14 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           completion_state: {
             type: "string",
             enum: ["open", "in_progress", "blocked", "completed", "cancelled"]
+          },
+          execution_classification: {
+            type: "string",
+            enum: classificationEnum
+          },
+          consolidated_from_refs: {
+            type: "array",
+            items: { type: "string" }
           }
         },
         required: [
@@ -149,7 +180,9 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           "source_segment_ids",
           "evidence_source",
           "type",
-          "completion_state"
+          "completion_state",
+          "execution_classification",
+          "consolidated_from_refs"
         ]
       }
     },
@@ -171,7 +204,10 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           priority: { type: "string", enum: ["low", "medium", "high"] },
           confidence: { type: "number", minimum: 0, maximum: 1 },
           source_quote: { type: "string" },
-          source_segment_ids: { type: "array", items: { type: "string" } },
+          source_segment_ids: {
+            type: "array",
+            items: { type: "string" }
+          },
           evidence_source: {
             type: "string",
             enum: ["transcript", "topic_summary", "insight", "inferred"]
@@ -197,7 +233,15 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
               "other"
             ]
           },
-          suggested_steps: { type: "array", items: { type: "string" } }
+          suggested_steps: { type: "array", items: { type: "string" } },
+          execution_classification: {
+            type: "string",
+            enum: classificationEnum
+          },
+          consolidated_from_refs: {
+            type: "array",
+            items: { type: "string" }
+          }
         },
         required: [
           "client_ref",
@@ -217,7 +261,9 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           "inferred",
           "task_type",
           "workspace_type",
-          "suggested_steps"
+          "suggested_steps",
+          "execution_classification",
+          "consolidated_from_refs"
         ]
       }
     }

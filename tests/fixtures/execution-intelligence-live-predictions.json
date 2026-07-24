@@ -1,0 +1,432 @@
+{
+  "explicit": {
+    "commitments": [
+      {
+        "title": "Send the pricing deck",
+        "owner": "Aditya",
+        "due_date": "2026-07-24",
+        "source_quote": "I'll send the pricing deck tomorrow."
+      }
+    ],
+    "tasks": []
+  },
+  "named-assignment": {
+    "commitments": [
+      {
+        "title": "Update the README",
+        "owner": "Craig",
+        "due_date": null,
+        "source_quote": "Craig will update the README."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Update the README file",
+        "owner": "Craig",
+        "due_date": null,
+        "source_quote": "Craig will update the README."
+      }
+    ]
+  },
+  "unassigned": {
+    "commitments": [
+      {
+        "title": "Fix the flaky deploy",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "Someone needs to fix the flaky deploy."
+      }
+    ],
+    "tasks": []
+  },
+  "lets-have": {
+    "commitments": [
+      {
+        "title": "Prepare the prototype",
+        "owner": "Jay",
+        "due_date": null,
+        "source_quote": "Let's have Jay prepare the prototype."
+      }
+    ],
+    "tasks": []
+  },
+  "question-accepted": {
+    "commitments": [
+      {
+        "title": "Follow up with Craig",
+        "owner": "Aditya",
+        "due_date": null,
+        "source_quote": "Manager: Can you follow up with Craig? Aditya: Yes, I'll do it."
+      }
+    ],
+    "tasks": []
+  },
+  "team-need": {
+    "commitments": [
+      {
+        "title": "Fix onboarding process",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "We need to fix onboarding."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Analyze current onboarding process issues",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "We need to fix onboarding."
+      }
+    ]
+  },
+  "reminder": {
+    "commitments": [],
+    "tasks": [
+      {
+        "title": "Email the team",
+        "owner": "CEO",
+        "due_date": null,
+        "source_quote": "Remind me to email the team."
+      }
+    ]
+  },
+  "pronoun": {
+    "commitments": [
+      {
+        "title": "Investigate broken API issue",
+        "owner": "B",
+        "due_date": null,
+        "source_quote": "A: The API is broken. B: I'll look into it."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Investigate the broken API",
+        "owner": "B",
+        "due_date": null,
+        "source_quote": "B: I'll look into it."
+      }
+    ]
+  },
+  "decision-only": {
+    "commitments": [],
+    "tasks": []
+  },
+  "next-step": {
+    "commitments": [
+      {
+        "title": "Test the product with users",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "The next step is to test this with users."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Conduct user tests",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "The next step is to test this with users."
+      }
+    ]
+  },
+  "suggestion-only": {
+    "commitments": [],
+    "tasks": []
+  },
+  "multiple-actions": {
+    "commitments": [
+      {
+        "title": "Update the docs and ping legal",
+        "owner": "Maya",
+        "due_date": null,
+        "source_quote": "I'll update the docs and ping legal."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Update the documentation",
+        "owner": "Maya",
+        "due_date": null,
+        "source_quote": "I'll update the docs"
+      },
+      {
+        "title": "Ping the legal team",
+        "owner": "Maya",
+        "due_date": null,
+        "source_quote": "ping legal"
+      }
+    ]
+  },
+  "completed": {
+    "commitments": [],
+    "tasks": []
+  },
+  "negation": {
+    "commitments": [
+      {
+        "title": "Obtain legal approval before sending the email",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "Do not send the email until legal approves."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Get legal approval for the email",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "Do not send the email until legal approves."
+      },
+      {
+        "title": "Get it has been approval",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "Do not send the email until legal approves."
+      }
+    ]
+  },
+  "correction": {
+    "commitments": [
+      {
+        "title": "Email Poke about billing",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "Email Pogue—wait, Poke—about billing."
+      }
+    ],
+    "tasks": []
+  },
+  "conditional": {
+    "commitments": [
+      {
+        "title": "Roll back deployment if it fails",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "If the deployment fails, roll back."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Perform rollback if deployment fails",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "If the deployment fails, roll back."
+      }
+    ]
+  },
+  "absent-owner": {
+    "commitments": [
+      {
+        "title": "Get Finance approval for the invoice",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "Have Finance approve the invoice."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Obtain Finance's approval for the invoice",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "Have Finance approve the invoice."
+      }
+    ]
+  },
+  "unknown-self-id": {
+    "commitments": [
+      {
+        "title": "Prepare the demo",
+        "owner": "Ravi",
+        "due_date": null,
+        "source_quote": "This is Ravi, I'll prepare the demo."
+      }
+    ],
+    "tasks": []
+  },
+  "cross-topic": {
+    "commitments": [
+      {
+        "title": "Launch AI search feature",
+        "owner": "A",
+        "due_date": null,
+        "source_quote": "We should launch AI search."
+      },
+      {
+        "title": "Own backend development for AI search",
+        "owner": "B",
+        "due_date": null,
+        "source_quote": "I'll own the backend for that."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Implement backend development for AI search",
+        "owner": "B",
+        "due_date": null,
+        "source_quote": "I'll own the backend for that."
+      },
+      {
+        "title": "Initiate launch process for AI search feature",
+        "owner": "A",
+        "due_date": null,
+        "source_quote": "We should launch AI search."
+      }
+    ]
+  },
+  "interrupted": {
+    "commitments": [
+      {
+        "title": "Send the deck today",
+        "owner": "A",
+        "due_date": "2026-07-23",
+        "source_quote": "A: I'll send the— B: The deck? A: Yes, the deck today."
+      }
+    ],
+    "tasks": []
+  },
+  "group-owner": {
+    "commitments": [
+      {
+        "title": "Review the PR by Priya and Alex",
+        "owner": "Alex",
+        "due_date": null,
+        "source_quote": "Alex: Priya and I will review the PR."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Review the PR",
+        "owner": "Alex",
+        "due_date": null,
+        "source_quote": "Alex: Priya and I will review the PR."
+      }
+    ]
+  },
+  "vague-date": {
+    "commitments": [],
+    "tasks": [
+      {
+        "title": "Publish it after launch",
+        "owner": "Lee",
+        "due_date": null,
+        "source_quote": "Lee: I'll publish it after launch."
+      }
+    ]
+  },
+  "recurring": {
+    "commitments": [
+      {
+        "title": "Send KPI email every Monday",
+        "owner": "Sam",
+        "due_date": null,
+        "source_quote": "Every Monday Sam sends the KPI email."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Send KPI email",
+        "owner": "Sam",
+        "due_date": null,
+        "source_quote": "Every Monday Sam sends the KPI email."
+      }
+    ]
+  },
+  "question-unassigned": {
+    "commitments": [
+      {
+        "title": "Investigate the deployment issue",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "Can someone investigate the deployment issue?"
+      }
+    ],
+    "tasks": []
+  },
+  "urgent": {
+    "commitments": [
+      {
+        "title": "Stop the signup outage",
+        "owner": "Aditya",
+        "due_date": null,
+        "source_quote": "Aditya needs to stop the signup outage."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Investigate and resolve the signup outage",
+        "owner": "Aditya",
+        "due_date": null,
+        "source_quote": "Aditya needs to stop the signup outage."
+      }
+    ]
+  },
+  "blocked": {
+    "commitments": [
+      {
+        "title": "Ship the update after security approval",
+        "owner": "Sarah",
+        "due_date": null,
+        "source_quote": "I'll ship the update once security approves."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Ship the update",
+        "owner": "Sarah",
+        "due_date": null,
+        "source_quote": "I'll ship the update once security approves."
+      },
+      {
+        "title": "Get security approval",
+        "owner": null,
+        "due_date": null,
+        "source_quote": "I'll ship the update once security approves."
+      }
+    ]
+  },
+  "company": {
+    "commitments": [
+      {
+        "title": "Complete SOC 2 certification",
+        "owner": null,
+        "due_date": "2026-09-30",
+        "source_quote": "We need the company to complete SOC 2 this quarter."
+      }
+    ],
+    "tasks": []
+  },
+  "no-work": {
+    "commitments": [],
+    "tasks": []
+  },
+  "follow-up-no-date": {
+    "commitments": [
+      {
+        "title": "Nina to follow up with the beta users",
+        "owner": "Nina",
+        "due_date": null,
+        "source_quote": "Nina should follow up with the beta users."
+      }
+    ],
+    "tasks": [
+      {
+        "title": "Follow up with beta users",
+        "owner": "Nina",
+        "due_date": null,
+        "source_quote": "Nina should follow up with the beta users."
+      }
+    ]
+  },
+  "clarified-owner": {
+    "commitments": [
+      {
+        "title": "Jordan will own QA responsibility",
+        "owner": "Jordan",
+        "due_date": null,
+        "source_quote": "Actually, Jordan will take QA."
+      }
+    ],
+    "tasks": []
+  }
+}

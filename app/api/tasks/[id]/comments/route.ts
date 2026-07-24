@@ -27,6 +27,7 @@ import {
   taskContainsPatch,
   updateProposalStatus
 } from "@/lib/task-comment-metadata";
+import { mergeManualOverrideFields } from "@/lib/manual-overrides";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   MeetingTask,
@@ -40,9 +41,24 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 async function applyTaskPatch(taskId: string, patch: AllowedTaskPatch) {
+  const { data: current, error: currentError } = await supabaseAdmin
+    .from("meeting_tasks")
+    .select("manual_override_fields")
+    .eq("id", taskId)
+    .single();
+  if (currentError || !current) {
+    return { task: null, error: currentError };
+  }
   const { data, error } = await supabaseAdmin
     .from("meeting_tasks")
-    .update(patch)
+    .update({
+      ...patch,
+      preserve_on_reanalysis: true,
+      manual_override_fields: mergeManualOverrideFields(
+        current.manual_override_fields,
+        Object.keys(patch)
+      )
+    })
     .eq("id", taskId)
     .select("*")
     .single();

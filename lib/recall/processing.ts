@@ -1,3 +1,4 @@
+import { enqueueMeetingAnalysis } from "@/lib/meeting-analysis/enqueue";
 import {
   fetchRecallTranscript,
   getRecallTranscriptDiagnostics,
@@ -22,10 +23,12 @@ export type RecallMeetingProcessingResult =
       message: string;
     }
   | {
-      status: "completed";
+      status: "transcript_ready";
       insertedCount: number;
       parsedCount: number;
-      analysisStatus: "completed" | "skipped";
+      analysisStatus: "queued" | "enqueue_failed";
+      jobId?: string;
+      generation?: number;
       message: string;
     };
 
@@ -140,43 +143,6 @@ export async function replaceMeetingTranscriptFromRecall({
   };
 }
 
-async function analyzeImportedMeeting(meetingId: string, requestOrigin?: string) {
-  const { getAppBaseUrl, requireEnv } = await import("@/lib/env");
-  const internalSecret = requireEnv("RECALL_WEBHOOK_SECRET");
-  const baseUrl = getAppBaseUrl({ requestOrigin });
-
-  const response = await fetch(`${baseUrl}/api/meetings/${meetingId}/analyze`, {
-    method: "POST",
-    headers: {
-      "x-parfait-internal-secret": internalSecret
-    }
-  });
-  const responseText = await response.text();
-  let body: unknown = responseText;
-  try {
-    body = responseText ? (JSON.parse(responseText) as unknown) : {};
-  } catch {
-    body = responseText;
-  }
-
-  console.info("[recall-processing] Analysis response", {
-    meeting_id: meetingId,
-    status: response.status,
-    ok: response.ok,
-    body
-  });
-
-  if (!response.ok) {
-    const object = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
-    const details = typeof object?.details === "string" ? object.details : null;
-    const error = typeof object?.error === "string" ? object.error : null;
-    throw new Error(details || error || responseText || "Meeting analysis failed.");
-  }
-
-  const object = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
-  return object?.skipped === true ? ("skipped" as const) : ("completed" as const);
-}
-
 export async function processCompletedRecallMeeting({
   meetingId,
   recallBotId,
@@ -216,23 +182,38 @@ export async function processCompletedRecallMeeting({
     };
   }
 
-  const analysisStatus = await analyzeImportedMeeting(meetingId, requestOrigin);
-  const { error: completedStatusError } = await supabaseAdmin
+  const { error: transcriptReadyError } = await supabaseAdmin
     .from("meetings")
-    .update({ status: "completed" })
+    .update({ status: "transcript_ready" })
     .eq("id", meetingId);
-  if (completedStatusError) {
-    throw new Error(completedStatusError.message);
+  if (transcriptReadyError) {
+    throw new Error(transcriptReadyError.message);
+  }
+
+  const enqueued = await enqueueMeetingAnalysis(meetingId, { requestOrigin });
+  if (!enqueued.ok) {
+    console.warn("[recall-processing] Analysis enqueue failed after transcript import", {
+      meeting_id: meetingId,
+      error: enqueued.error,
+      details: enqueued.details
+    });
+    return {
+      status: "transcript_ready",
+      insertedCount: transcriptResult.insertedCount,
+      parsedCount: transcriptResult.parsedCount,
+      analysisStatus: "enqueue_failed",
+      message:
+        "Transcript imported successfully. Analysis could not be queued; retry Analyze Meeting."
+    };
   }
 
   return {
-    status: "completed",
+    status: "transcript_ready",
     insertedCount: transcriptResult.insertedCount,
     parsedCount: transcriptResult.parsedCount,
-    analysisStatus,
-    message:
-      analysisStatus === "skipped"
-        ? "Transcript imported; analysis skipped because the transcript was too short."
-        : "Transcript, topics, and tasks processed."
+    analysisStatus: "queued",
+    jobId: enqueued.jobId,
+    generation: enqueued.generation,
+    message: "Transcript imported. Analysis queued in the background."
   };
 }

@@ -10,7 +10,9 @@ import {
 import type { ReactNode } from "react";
 
 import { TaskCategoryBadge } from "@/components/task-category-badge";
+import { InferredTaskBadge } from "@/components/task-execution-badges";
 import { normalizeSuggestedSteps } from "@/lib/ai/task-chat-patch";
+import { isInferredTask } from "@/lib/task-execution-display";
 import type { MeetingTask } from "@/lib/types";
 
 type TaskWorkspaceState = {
@@ -78,6 +80,7 @@ export function TaskWorkspaceHeader() {
         </div>
         <div className="flex flex-wrap gap-2">
           <TaskCategoryBadge task={task} />
+          {isInferredTask(task) ? <InferredTaskBadge /> : null}
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold capitalize text-slate-700">
             {formatLabel(task.status, "pending")}
           </span>

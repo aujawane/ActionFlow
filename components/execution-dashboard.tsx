@@ -7,12 +7,22 @@ import { useEffect, useMemo, useState } from "react";
 import { TaskCategoryBadge } from "@/components/task-category-badge";
 import { TaskClarifications } from "@/components/task-clarifications";
 import { MeetingFollowUpEmails } from "@/components/meeting-follow-up-emails";
-import type { MeetingTask } from "@/lib/types";
+import {
+  CommitmentLinkBadge,
+  InferredTaskBadge
+} from "@/components/task-execution-badges";
+import {
+  buildCommitmentTitleMap,
+  getCommitmentTitleForTask,
+  isInferredTask
+} from "@/lib/task-execution-display";
+import type { MeetingCommitment, MeetingTask } from "@/lib/types";
 
 type ExecutionDashboardProps = {
   meetingId: string;
   participants: string[];
   tasks: MeetingTask[];
+  commitments?: Array<Pick<MeetingCommitment, "id" | "title">>;
 };
 
 type TaskOwnerUpdateResponse = {
@@ -87,7 +97,12 @@ function sortByPriority(tasks: MeetingTask[]) {
   });
 }
 
-export function ExecutionDashboard({ meetingId, participants, tasks }: ExecutionDashboardProps) {
+export function ExecutionDashboard({
+  meetingId,
+  participants,
+  tasks,
+  commitments = []
+}: ExecutionDashboardProps) {
   const [localTasks, setLocalTasks] = useState(tasks);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +115,10 @@ export function ExecutionDashboard({ meetingId, participants, tasks }: Execution
     const taskOwners = localTasks.map((task) => task.owner);
     return dedupeNames([...participants, ...taskOwners]);
   }, [localTasks, participants]);
+  const commitmentTitles = useMemo(
+    () => buildCommitmentTitleMap(commitments),
+    [commitments]
+  );
 
   const taskCountsByOwner = useMemo(() => {
     const counts = new Map<string, number>();
@@ -175,11 +194,14 @@ export function ExecutionDashboard({ meetingId, participants, tasks }: Execution
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
-            Execution Dashboard
+            Secondary View
           </p>
           <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
             Work by Owner
           </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Committed execution tasks only, grouped by meeting participant.
+          </p>
           <p className="mt-1 text-sm text-slate-600">
             Review task ownership, fix assignments, and open task workspaces.
           </p>
@@ -229,6 +251,7 @@ export function ExecutionDashboard({ meetingId, participants, tasks }: Execution
             participants={participantNames}
             updatingTaskId={updatingTaskId}
             onOwnerChange={updateTaskOwner}
+            commitmentTitles={commitmentTitles}
           />
         ))}
 
@@ -238,6 +261,7 @@ export function ExecutionDashboard({ meetingId, participants, tasks }: Execution
           participants={participantNames}
           updatingTaskId={updatingTaskId}
           onOwnerChange={updateTaskOwner}
+          commitmentTitles={commitmentTitles}
         />
       </div>
     </section>
@@ -249,13 +273,15 @@ function OwnerSection({
   tasks,
   participants,
   updatingTaskId,
-  onOwnerChange
+  onOwnerChange,
+  commitmentTitles
 }: {
   title: string;
   tasks: MeetingTask[];
   participants: string[];
   updatingTaskId: string | null;
   onOwnerChange: (taskId: string, owner: string | null) => void;
+  commitmentTitles: Map<string, string>;
 }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
@@ -275,6 +301,7 @@ function OwnerSection({
               participants={participants}
               updating={updatingTaskId === task.id}
               onOwnerChange={onOwnerChange}
+              commitmentTitle={getCommitmentTitleForTask(task, commitmentTitles)}
             />
           ))}
         </div>
@@ -289,12 +316,14 @@ function TaskCard({
   task,
   participants,
   updating,
-  onOwnerChange
+  onOwnerChange,
+  commitmentTitle
 }: {
   task: MeetingTask;
   participants: string[];
   updating: boolean;
   onOwnerChange: (taskId: string, owner: string | null) => void;
+  commitmentTitle: string | null;
 }) {
   const owner = canonicalizeParticipantName(task.owner, participants);
 
@@ -320,6 +349,8 @@ function TaskCard({
         <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium capitalize text-slate-700">
           {formatLabel(task.status, "pending")}
         </span>
+        {isInferredTask(task) ? <InferredTaskBadge /> : null}
+        {commitmentTitle ? <CommitmentLinkBadge title={commitmentTitle} /> : null}
       </div>
 
       {task.workspace_summary ? (

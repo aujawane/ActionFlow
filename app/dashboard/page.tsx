@@ -42,7 +42,8 @@ export default async function DashboardPage() {
       meeting.status === "processing"
   ).length;
   const completedMeetings = safeMeetings.filter(
-    (meeting) => meeting.status === "completed"
+    (meeting) =>
+      meeting.status === "completed" || meeting.status === "transcript_ready"
   ).length;
   const failedMeetings = safeMeetings.filter((meeting) => meeting.status === "failed").length;
   const fullName = getUserFullName(user, profile);

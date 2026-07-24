@@ -6,10 +6,11 @@ import { processCompletedRecallMeeting } from "@/lib/recall/processing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
- * Vercel plan assumption: Pro. Sync may trigger full transcript + analysis processing.
+ * Syncs Recall bot lifecycle and imports transcript when ready.
+ * Analysis runs independently as a background job after import.
  */
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 function isRecallDone(status: string) {
   const normalized = status.toLowerCase();
@@ -106,7 +107,9 @@ export async function POST(
       meeting_id: id,
       recall_bot_id: meeting.recall_bot_id,
       inserted_segments: result.insertedCount,
-      analysis_status: result.analysisStatus
+      analysis_status: result.analysisStatus,
+      job_id: result.jobId,
+      generation: result.generation
     });
 
     return NextResponse.json({
@@ -115,6 +118,8 @@ export async function POST(
       transcriptExists: true,
       insertedSegments: result.insertedCount,
       analysisStatus: result.analysisStatus,
+      jobId: result.jobId,
+      generation: result.generation,
       message: result.message
     });
   }

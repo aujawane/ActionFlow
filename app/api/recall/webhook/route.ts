@@ -6,12 +6,10 @@ import { processCompletedRecallMeeting } from "@/lib/recall/processing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
- * Vercel plan assumption: Pro (maxDuration up to 300s).
- * Webhook completion can import a transcript, retry, and trigger analysis.
- * Hobby (10s) is not sufficient for this route.
+ * Imports transcript and enqueues background analysis. Model work runs elsewhere.
  */
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 type JsonObject = Record<string, unknown>;
 
@@ -134,7 +132,7 @@ async function processCompletionWithRetry({
       analysis_status: result.analysisStatus
     });
 
-    if (result.status === "completed" || attempt === attempts) return result;
+    if (result.status === "transcript_ready" || attempt === attempts) return result;
     await new Promise((resolve) => setTimeout(resolve, 4000));
   }
 

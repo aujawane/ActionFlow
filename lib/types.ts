@@ -161,6 +161,12 @@ export type MeetingTaskWorkspaceType =
   | "learning"
   | "other";
 
+export type ExecutionClassification =
+  | "committed"
+  | "proposed"
+  | "requirement"
+  | "future_consideration";
+
 export interface MeetingTask {
   id: string;
   meeting_id: string;
@@ -180,11 +186,14 @@ export interface MeetingTask {
   source_segment_ids?: string[] | JsonValue;
   inferred?: boolean;
   extraction_metadata?: JsonValue;
+  preserve_on_reanalysis?: boolean;
+  manual_override_fields?: string[] | JsonValue;
   workspace_type: MeetingTaskWorkspaceType;
   workspace_summary: string | null;
   categorization_metadata?: TaskCategorizationMetadata | JsonValue;
   rationale?: string | null;
   supporting_context?: string | null;
+  execution_classification?: ExecutionClassification;
   created_at: string;
 }
 
@@ -205,7 +214,10 @@ export interface MeetingCommitment {
   source_segment_ids: string[] | JsonValue;
   type: CommitmentType;
   completion_state: CommitmentCompletionState;
+  execution_classification?: ExecutionClassification;
   metadata: JsonValue;
+  preserve_on_reanalysis?: boolean;
+  manual_override_fields?: string[] | JsonValue;
   created_at: string;
   updated_at: string;
 }
@@ -296,11 +308,43 @@ export interface Meeting {
   meeting_url: string;
   platform: "google_meet" | "zoom" | "unknown";
   recall_bot_id: string | null;
-  status: "pending" | "joining" | "recording" | "processing" | "completed" | "failed";
+  status:
+    | "pending"
+    | "joining"
+    | "recording"
+    | "processing"
+    | "transcript_ready"
+    | "completed"
+    | "failed";
   is_pinned: boolean;
   deleted_at: string | null;
+  execution_graph_generation?: number;
+  last_persisted_execution_generation?: number;
   created_at: string;
   updated_at: string;
+}
+
+export type MeetingAnalysisJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "stale";
+
+export interface MeetingAnalysisJob {
+  id: string;
+  meeting_id: string;
+  generation: number;
+  status: MeetingAnalysisJobStatus;
+  current_stage: string;
+  progress: number;
+  error: string | null;
+  retry_count: number;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  checkpoint?: Record<string, unknown>;
 }
 
 export interface UserIntegration {

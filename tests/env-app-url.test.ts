@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getAppBaseUrl, getGoogleRedirectUri, getRecallWebhookUrl } from "../lib/env";
+import {
+  DEFAULT_EXECUTION_INTELLIGENCE_TIMEOUT_MS,
+  getAppBaseUrl,
+  getConfiguredOpenAIModel,
+  getExecutionIntelligenceTimeoutMs,
+  getGoogleRedirectUri,
+  getRecallWebhookUrl,
+  parseExecutionIntelligenceTimeoutMs
+} from "../lib/env";
 
 function setEnv(name: string, value: string | undefined) {
   const env = process.env as Record<string, string | undefined>;
@@ -11,6 +19,48 @@ function setEnv(name: string, value: string | undefined) {
   }
   env[name] = value;
 }
+
+test("execution-intelligence timeout defaults to 60 seconds and parses env values", () => {
+  assert.equal(
+    parseExecutionIntelligenceTimeoutMs(undefined),
+    DEFAULT_EXECUTION_INTELLIGENCE_TIMEOUT_MS
+  );
+  assert.equal(parseExecutionIntelligenceTimeoutMs(""), 60_000);
+  assert.equal(parseExecutionIntelligenceTimeoutMs(" 45000 "), 45_000);
+});
+
+test("execution-intelligence timeout reads the configured environment value", () => {
+  const previous = process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS;
+  try {
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS", "47000");
+    assert.equal(getExecutionIntelligenceTimeoutMs(), 47_000);
+
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS", undefined);
+    assert.equal(getExecutionIntelligenceTimeoutMs(), 60_000);
+  } finally {
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS", previous);
+  }
+});
+
+test("execution-intelligence timeout rejects unsafe env values", () => {
+  assert.throws(() => parseExecutionIntelligenceTimeoutMs("not-a-number"));
+  assert.throws(() => parseExecutionIntelligenceTimeoutMs("999"));
+  assert.throws(() => parseExecutionIntelligenceTimeoutMs("300001"));
+  assert.throws(() => parseExecutionIntelligenceTimeoutMs("1250.5"));
+});
+
+test("OpenAI model configuration is explicit and defaults safely", () => {
+  const previous = process.env.OPENAI_MODEL;
+  try {
+    setEnv("OPENAI_MODEL", "gpt-4.1-mini");
+    assert.equal(getConfiguredOpenAIModel(), "gpt-4.1-mini");
+
+    setEnv("OPENAI_MODEL", undefined);
+    assert.equal(getConfiguredOpenAIModel(), "gpt-4.1-mini");
+  } finally {
+    setEnv("OPENAI_MODEL", previous);
+  }
+});
 
 test("getAppBaseUrl prefers INTERNAL_APP_URL then NEXT_PUBLIC_APP_URL", () => {
   const previousInternal = process.env.INTERNAL_APP_URL;

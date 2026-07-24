@@ -20,6 +20,7 @@ import {
 } from "@/lib/transcript-segments";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
+  MeetingCommitment,
   MeetingTask,
   MeetingTopic,
   TaskArtifact
@@ -63,6 +64,16 @@ export default async function TaskWorkspacePage({
   if (!meeting) {
     notFound();
   }
+
+  const { data: commitment } = typedTask.commitment_id
+    ? await supabaseAdmin
+        .from("meeting_commitments")
+        .select("*")
+        .eq("id", typedTask.commitment_id)
+        .eq("meeting_id", typedTask.meeting_id)
+        .maybeSingle()
+    : { data: null };
+  const typedCommitment = commitment as MeetingCommitment | null;
 
   const { data: topic } = typedTask.topic_id
     ? await supabaseAdmin
@@ -145,6 +156,33 @@ export default async function TaskWorkspacePage({
 
         <aside className="space-y-6">
           <TaskClarifications taskId={resolvedTask.id} variant="panel" />
+
+          {typedCommitment ? (
+            <section className="premium-card p-5">
+              <h2 className="text-sm font-semibold text-slate-900">
+                Parent Commitment
+              </h2>
+              <div className="mt-4 space-y-3">
+                <p className="text-sm font-semibold text-slate-950">
+                  {typedCommitment.title}
+                </p>
+                <p className="text-xs font-medium capitalize text-slate-500">
+                  {typedCommitment.type.replace(/_/g, " ")}
+                </p>
+                {typedCommitment.description ? (
+                  <p className="text-sm leading-6 text-slate-600">
+                    {typedCommitment.description}
+                  </p>
+                ) : null}
+                <Link
+                  href={`/meetings/${meeting.id}` as Route}
+                  className="secondary-button w-full"
+                >
+                  View in Meeting
+                </Link>
+              </div>
+            </section>
+          ) : null}
 
           <section className="premium-card p-5">
             <h2 className="text-sm font-semibold text-slate-900">Related Meeting</h2>

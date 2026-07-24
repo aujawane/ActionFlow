@@ -5,18 +5,22 @@ It does **not** include WhisperX, pyannote, GPU workers, or Docker for the app.
 
 ## Plan assumptions
 
-Parfait’s long-running API routes assume **Vercel Pro** (or higher):
+Parfait’s long-running analysis assumes **Vercel Pro** (or higher) with
+chained background worker hops:
 
-| Route | `maxDuration` | Why |
+| Route / worker | `maxDuration` | Why |
 |-------|---------------|-----|
-| `POST /api/recall/webhook` | 300s | Transcript import + retries + analysis kickoff |
-| `POST /api/meetings/[id]/analyze` | 300s | Topic segmentation + per-topic OpenAI work |
-| `POST /api/meetings/[id]/sync-status` | 300s | May trigger the same completion pipeline |
+| `POST /api/recall/webhook` | 60s | Transcript import + analysis enqueue |
+| `POST /api/meetings/[id]/sync-status` | 60s | Transcript import + analysis enqueue |
+| `POST /api/meetings/[id]/analyze` | 60s | Auth, claim generation, enqueue worker (HTTP 202) |
+| `POST /api/internal/meeting-analysis/worker` | 300s | One analysis stage per invocation; chains the next |
 | Task / prompt / deliverable AI routes | 60s | Single or small batches of OpenAI calls |
 
-**Vercel Hobby is not recommended.** Hobby function timeouts (~10s) will break meeting analysis and webhook completion.
+**Vercel Hobby is not recommended.** Hobby function timeouts (~10s) will break
+transcript import and analysis worker stages.
 
-All API routes that use Node APIs (`crypto`, Supabase admin, OpenAI) run on the **Node.js** runtime (not Edge).
+All API routes that use Node APIs (`crypto`, Supabase admin, OpenAI) run on the
+**Node.js** runtime (not Edge).
 
 ## Architecture
 
@@ -122,8 +126,8 @@ Returns `{ ok: true, service: "parfait", timestamp: "..." }`.
 2. Sign up / log in (Supabase Auth).
 3. Create a Google Meet meeting (with Google connected) and a Zoom meeting.
 4. Confirm a Recall bot joins the call.
-5. Confirm webhook events move the meeting through `joining` → `recording` → `processing`/`completed`.
-6. Confirm transcript import and `POST /api/meetings/[id]/analyze` produce topics + tasks.
+5. Confirm webhook events move the meeting through `joining` → `recording` → `processing` → `transcript_ready`.
+6. Confirm analysis jobs progress via `GET /api/meetings/[id]/analysis-status` and eventually populate topics + tasks.
 7. Open a task workspace and run Guide Me / Do It For Me.
 8. Exercise speaker mapping on a meeting detail page.
 9. Confirm `/api/dev/*` returns 404 in production.

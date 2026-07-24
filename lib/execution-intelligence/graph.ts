@@ -28,42 +28,138 @@ export function semanticTokenSimilarity(left: string, right: string) {
   return intersection / Math.max(a.size, b.size);
 }
 
-function ownerKey(owner: string | null, owners: string[]) {
-  return [owner ?? "", ...owners]
-    .map(normalizeText)
-    .filter(Boolean)
-    .sort()
-    .join("|");
+function ownerNames(owner: string | null, owners: string[]) {
+  return new Set(
+    [owner, ...owners]
+      .filter((value): value is string => Boolean(value?.trim()))
+      .map(normalizeText)
+  );
+}
+
+function ownersCompatible(
+  left: { owner: string | null; owners: string[] },
+  right: { owner: string | null; owners: string[] }
+) {
+  const leftOwners = ownerNames(left.owner, left.owners);
+  const rightOwners = ownerNames(right.owner, right.owners);
+  if (leftOwners.size === 0 || rightOwners.size === 0) return true;
+  return Array.from(leftOwners).some((owner) => rightOwners.has(owner));
+}
+
+function sharesSourceSegment(left: string[], right: string[]) {
+  const leftIds = new Set(left);
+  return right.some((id) => leftIds.has(id));
 }
 
 function commitmentDuplicate(
   left: CommitmentCandidate,
   right: CommitmentCandidate
 ) {
+  const similarity = semanticTokenSimilarity(left.title, right.title);
+  const sharedEvidence = sharesSourceSegment(
+    left.source_segment_ids,
+    right.source_segment_ids
+  );
   return (
-    semanticTokenSimilarity(left.title, right.title) >= 0.72 &&
-    (!ownerKey(left.owner, left.owners) ||
-      !ownerKey(right.owner, right.owners) ||
-      ownerKey(left.owner, left.owners) === ownerKey(right.owner, right.owners))
+    (similarity >= 0.72 || (sharedEvidence && similarity >= 0.5)) &&
+    (ownersCompatible(left, right) || sharedEvidence)
   );
 }
 
 function taskDuplicate(left: TaskCandidate, right: TaskCandidate) {
+  const similarity = semanticTokenSimilarity(left.title, right.title);
+  const sharedEvidence = sharesSourceSegment(
+    left.source_segment_ids,
+    right.source_segment_ids
+  );
   return (
-    semanticTokenSimilarity(left.title, right.title) >= 0.82 &&
+    (similarity >= 0.82 || (sharedEvidence && similarity >= 0.65)) &&
     (!left.commitment_ref ||
       !right.commitment_ref ||
-      left.commitment_ref === right.commitment_ref)
+      left.commitment_ref === right.commitment_ref) &&
+    (ownersCompatible(left, right) || sharedEvidence)
   );
 }
 
-function preferGrounded<T extends { confidence: number; source_segment_ids: string[] }>(
-  left: T,
-  right: T
+function mergedOwners(
+  left: { owner: string | null; owners: string[] },
+  right: { owner: string | null; owners: string[] }
 ) {
-  const leftScore = left.confidence + (left.source_segment_ids.length > 0 ? 0.15 : 0);
-  const rightScore = right.confidence + (right.source_segment_ids.length > 0 ? 0.15 : 0);
-  return rightScore > leftScore ? right : left;
+  const names = new Map<string, string>();
+  for (const value of [
+    left.owner,
+    ...left.owners,
+    right.owner,
+    ...right.owners
+  ]) {
+    const trimmed = value?.trim();
+    if (trimmed) names.set(normalizeText(trimmed), trimmed);
+  }
+  return Array.from(names.values());
+}
+
+function mergeCommitment(
+  existing: CommitmentCandidate,
+  candidate: CommitmentCandidate
+): CommitmentCandidate {
+  const owners = mergedOwners(existing, candidate);
+  return {
+    ...existing,
+    description: existing.description ?? candidate.description,
+    owner: existing.owner ?? candidate.owner ?? owners[0] ?? null,
+    owners,
+    due_date: existing.due_date ?? candidate.due_date,
+    due_date_text: existing.due_date_text ?? candidate.due_date_text,
+    confidence: Math.max(existing.confidence, candidate.confidence),
+    source_segment_ids: Array.from(
+      new Set([...existing.source_segment_ids, ...candidate.source_segment_ids])
+    ),
+    execution_classification:
+      existing.execution_classification ??
+      candidate.execution_classification ??
+      "committed",
+    consolidated_from_refs: Array.from(
+      new Set([
+        ...(existing.consolidated_from_refs ?? []),
+        ...(candidate.consolidated_from_refs ?? []),
+        candidate.client_ref
+      ])
+    )
+  };
+}
+
+function mergeTask(
+  existing: TaskCandidate,
+  candidate: TaskCandidate
+): TaskCandidate {
+  const owners = mergedOwners(existing, candidate);
+  return {
+    ...existing,
+    description: existing.description ?? candidate.description,
+    owner: existing.owner ?? candidate.owner ?? owners[0] ?? null,
+    owners,
+    due_date: existing.due_date ?? candidate.due_date,
+    due_date_text: existing.due_date_text ?? candidate.due_date_text,
+    confidence: Math.max(existing.confidence, candidate.confidence),
+    source_segment_ids: Array.from(
+      new Set([...existing.source_segment_ids, ...candidate.source_segment_ids])
+    ),
+    inferred: existing.inferred && candidate.inferred,
+    suggested_steps: Array.from(
+      new Set([...existing.suggested_steps, ...candidate.suggested_steps])
+    ),
+    execution_classification:
+      existing.execution_classification ??
+      candidate.execution_classification ??
+      "committed",
+    consolidated_from_refs: Array.from(
+      new Set([
+        ...(existing.consolidated_from_refs ?? []),
+        ...(candidate.consolidated_from_refs ?? []),
+        candidate.client_ref
+      ])
+    )
+  };
 }
 
 export function mergeAndDeduplicateGraphs(
@@ -82,10 +178,9 @@ export function mergeAndDeduplicateGraphs(
       continue;
     }
     const existing = commitments[duplicateIndex];
-    const preferred = preferGrounded(existing, candidate);
-    commitments[duplicateIndex] = preferred;
-    commitmentRefAliases.set(candidate.client_ref, preferred.client_ref);
-    commitmentRefAliases.set(existing.client_ref, preferred.client_ref);
+    commitments[duplicateIndex] = mergeCommitment(existing, candidate);
+    commitmentRefAliases.set(candidate.client_ref, existing.client_ref);
+    commitmentRefAliases.set(existing.client_ref, existing.client_ref);
     deduplicatedCommitments += 1;
   }
 
@@ -103,7 +198,7 @@ export function mergeAndDeduplicateGraphs(
       tasks.push(task);
       continue;
     }
-    tasks[duplicateIndex] = preferGrounded(tasks[duplicateIndex], task);
+    tasks[duplicateIndex] = mergeTask(tasks[duplicateIndex], task);
     deduplicatedTasks += 1;
   }
 

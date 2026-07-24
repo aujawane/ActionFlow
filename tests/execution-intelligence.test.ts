@@ -142,6 +142,7 @@ test("fallback pipeline verifies completeness before persisting executable work"
   let persistedGraph: ExecutionGraph | null = null;
   const result = await runExecutionIntelligence({
     fallbackUsed: true,
+    generation: 1,
     source: {
       meetingId: "meeting-1",
       meetingDate: "2026-07-22T00:00:00Z",
@@ -183,5 +184,6 @@ test("fallback pipeline verifies completeness before persisting executable work"
   const stored = persistedGraph as ExecutionGraph | null;
   assert.ok(stored);
   assert.equal(stored.commitments.length, 1);
-  assert.equal(stored.tasks.length, 1);
+  // A child task that merely restates the commitment is consolidated away.
+  assert.equal(stored.tasks.length, 0);
 });
