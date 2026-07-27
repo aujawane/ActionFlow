@@ -89,7 +89,7 @@ function TaskCard({ task }: { task: MeetingTask }) {
 
       <div className="mt-4">
         <Link href={`/tasks/${task.id}` as Route} className="secondary-button px-3 py-1.5 text-xs">
-          Open Workspace
+          Execute Task
         </Link>
       </div>
     </article>

@@ -122,7 +122,7 @@ test("three wireframe phrasings merge into one task", () => {
   assert.ok(result.mergedTasks >= 2);
 });
 
-test("FAQ restatement task is rejected leaving zero child tasks", () => {
+test("action-level FAQ commitment is demoted and duplicate task is merged", () => {
   const graph: ExecutionGraph = {
     commitments: [
       commitment({
@@ -140,9 +140,9 @@ test("FAQ restatement task is rejected leaving zero child tasks", () => {
   };
 
   const result = consolidateExecutionGraph(graph);
-  assert.equal(result.graph.commitments.length, 1);
-  assert.equal(result.graph.tasks.length, 0);
-  assert.equal(result.rejectedRestatements, 1);
+  assert.equal(result.graph.commitments.length, 0);
+  assert.equal(result.graph.tasks.length, 1);
+  assert.equal(result.mergedTasks, 1);
 });
 
 test("auth UI backend and testing remain distinct under one commitment", () => {
@@ -195,7 +195,7 @@ test("instagram without agreement becomes future consideration", () => {
   };
   const result = consolidateExecutionGraph(graph);
   assert.equal(
-    result.graph.commitments[0].execution_classification,
+    result.graph.tasks[0].execution_classification,
     "future_consideration"
   );
 });
@@ -221,11 +221,15 @@ test("required product page without owner becomes requirement", () => {
     ]
   };
   const result = consolidateExecutionGraph(graph);
-  assert.equal(result.graph.commitments[0].execution_classification, "requirement");
-  assert.equal(result.graph.tasks[0]?.execution_classification, "requirement");
+  assert.equal(result.graph.commitments.length, 0);
+  assert.ok(
+    result.graph.tasks.some(
+      (item) => item.execution_classification === "requirement"
+    )
+  );
 });
 
-test("clear personal promise remains committed and may have zero tasks", () => {
+test("clear one-step personal promise remains committed execution as a task", () => {
   const graph: ExecutionGraph = {
     commitments: [
       commitment({
@@ -237,9 +241,9 @@ test("clear personal promise remains committed and may have zero tasks", () => {
     tasks: []
   };
   const result = consolidateExecutionGraph(graph);
-  assert.equal(result.graph.commitments.length, 1);
-  assert.equal(result.graph.tasks.length, 0);
-  assert.equal(result.graph.commitments[0].execution_classification, "committed");
+  assert.equal(result.graph.commitments.length, 0);
+  assert.equal(result.graph.tasks.length, 1);
+  assert.equal(result.graph.tasks[0].execution_classification, "committed");
 });
 
 test("standalone task remains standalone when no commitment fits", () => {

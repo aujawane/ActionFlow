@@ -3,6 +3,7 @@ import type { ExtractedInsight } from "@/lib/types";
 const sectionOrder = [
   "product_summary",
   "requirements",
+  "decisions",
   "features",
   "user_stories",
   "technical_constraints",
@@ -16,6 +17,7 @@ const sectionOrder = [
 const sectionLabels: Record<(typeof sectionOrder)[number], string> = {
   product_summary: "Product Summary",
   requirements: "Requirements",
+  decisions: "Decisions",
   features: "Features",
   user_stories: "User Stories",
   technical_constraints: "Technical Constraints",

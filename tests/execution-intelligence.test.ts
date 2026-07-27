@@ -172,6 +172,11 @@ test("fallback pipeline verifies completeness before persisting executable work"
         graph: { commitments: [], tasks: [] },
         latencyMs: 2
       }),
+      synthesizeGraph: async ({ graph: inputGraph }) => ({
+        ok: true,
+        graph: inputGraph,
+        latencyMs: 2
+      }),
       persistGraph: async ({ graph: inputGraph }) => {
         persistedGraph = inputGraph;
         return { ok: true, commitments: [], tasks: [] };
@@ -183,7 +188,7 @@ test("fallback pipeline verifies completeness before persisting executable work"
   assert.equal(result.metrics.fallbackUsed, true);
   const stored = persistedGraph as ExecutionGraph | null;
   assert.ok(stored);
-  assert.equal(stored.commitments.length, 1);
-  // A child task that merely restates the commitment is consolidated away.
-  assert.equal(stored.tasks.length, 0);
+  assert.equal(stored.commitments.length, 0);
+  // A one-step action is preserved as a task, not promoted to a commitment.
+  assert.equal(stored.tasks.length, 1);
 });

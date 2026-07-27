@@ -98,6 +98,41 @@ function taskScore(candidate: TaskCandidate, existing: MeetingTask) {
   });
 }
 
+function convertedCommitmentScore(
+  candidate: TaskCandidate,
+  existing: MeetingCommitment
+) {
+  return candidateScore({
+    candidateTitle: candidate.title,
+    existingTitle: existing.title,
+    candidateQuote: candidate.source_quote,
+    existingQuote: existing.source_quote,
+    candidateSegmentIds: candidate.source_segment_ids,
+    existingSegmentIds: existing.source_segment_ids
+  });
+}
+
+export function matchConvertedCommitments(input: {
+  graph: ExecutionGraph;
+  commitments: MeetingCommitment[];
+}) {
+  const convertedTasks = input.graph.tasks
+    .map((task, index) => ({ task, index }))
+    .filter(({ task }) => task.client_ref.startsWith("milestone_task_"));
+  const matches = greedyMatch(
+    convertedTasks.map(({ task }) => task),
+    input.commitments,
+    convertedCommitmentScore,
+    0.62
+  );
+  return new Map(
+    Array.from(matches, ([convertedIndex, commitmentId]) => [
+      convertedTasks[convertedIndex].index,
+      commitmentId
+    ])
+  );
+}
+
 export function matchExecutionGraphRows(input: {
   graph: ExecutionGraph;
   commitments: MeetingCommitment[];

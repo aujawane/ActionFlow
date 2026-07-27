@@ -16,6 +16,7 @@ import type { ExecutionGraph } from "./schemas";
 import {
   findMissingExecutionWorkInBatches,
   generateChunkedExecutionCandidates,
+  synthesizeExecutionGraph,
   verifyExecutionGraphInBatches,
   type ExecutionSourceContext
 } from "./stages";
@@ -24,6 +25,7 @@ type ExecutionPipelineDependencies = {
   generateCandidates: typeof generateChunkedExecutionCandidates;
   verifyGraph: typeof verifyExecutionGraphInBatches;
   findMissing: typeof findMissingExecutionWorkInBatches;
+  synthesizeGraph: typeof synthesizeExecutionGraph;
   persistGraph: typeof persistExecutionGraph;
 };
 
@@ -37,6 +39,7 @@ export async function runExecutionIntelligence(input: {
     generateCandidates: generateChunkedExecutionCandidates,
     verifyGraph: verifyExecutionGraphInBatches,
     findMissing: findMissingExecutionWorkInBatches,
+    synthesizeGraph: synthesizeExecutionGraph,
     persistGraph: persistExecutionGraph,
     ...input.dependencies
   };
@@ -175,9 +178,55 @@ export async function runExecutionIntelligence(input: {
   metrics.deduplicatedCommitments += finalDeduped.deduplicatedCommitments;
   metrics.deduplicatedTasks += finalDeduped.deduplicatedTasks;
 
-  const consolidated = consolidateExecutionGraph(finalDeduped.graph);
+  const synthesis = await dependencies.synthesizeGraph({
+    source: input.source,
+    graph: finalDeduped.graph
+  });
+  metrics.openAiLatencyMs.synthesis = synthesis.latencyMs;
+  if (!synthesis.ok) {
+    metrics.validationFailures += Number(synthesis.validationFailure);
+    logExecutionStage(metrics, "synthesis_failed", {
+      error: synthesis.error,
+      details: synthesis.details,
+      validation_failure: synthesis.validationFailure
+    });
+    return {
+      ok: false as const,
+      status: 502,
+      error: synthesis.error,
+      metrics
+    };
+  }
+  metrics.salvagedItems += synthesis.salvagedItems ?? 0;
+  const synthesizedCommittedOutcomes = synthesis.graph.commitments.filter(
+    (item) => (item.execution_classification ?? "committed") === "committed"
+  ).length;
+  if (synthesizedCommittedOutcomes > 7) {
+    logExecutionStage(metrics, "synthesis_fragmentation_warning", {
+      committed_outcomes: synthesizedCommittedOutcomes,
+      quality_signal: "more_than_seven_commitments"
+    });
+  }
+  const synthesisResolved = resolveAssigneesAndDueDates(
+    linkTasksToCommitments(synthesis.graph)
+  );
+  const synthesisGrounded = enforceExecutionGraphGrounding({
+    source: input.source,
+    graph: normalizeExecutionGraphQuality(synthesisResolved).graph
+  });
+  metrics.groundingRejectedCommitments += synthesisGrounded.rejectedCommitments;
+  metrics.groundingRejectedTasks += synthesisGrounded.rejectedTasks;
+  const synthesisDeduped = mergeAndDeduplicateGraphs(synthesisGrounded.graph);
+  metrics.deduplicatedCommitments += synthesisDeduped.deduplicatedCommitments;
+  metrics.deduplicatedTasks += synthesisDeduped.deduplicatedTasks;
+
+  const consolidated = consolidateExecutionGraph(synthesisDeduped.graph, {
+    projectName: input.source.project?.name,
+    projectGoal: input.source.project?.goal
+  });
   logExecutionStage(metrics, "graph_consolidated", {
     merged_commitments: consolidated.mergedCommitments,
+    converted_commitments: consolidated.convertedCommitments,
     merged_tasks: consolidated.mergedTasks,
     rejected_restatements: consolidated.rejectedRestatements,
     removed_generic_inferred: consolidated.removedGenericInferred

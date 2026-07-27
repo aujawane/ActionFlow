@@ -14,7 +14,11 @@ import {
 } from "./observability";
 import { salvageExecutionGraph } from "./salvage";
 
-export type ExecutionModelStage = "candidates" | "verification" | "completeness";
+export type ExecutionModelStage =
+  | "candidates"
+  | "verification"
+  | "completeness"
+  | "synthesis";
 export const EXECUTION_MODEL_TIMEOUT_MS =
   DEFAULT_EXECUTION_INTELLIGENCE_TIMEOUT_MS;
 export const EXECUTION_MODEL_MAX_ATTEMPTS = 2;

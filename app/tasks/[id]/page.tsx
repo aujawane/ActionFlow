@@ -23,6 +23,7 @@ import type {
   MeetingCommitment,
   MeetingTask,
   MeetingTopic,
+  Project,
   TaskArtifact
 } from "@/lib/types";
 
@@ -74,6 +75,15 @@ export default async function TaskWorkspacePage({
         .maybeSingle()
     : { data: null };
   const typedCommitment = commitment as MeetingCommitment | null;
+  const { data: project } = typedTask.project_id
+    ? await supabaseAdmin
+        .from("projects")
+        .select("*")
+        .eq("id", typedTask.project_id)
+        .eq("owner_id", user.id)
+        .maybeSingle()
+    : { data: null };
+  const typedProject = project as Project | null;
 
   const { data: topic } = typedTask.topic_id
     ? await supabaseAdmin
@@ -118,6 +128,35 @@ export default async function TaskWorkspacePage({
   return (
     <TaskWorkspaceTaskProvider initialTask={resolvedTask}>
       <section className="space-y-6">
+        <nav className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
+          <Link href={"/projects" as Route} className="hover:text-brand-700">
+            Projects
+          </Link>
+          {typedProject ? (
+            <>
+              <span>/</span>
+              <Link
+                href={`/projects/${typedProject.id}` as Route}
+                className="hover:text-brand-700"
+              >
+                {typedProject.name}
+              </Link>
+            </>
+          ) : null}
+          {typedCommitment ? (
+            <>
+              <span>/</span>
+              <Link
+                href={`/commitments/${typedCommitment.id}` as Route}
+                className="hover:text-brand-700"
+              >
+                {typedCommitment.title}
+              </Link>
+            </>
+          ) : null}
+          <span>/</span>
+          <span className="text-slate-900">{resolvedTask.task}</span>
+        </nav>
         <TaskWorkspaceHeader />
 
         <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
@@ -175,10 +214,10 @@ export default async function TaskWorkspacePage({
                   </p>
                 ) : null}
                 <Link
-                  href={`/meetings/${meeting.id}` as Route}
+                  href={`/commitments/${typedCommitment.id}` as Route}
                   className="secondary-button w-full"
                 >
-                  View in Meeting
+                  Open Milestone
                 </Link>
               </div>
             </section>

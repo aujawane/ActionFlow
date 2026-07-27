@@ -31,10 +31,9 @@ export function resolveAssigneesAndDueDates(
       const parent = task.commitment_ref
         ? commitmentsByRef.get(task.commitment_ref)
         : undefined;
-      const names = normalizeNames(
-        task.owner ?? parent?.owner ?? null,
-        task.owners.length > 0 ? task.owners : parent?.owners ?? []
-      );
+      // Ownership is evidence-bound at task level. A milestone lead is not evidence
+      // that they own every child action.
+      const names = normalizeNames(task.owner, task.owners);
       return {
         ...task,
         ...names,

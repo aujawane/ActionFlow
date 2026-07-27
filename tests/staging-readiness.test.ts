@@ -168,6 +168,7 @@ test("execution source payload sends each transcript, topic, and insight once", 
     "meeting_date",
     "meeting_id",
     "meeting_summaries",
+    "project",
     "topics",
     "transcript",
     "transcript_segment_count"

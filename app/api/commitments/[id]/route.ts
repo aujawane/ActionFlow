@@ -11,6 +11,8 @@ const updateCommitmentSchema = z
     description: z.string().trim().nullable().optional(),
     owner: z.string().trim().nullable().optional(),
     owners: z.array(z.string().trim().min(1)).optional(),
+    lead_owner_id: z.string().uuid().nullable().optional(),
+    lead_owner_name: z.string().trim().nullable().optional(),
     due_date: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -65,6 +67,9 @@ export async function PATCH(
   }
 
   const update = { ...parsed.data };
+  if ("lead_owner_name" in update) {
+    update.owner = update.lead_owner_name;
+  }
   if (update.completion_state === "completed" && !update.status) {
     update.status = "completed";
   }

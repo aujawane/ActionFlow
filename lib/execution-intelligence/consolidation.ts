@@ -62,6 +62,119 @@ const DISTINCT_PHASE_MARKERS = [
   "chatbot"
 ];
 
+const MILESTONE_DOMAINS: Record<string, string[]> = {
+  scope: [
+    "scope",
+    "architecture",
+    "requirement",
+    "technology",
+    "stack",
+    "wireframe",
+    "specification"
+  ],
+  brand_content: [
+    "brand",
+    "content",
+    "copy",
+    "story",
+    "image",
+    "photo",
+    "packaging",
+    "faq"
+  ],
+  product_concept: [
+    "product concept",
+    "protein bar",
+    "ingredient",
+    "digestive",
+    "consumer validation",
+    "target consumer",
+    "energy blend",
+    "maca",
+    "positioning"
+  ],
+  mvp: [
+    "mvp",
+    "first version",
+    "frontend",
+    "backend",
+    "authentication",
+    "login",
+    "signup",
+    "static site"
+  ],
+  ecommerce: [
+    "ecommerce",
+    "e-commerce",
+    "commerce",
+    "subscription",
+    "checkout",
+    "payment",
+    "ordering",
+    "catalog"
+  ],
+  launch: ["launch", "deploy", "deployment", "domain", "hosting", "production"],
+  coordination: [
+    "coordinate",
+    "coordination",
+    "communicate",
+    "stakeholder",
+    "schedule",
+    "follow up",
+    "follow-up"
+  ]
+};
+
+const BROAD_OUTCOME_TERMS = [
+  "deliver",
+  "launch",
+  "prepare",
+  "finalize",
+  "complete",
+  "establish",
+  "enable",
+  "capabilities",
+  "mvp",
+  "first version",
+  "scope",
+  "architecture"
+];
+
+const NARROW_ACTION_TERMS = [
+  "research",
+  "choose",
+  "confirm",
+  "configure",
+  "clarify",
+  "define",
+  "document",
+  "draft",
+  "write",
+  "request",
+  "send",
+  "share",
+  "select",
+  "outline",
+  "link",
+  "plan",
+  "integrate",
+  "implement",
+  "test",
+  "validate",
+  "review",
+  "approve",
+  "design",
+  "create"
+];
+
+const NARROW_COMMITMENT_OPENING =
+  /^(research|select|document|design|send|share|outline|configure|clarify|define|link|plan|choose|confirm|draft|create|implement|integrate|test|validate|review|deploy)\b/i;
+
+export type MilestoneConsolidationContext = {
+  projectName?: string | null;
+  projectGoal?: string | null;
+};
+
 function normalizeText(value: string) {
   return value
     .toLowerCase()
@@ -98,6 +211,60 @@ function contentTokens(value: string) {
 
 function actionObjectKey(value: string) {
   return contentTokens(value).join(" ");
+}
+
+function taskPhase(value: string) {
+  const normalized = normalizeText(value);
+  if (/\b(research|compile|explore|investigate)\b/.test(normalized)) return "research";
+  if (/\b(compare|evaluate|assess)\b/.test(normalized)) return "compare";
+  if (/\b(select|choose|decide)\b/.test(normalized)) return "select";
+  if (/\b(design|wireframes?|layouts?|interface|mockups?)\b/.test(normalized)) {
+    return "design";
+  }
+  if (
+    /\b(implement|implementation|build|develop|execute|code|integrate)\b/.test(
+      normalized
+    )
+  ) {
+    return "implement";
+  }
+  if (/\b(test|qa|validate)\b/.test(normalized)) return "test";
+  if (/\b(review|approve)\b/.test(normalized)) return "review";
+  if (/\b(deploy|publish|launch|deliver)\b/.test(normalized)) return "deliver";
+  return "other";
+}
+
+function taskSemanticDomain(value: string) {
+  const normalized = normalizeText(value);
+  if (/\bchatbot\b/.test(normalized)) return "chatbot";
+  if (
+    /\b(product|catalog)\b/.test(normalized) &&
+    /\b(page|pages|catalog|detail|interface|layout|wireframe)\b/.test(normalized)
+  ) {
+    return "product_wireframes";
+  }
+  if (/\b(auth|authentication|login|signup)\b/.test(normalized)) return "auth";
+  if (/\b(payment|checkout|order|ordering)\b/.test(normalized)) return "commerce";
+  return null;
+}
+
+function milestoneDomains(value: string) {
+  const normalized = normalizeText(value);
+  return Object.entries(MILESTONE_DOMAINS)
+    .filter(([, markers]) => markers.some((marker) => normalized.includes(marker)))
+    .map(([domain]) => domain);
+}
+
+function milestoneBreadth(value: string) {
+  const normalized = normalizeText(value);
+  const broad = BROAD_OUTCOME_TERMS.filter((term) => normalized.includes(term)).length;
+  const narrow = NARROW_ACTION_TERMS.filter((term) => normalized.includes(term)).length;
+  const pluralOutcome = /\b(capabilities|infrastructure|operations|content|scope)\b/.test(
+    normalized
+  )
+    ? 1
+    : 0;
+  return broad * 2 + pluralOutcome - narrow;
 }
 
 function uniqueNames(values: Array<string | null | undefined>) {
@@ -228,7 +395,24 @@ function taskNearDuplicate(left: TaskCandidate, right: TaskCandidate) {
   ) {
     return false;
   }
-  if (hasDistinctPhaseConflict(left.title, right.title)) {
+  const leftDomain = taskSemanticDomain(left.title);
+  const rightDomain = taskSemanticDomain(right.title);
+  const leftPhase = taskPhase(left.title);
+  const rightPhase = taskPhase(right.title);
+  if (
+    leftDomain &&
+    leftDomain === rightDomain &&
+    leftPhase !== "other" &&
+    rightPhase !== "other" &&
+    leftPhase !== rightPhase
+  ) {
+    return false;
+  }
+  const sameSemanticPhase =
+    leftDomain !== null &&
+    leftDomain === rightDomain &&
+    leftPhase === rightPhase;
+  if (!sameSemanticPhase && hasDistinctPhaseConflict(left.title, right.title)) {
     return false;
   }
   const titleSimilarity = semanticTokenSimilarity(left.title, right.title);
@@ -242,6 +426,7 @@ function taskNearDuplicate(left: TaskCandidate, right: TaskCandidate) {
   );
   const quoteSim = quoteSimilarity(left.source_quote, right.source_quote);
   return (
+    sameSemanticPhase ||
     titleSimilarity >= 0.78 ||
     objectSimilarity >= 0.78 ||
     (sharedEvidence && titleSimilarity >= 0.6) ||
@@ -295,6 +480,271 @@ function mergeCommitment(
         other.client_ref
       ])
     )
+  };
+}
+
+function mergeIntoMilestone(
+  milestone: CommitmentCandidate,
+  narrower: CommitmentCandidate
+): CommitmentCandidate {
+  const merged = mergeCommitment(milestone, narrower);
+  return {
+    ...merged,
+    client_ref: milestone.client_ref,
+    title: milestone.title,
+    description: milestone.description ?? narrower.description,
+    owner: milestone.owner,
+    owners: uniqueNames([
+      milestone.owner,
+      ...milestone.owners,
+      narrower.owner,
+      ...narrower.owners
+    ]),
+    type: milestone.type,
+    completion_state: milestone.completion_state,
+    consolidated_from_refs: Array.from(
+      new Set([
+        ...(milestone.consolidated_from_refs ?? []),
+        ...(narrower.consolidated_from_refs ?? []),
+        narrower.client_ref
+      ])
+    )
+  };
+}
+
+function taskWorkspaceForTitle(title: string): TaskCandidate["workspace_type"] {
+  const normalized = normalizeText(title);
+  if (/\b(code|backend|frontend|authentication|login|signup|implement)\b/.test(normalized)) {
+    return "coding";
+  }
+  if (/\b(design|wireframe|brand|image|layout)\b/.test(normalized)) return "design";
+  if (/\b(email|send|follow up|follow-up|contact|request)\b/.test(normalized)) {
+    return "follow_up";
+  }
+  if (/\b(write|draft|copy|content|document)\b/.test(normalized)) return "document";
+  if (/\b(website|page|site)\b/.test(normalized)) return "website_change";
+  if (/\b(plan|scope|architecture|choose|select)\b/.test(normalized)) return "planning";
+  return "other";
+}
+
+function commitmentAsTask(
+  commitment: CommitmentCandidate,
+  parentRef: string | null
+): TaskCandidate {
+  return {
+    client_ref: `milestone_task_${commitment.client_ref}`,
+    commitment_ref: parentRef,
+    topic_id: commitment.topic_id,
+    title: commitment.title,
+    description: commitment.description,
+    owner: commitment.owner,
+    owners: commitment.owners,
+    due_date: commitment.due_date,
+    due_date_text: commitment.due_date_text,
+    priority: commitment.priority,
+    confidence: commitment.confidence,
+    source_quote: commitment.source_quote,
+    source_segment_ids: commitment.source_segment_ids,
+    evidence_source: commitment.evidence_source,
+    inferred: false,
+    task_type: "commitment",
+    workspace_type: taskWorkspaceForTitle(commitment.title),
+    suggested_steps: [],
+    execution_classification: commitment.execution_classification,
+    consolidated_from_refs: Array.from(
+      new Set([
+        ...(commitment.consolidated_from_refs ?? []),
+        commitment.client_ref
+      ])
+    )
+  };
+}
+
+function parentChildScore(
+  parent: CommitmentCandidate,
+  child: CommitmentCandidate,
+  context: MilestoneConsolidationContext
+) {
+  if (
+    (parent.execution_classification ?? "committed") !==
+    (child.execution_classification ?? "committed")
+  ) {
+    return 0;
+  }
+
+  const parentBreadth = milestoneBreadth(parent.title);
+  const childBreadth = milestoneBreadth(child.title);
+  if (parentBreadth < 1 || parentBreadth <= childBreadth) return 0;
+
+  const parentDomains = milestoneDomains(parent.title);
+  const childDomains = milestoneDomains(child.title);
+  const sharedDomain = parentDomains.some((domain) => childDomains.includes(domain));
+  if (
+    parentDomains.length > 0 &&
+    childDomains.length > 0 &&
+    !sharedDomain
+  ) {
+    return 0;
+  }
+
+  const titleSimilarity = semanticTokenSimilarity(parent.title, child.title);
+  const objectSimilarity = semanticTokenSimilarity(
+    actionObjectKey(parent.title),
+    actionObjectKey(child.title)
+  );
+  const quoteSim = quoteSimilarity(parent.source_quote, child.source_quote);
+  const sharedEvidence = sharesSourceSegment(
+    parent.source_segment_ids,
+    child.source_segment_ids
+  );
+  const sameTopic = Boolean(
+    parent.topic_id && child.topic_id && parent.topic_id === child.topic_id
+  );
+  const objective = [context.projectName, context.projectGoal]
+    .filter(Boolean)
+    .join(" ");
+  const objectiveSupport = objective
+    ? Math.min(
+        semanticTokenSimilarity(parent.title, objective),
+        semanticTokenSimilarity(child.title, objective)
+      )
+    : 0;
+
+  if (
+    !sharedDomain &&
+    !sameTopic &&
+    !sharedEvidence &&
+    titleSimilarity < 0.35 &&
+    objectSimilarity < 0.4
+  ) {
+    return 0;
+  }
+
+  return (
+    Math.max(titleSimilarity, objectSimilarity) * 0.3 +
+    quoteSim * 0.1 +
+    (sharedDomain ? 0.24 : 0) +
+    (sameTopic ? 0.12 : 0) +
+    (sharedEvidence ? 0.14 : 0) +
+    Math.min(0.12, (parentBreadth - childBreadth) * 0.04) +
+    objectiveSupport * 0.05
+  );
+}
+
+function consolidateMilestoneHierarchy(
+  input: CommitmentCandidate[],
+  context: MilestoneConsolidationContext
+) {
+  const commitments = [...input];
+  const aliases = new Map<string, string>();
+  const convertedTasks: TaskCandidate[] = [];
+  let convertedCommitments = 0;
+
+  const parentOrder = commitments
+    .map((commitment, index) => ({
+      commitment,
+      index,
+      breadth: milestoneBreadth(commitment.title)
+    }))
+    .sort(
+      (left, right) =>
+        right.breadth - left.breadth ||
+        left.commitment.client_ref.localeCompare(right.commitment.client_ref)
+    );
+  const absorbed = new Set<number>();
+
+  for (const parentEntry of parentOrder) {
+    if (absorbed.has(parentEntry.index) || parentEntry.breadth < 1) continue;
+    let parent = commitments[parentEntry.index];
+
+    const candidates = commitments
+      .map((child, index) => ({
+        child,
+        index,
+        score:
+          index === parentEntry.index || absorbed.has(index)
+            ? 0
+            : parentChildScore(parent, child, context)
+      }))
+      .filter((entry) => entry.score >= 0.52)
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          left.child.client_ref.localeCompare(right.child.client_ref)
+      );
+
+    for (const candidate of candidates) {
+      if (absorbed.has(candidate.index)) continue;
+      const child = commitments[candidate.index];
+      aliases.set(child.client_ref, parent.client_ref);
+      convertedTasks.push(commitmentAsTask(child, parent.client_ref));
+      parent = mergeIntoMilestone(parent, child);
+      commitments[parentEntry.index] = parent;
+      absorbed.add(candidate.index);
+      convertedCommitments += 1;
+    }
+  }
+
+  // A global model can still leak action-level or non-execution candidates into
+  // commitments. Preserve their evidence by demoting them to tasks instead of
+  // retaining peer-level pseudo-milestones.
+  for (let index = 0; index < commitments.length; index += 1) {
+    if (absorbed.has(index)) continue;
+    const commitment = commitments[index];
+    const classification = commitment.execution_classification ?? "committed";
+    const shouldDemote =
+      classification !== "committed" ||
+      NARROW_COMMITMENT_OPENING.test(commitment.title.trim());
+    if (!shouldDemote) continue;
+
+    const eligibleParents =
+      classification === "committed"
+        ? commitments
+            .map((candidate, candidateIndex) => ({
+              candidate,
+              candidateIndex,
+              score: parentChildScore(candidate, commitment, context)
+            }))
+            .filter(
+              ({ candidate, candidateIndex }) =>
+                candidateIndex !== index &&
+                !absorbed.has(candidateIndex) &&
+                (candidate.execution_classification ?? "committed") ===
+                  "committed" &&
+                !NARROW_COMMITMENT_OPENING.test(candidate.title.trim())
+            )
+        : [];
+    const parent =
+      eligibleParents
+        .filter((candidate) => candidate.score >= 0.28)
+        .sort(
+          (left, right) =>
+            right.score - left.score ||
+            left.candidate.client_ref.localeCompare(
+              right.candidate.client_ref
+            )
+        )[0]?.candidate ??
+      (eligibleParents.length === 1 ? eligibleParents[0].candidate : undefined);
+
+    aliases.set(commitment.client_ref, parent?.client_ref ?? "");
+    convertedTasks.push(
+      commitmentAsTask(commitment, parent?.client_ref ?? null)
+    );
+    if (parent) {
+      const parentIndex = commitments.findIndex(
+        (candidate) => candidate.client_ref === parent.client_ref
+      );
+      commitments[parentIndex] = mergeIntoMilestone(parent, commitment);
+    }
+    absorbed.add(index);
+    convertedCommitments += 1;
+  }
+
+  return {
+    commitments: commitments.filter((_, index) => !absorbed.has(index)),
+    aliases,
+    convertedTasks,
+    convertedCommitments
   };
 }
 
@@ -376,9 +826,13 @@ function isUnsupportedGenericInferred(task: TaskCandidate) {
   return GENERIC_INFERRED_PATTERNS.some((pattern) => pattern.test(task.title));
 }
 
-export function consolidateExecutionGraph(graph: ExecutionGraph): {
+export function consolidateExecutionGraph(
+  graph: ExecutionGraph,
+  context: MilestoneConsolidationContext = {}
+): {
   graph: ExecutionGraph;
   mergedCommitments: number;
+  convertedCommitments: number;
   mergedTasks: number;
   rejectedRestatements: number;
   removedGenericInferred: number;
@@ -404,13 +858,18 @@ export function consolidateExecutionGraph(graph: ExecutionGraph): {
     mergedCommitments += 1;
   }
 
+  const hierarchy = consolidateMilestoneHierarchy(commitments, context);
+  for (const [source, target] of hierarchy.aliases) {
+    commitmentAliases.set(source, target);
+  }
+  const milestoneCommitments = hierarchy.commitments;
   const commitmentByRef = new Map(
-    commitments.map((commitment) => [commitment.client_ref, commitment])
+    milestoneCommitments.map((commitment) => [commitment.client_ref, commitment])
   );
 
   let rejectedRestatements = 0;
   let removedGenericInferred = 0;
-  const relinkedTasks = normalized.tasks.flatMap((task) => {
+  const relinkedTasks = [...normalized.tasks, ...hierarchy.convertedTasks].flatMap((task) => {
     const commitmentRef = task.commitment_ref
       ? commitmentAliases.get(task.commitment_ref) ?? task.commitment_ref
       : null;
@@ -464,8 +923,9 @@ export function consolidateExecutionGraph(graph: ExecutionGraph): {
   });
 
   return {
-    graph: { commitments, tasks: classifiedTasks },
+    graph: { commitments: milestoneCommitments, tasks: classifiedTasks },
     mergedCommitments,
+    convertedCommitments: hierarchy.convertedCommitments,
     mergedTasks,
     rejectedRestatements,
     removedGenericInferred

@@ -12,6 +12,7 @@ import type {
   ExtractedInsight,
   MeetingSpeakerAlias,
   MeetingTopic,
+  Project,
   TranscriptSegment
 } from "@/lib/types";
 
@@ -94,7 +95,7 @@ export async function prepareMeetingAnalysis(
   ] = await Promise.all([
     supabaseAdmin
       .from("meetings")
-      .select("id, created_at")
+      .select("*")
       .eq("id", meetingId)
       .is("deleted_at", null)
       .single(),
@@ -112,6 +113,17 @@ export async function prepareMeetingAnalysis(
   if (meetingError || !meeting) throw new Error("Meeting not found.");
   if (segmentsError) throw new Error(`Failed to fetch transcript: ${segmentsError.message}`);
   if (aliasesError) throw new Error(`Failed to fetch speaker aliases: ${aliasesError.message}`);
+
+  const meetingProjectId =
+    typeof meeting.project_id === "string" ? meeting.project_id : null;
+  const { data: project } = meetingProjectId
+    ? await supabaseAdmin
+        .from("projects")
+        .select("id, name, goal")
+        .eq("id", meetingProjectId)
+        .eq("owner_id", meeting.user_id)
+        .maybeSingle()
+    : { data: null };
 
   const safeSegments = applySpeakerAliases(
     (segments ?? []) as TranscriptSegment[],
@@ -134,6 +146,13 @@ export async function prepareMeetingAnalysis(
     meetingContextByTopicId: contexts,
     source: {
       meetingId,
+      project: project
+        ? {
+            id: (project as Pick<Project, "id">).id,
+            name: (project as Pick<Project, "name">).name,
+            goal: (project as Pick<Project, "goal">).goal
+          }
+        : null,
       meetingDate,
       transcript: segmentationTranscript,
       transcriptSegmentCount: safeSegments.length,

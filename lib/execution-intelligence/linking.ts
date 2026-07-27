@@ -1,6 +1,17 @@
 import { semanticTokenSimilarity } from "./graph";
 import type { ExecutionGraph } from "./schemas";
 
+function websiteDeliveryNecessity(taskTitle: string, commitmentTitle: string) {
+  const commitment = commitmentTitle.toLowerCase();
+  const task = taskTitle.toLowerCase();
+  return (
+    /\b(website|site|e-commerce|ecommerce)\b/.test(commitment) &&
+    /\b(images?|photos?|content|copy|founder story|domain|deploy|wireframes?|catalog|authentication|login|signup|payment|ordering|chatbot)\b/.test(
+      task
+    )
+  );
+}
+
 export function linkTasksToCommitments(graph: ExecutionGraph): ExecutionGraph {
   const commitmentRefs = new Set(
     graph.commitments.map((commitment) => commitment.client_ref)
@@ -25,7 +36,14 @@ export function linkTasksToCommitments(graph: ExecutionGraph): ExecutionGraph {
         );
         const topicBonus =
           task.topic_id && task.topic_id === commitment.topic_id ? 0.15 : 0;
-        const score = titleSimilarity + topicBonus + (sharedSegment ? 0.2 : 0);
+        const necessityBonus = websiteDeliveryNecessity(
+          task.title,
+          commitment.title
+        )
+          ? 0.6
+          : 0;
+        const score =
+          titleSimilarity + topicBonus + (sharedSegment ? 0.2 : 0) + necessityBonus;
         if (score > bestScore) {
           bestScore = score;
           bestRef = commitment.client_ref;

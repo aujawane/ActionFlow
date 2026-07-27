@@ -1,8 +1,10 @@
 import {
   CANDIDATE_GENERATION_PROMPT,
   COMPLETENESS_PROMPT,
+  GLOBAL_SYNTHESIS_PROMPT,
   VERIFICATION_PROMPT
 } from "./prompts";
+import { getExecutionIntelligenceTimeoutMs } from "@/lib/env";
 import {
   EXECUTION_CHUNK_CONCURRENCY,
   splitExecutionSourceIntoChunks
@@ -23,6 +25,11 @@ import type { ExecutionGraph } from "./schemas";
 
 export type ExecutionSourceContext = {
   meetingId: string;
+  project?: {
+    id: string;
+    name: string;
+    goal: string | null;
+  } | null;
   transcript: string;
   transcriptSegmentCount?: number;
   topics: Array<{
@@ -43,6 +50,7 @@ export function buildExecutionSourcePayload(source: ExecutionSourceContext) {
   return {
     meeting_id: source.meetingId,
     meeting_date: source.meetingDate,
+    project: source.project ?? null,
     transcript_segment_count: source.transcriptSegmentCount,
     topics: source.topics,
     meeting_summaries: source.insights.filter(
@@ -212,6 +220,61 @@ export function verifyExecutionGraph(input: {
     systemPrompt: VERIFICATION_PROMPT,
     context: {
       ...buildExecutionSourcePayload(input.source),
+      candidate_graph: input.graph
+    }
+  });
+}
+
+function participantMap(transcript: string) {
+  const counts = new Map<string, number>();
+  for (const line of transcript.split("\n")) {
+    const match = line.match(
+      /^\s*(?:\[[^\]]+\]\s*)*([^:\[\]]{1,80}):\s+\S/
+    );
+    if (!match) continue;
+    const name = match[1].trim();
+    if (!name || /^(unknown|speaker(?:\s+\d+)?)$/i.test(name)) continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return Array.from(counts, ([name, segment_count]) => ({
+    name,
+    segment_count
+  })).sort((left, right) => right.segment_count - left.segment_count);
+}
+
+export function synthesizeExecutionGraph(input: {
+  source: ExecutionSourceContext;
+  graph: ExecutionGraph;
+}): Promise<ModelStageResult> {
+  const summaries = input.source.insights.filter(
+    (insight) => insight.category === "product_summary"
+  );
+  return runExecutionGraphModel({
+    stage: "synthesis",
+    systemPrompt: GLOBAL_SYNTHESIS_PROMPT,
+    timeoutMs: Math.max(getExecutionIntelligenceTimeoutMs(), 90_000),
+    context: {
+      meeting_id: input.source.meetingId,
+      meeting_date: input.source.meetingDate,
+      project: input.source.project ?? null,
+      meeting_objective:
+        summaries.map((summary) => summary.content).filter(Boolean).join("\n") ||
+        input.source.project?.goal ||
+        null,
+      topic_summaries: input.source.topics.map((topic) => ({
+        id: topic.id,
+        title: topic.title,
+        summary: topic.summary
+      })),
+      requirements: input.source.insights
+        .filter((insight) =>
+          ["requirements", "product_requirements"].includes(insight.category)
+        )
+        .map((insight) => insight.content),
+      decisions: input.source.insights
+        .filter((insight) => insight.category === "decisions")
+        .map((insight) => insight.content),
+      participant_map: participantMap(input.source.transcript),
       candidate_graph: input.graph
     }
   });

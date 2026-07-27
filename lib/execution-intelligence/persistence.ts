@@ -1,7 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { MeetingCommitment, MeetingTask } from "@/lib/types";
 
-import { matchExecutionGraphRows } from "./matching";
+import {
+  matchConvertedCommitments,
+  matchExecutionGraphRows
+} from "./matching";
 import type { ExecutionGraph } from "./schemas";
 
 export type PersistExecutionGraphResult =
@@ -58,17 +61,35 @@ export async function persistExecutionGraph(input: {
 
   const matches = matchExecutionGraphRows({
     graph: input.graph,
-    commitments: (existingCommitments ?? []) as MeetingCommitment[],
+    commitments: ((existingCommitments ?? []) as MeetingCommitment[]).filter(
+      (commitment) => !commitment.converted_to_task_id
+    ),
     tasks: (existingTasks ?? []) as MeetingTask[]
+  });
+  const matchedCommitmentIds = new Set(matches.commitments.values());
+  const convertedCommitments = matchConvertedCommitments({
+    graph: input.graph,
+    commitments: ((existingCommitments ?? []) as MeetingCommitment[]).filter(
+      (commitment) => !matchedCommitmentIds.has(commitment.id)
+    )
   });
   const commitmentsPayload = input.graph.commitments.map((commitment, index) => ({
     ...commitment,
     existing_id: matches.commitments.get(index) ?? null
   }));
-  const tasksPayload = input.graph.tasks.map((task, index) => ({
-    ...task,
-    existing_id: matches.tasks.get(index) ?? null
-  }));
+  const tasksPayload = input.graph.tasks.map((task, index) => {
+    const convertedCommitmentId = convertedCommitments.get(index);
+    return {
+      ...task,
+      consolidated_from_refs: convertedCommitmentId
+        ? [
+            ...(task.consolidated_from_refs ?? []),
+            `existing:${convertedCommitmentId}`
+          ]
+        : task.consolidated_from_refs,
+      existing_id: matches.tasks.get(index) ?? null
+    };
+  });
 
   const { error: rpcError } = await supabaseAdmin.rpc(
     "replace_meeting_execution_graph",

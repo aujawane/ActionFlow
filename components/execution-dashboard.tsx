@@ -337,7 +337,7 @@ function TaskCard({
           </p>
         </div>
         <Link href={`/tasks/${task.id}` as Route} className="secondary-button px-3 py-1.5 text-xs">
-          Open Workspace
+          Execute Task
         </Link>
       </div>
 

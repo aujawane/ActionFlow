@@ -1,9 +1,10 @@
 # Execution Intelligence v2
 
-Parfait converts a meeting into an execution graph:
+Parfait converts meeting evidence into a project execution graph:
 
 ```text
-Meeting -> Commitments -> Tasks -> Deliverables
+Project -> Commitments / Milestones -> Tasks -> Deliverables
+Meeting -> evidence for milestones and tasks
 ```
 
 ## Pipeline
@@ -35,6 +36,7 @@ real commitment to be dropped.
 - `stages.ts`: isolated candidate, verification, and completeness stages
 - `graph.ts`: grounding, link repair, and deterministic semantic deduplication
 - `consolidation.ts`: commitment-first merge, restatement rejection, classification cleanup
+- `lib/project-execution.ts`: project progress and dependency-aware next task
 - `persistence.ts`: atomic graph replacement through a PostgreSQL function
 - `pipeline.ts`: end-to-end orchestration and invariants
 - `durable-pipeline.ts`: reusable stage functions for the background worker
@@ -97,6 +99,11 @@ After final verification, `consolidation.ts` deterministically:
 Items may be classified as `committed`, `proposed`, `requirement`, or
 `future_consideration`. Ideas/requirements stay visible but do not count toward
 action-item totals, owner workload, or follow-up emails.
+
+The final consolidation pass is project-aware when a meeting is manually
+assigned. It requires a broader compatible milestone before converting a
+narrow commitment into a child task, preserves evidence/owners/dates/refs, and
+keeps independent lifecycle domains separate.
 
 ## Observability
 

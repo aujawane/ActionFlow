@@ -8,6 +8,7 @@ export const ANALYSIS_STAGES = {
   verification: { stage: "verification", progress: 50 },
   completeness: { stage: "completeness", progress: 65 },
   final_verification: { stage: "final_verification", progress: 80 },
+  synthesis: { stage: "synthesis", progress: 87 },
   persistence: { stage: "persistence", progress: 90 },
   categorization: { stage: "categorization", progress: 95 },
   completed: { stage: "completed", progress: 100 }
@@ -21,6 +22,7 @@ export const ANALYSIS_STAGE_ORDER = [
   "verification",
   "completeness",
   "final_verification",
+  "synthesis",
   "persistence"
 ] as const satisfies ReadonlyArray<AnalysisStageKey>;
 

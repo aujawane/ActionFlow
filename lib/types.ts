@@ -10,6 +10,7 @@ export type InsightCategory =
   | "product_summary"
   | "requirements"
   | "product_requirements"
+  | "decisions"
   | "features"
   | "user_stories"
   | "technical_constraints"
@@ -89,7 +90,12 @@ export interface MeetingTopic {
 
 export type MeetingTaskType = "commitment" | "implicit_commitment" | "unassigned_work";
 export type MeetingTaskPriority = "low" | "medium" | "high";
-export type MeetingTaskStatus = "pending" | "in_progress" | "completed" | "dismissed";
+export type MeetingTaskStatus =
+  | "pending"
+  | "in_progress"
+  | "completed"
+  | "dismissed"
+  | "blocked";
 export type CommitmentType =
   | "personal"
   | "assignment"
@@ -167,9 +173,28 @@ export type ExecutionClassification =
   | "requirement"
   | "future_consideration";
 
+export type ProjectStatus =
+  | "planning"
+  | "active"
+  | "on_hold"
+  | "completed"
+  | "archived";
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  goal: string | null;
+  status: ProjectStatus;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MeetingTask {
   id: string;
   meeting_id: string;
+  project_id?: string | null;
   topic_id: string | null;
   commitment_id?: string | null;
   task: string;
@@ -194,17 +219,22 @@ export interface MeetingTask {
   rationale?: string | null;
   supporting_context?: string | null;
   execution_classification?: ExecutionClassification;
+  position?: number;
   created_at: string;
 }
 
 export interface MeetingCommitment {
   id: string;
   meeting_id: string;
+  project_id?: string | null;
+  converted_to_task_id?: string | null;
   topic_id: string | null;
   title: string;
   description: string | null;
   owner: string | null;
   owners: string[] | JsonValue;
+  lead_owner_id?: string | null;
+  lead_owner_name?: string | null;
   due_date: string | null;
   due_date_text: string | null;
   priority: MeetingTaskPriority;
@@ -220,6 +250,33 @@ export interface MeetingCommitment {
   manual_override_fields?: string[] | JsonValue;
   created_at: string;
   updated_at: string;
+}
+
+export interface CommitmentParticipant {
+  id: string;
+  commitment_id: string;
+  participant_user_id: string | null;
+  participant_name: string;
+  involvement_role: "participant" | "reviewer" | "approver" | "input_provider";
+  manually_added: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskDependency {
+  task_id: string;
+  depends_on_task_id: string;
+  created_at: string;
+}
+
+export interface CommitmentComment {
+  id: string;
+  commitment_id: string;
+  user_id: string | null;
+  role: TaskCommentRole;
+  message: string;
+  metadata?: JsonValue;
+  created_at: string;
 }
 
 export type TaskCommentRole = "user" | "assistant" | "system";
@@ -304,6 +361,7 @@ export interface TopicSegmentResult {
 export interface Meeting {
   id: string;
   user_id: string;
+  project_id?: string | null;
   title: string | null;
   meeting_url: string;
   platform: "google_meet" | "zoom" | "unknown";

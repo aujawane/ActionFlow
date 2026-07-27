@@ -3,6 +3,7 @@ import {
   runCandidateExtraction,
   runCompleteness,
   runFinalVerification,
+  runGlobalSynthesis,
   runInitialVerification,
   type DurableExecutionState
 } from "@/lib/execution-intelligence/durable-pipeline";
@@ -101,6 +102,15 @@ export async function runMeetingAnalysisStage(input: {
 
     if (input.stage === "final_verification") {
       const state = await runFinalVerification(checkpoint.state);
+      await saveAnalysisJobCheckpoint({
+        jobId: input.jobId,
+        checkpoint: { prepared: checkpoint.prepared, state }
+      });
+      return { nextStage: nextWorkerStage(input.stage), done: false };
+    }
+
+    if (input.stage === "synthesis") {
+      const state = await runGlobalSynthesis(checkpoint.state);
       await saveAnalysisJobCheckpoint({
         jobId: input.jobId,
         checkpoint: { prepared: checkpoint.prepared, state }

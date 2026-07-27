@@ -7,6 +7,7 @@ const transcriptAnalysisSchema = z
   .object({
     product_summary: z.string(),
     requirements: z.array(z.string()),
+    decisions: z.array(z.string()),
     features: z.array(z.string()),
     user_stories: z.array(z.string()),
     technical_constraints: z.array(z.string()),
@@ -47,6 +48,10 @@ const transcriptAnalysisJsonSchema: Record<string, unknown> = {
       type: "array",
       items: { type: "string" }
     },
+    decisions: {
+      type: "array",
+      items: { type: "string" }
+    },
     features: {
       type: "array",
       items: { type: "string" }
@@ -83,6 +88,7 @@ const transcriptAnalysisJsonSchema: Record<string, unknown> = {
   required: [
     "product_summary",
     "requirements",
+    "decisions",
     "features",
     "user_stories",
     "technical_constraints",
@@ -133,7 +139,7 @@ export async function analyzeTranscriptWithOpenAI(transcript: string): Promise<
         {
           role: "system",
           content:
-            "You are a senior product analyst and technical architect. Convert meeting transcript content into concise structured implementation-ready outputs."
+            "You are a senior product analyst and technical architect. Convert meeting transcript content into concise structured outputs. Keep agreed decisions separate from requirements and executable next steps."
         },
         {
           role: "user",
@@ -335,6 +341,13 @@ export function buildInsightsPayload(input: {
       meeting_id: meetingId,
       topic_id: topicId,
       category: "requirements" as const,
+      content,
+      confidence: null
+    })),
+    ...analysis.decisions.map((content) => ({
+      meeting_id: meetingId,
+      topic_id: topicId,
+      category: "decisions" as const,
       content,
       confidence: null
     })),

@@ -17,6 +17,7 @@ import type { ExecutionGraph } from "./schemas";
 import {
   findMissingExecutionWorkInBatches,
   generateChunkedExecutionCandidates,
+  synthesizeExecutionGraph,
   verifyExecutionGraphInBatches,
   type ExecutionSourceContext
 } from "./stages";
@@ -145,10 +146,53 @@ export async function runFinalVerification(
   const deduped = mergeAndDeduplicateGraphs(grounded.graph);
   state.metrics.deduplicatedCommitments += deduped.deduplicatedCommitments;
   state.metrics.deduplicatedTasks += deduped.deduplicatedTasks;
+  return { ...state, graph: deduped.graph };
+}
 
-  const consolidated = consolidateExecutionGraph(deduped.graph);
+export async function runGlobalSynthesis(
+  state: DurableExecutionState
+): Promise<DurableExecutionState> {
+  const synthesis = await synthesizeExecutionGraph({
+    source: state.source,
+    graph: state.graph
+  });
+  state.metrics.openAiLatencyMs.synthesis = synthesis.latencyMs;
+  if (!synthesis.ok) {
+    state.metrics.validationFailures += Number(synthesis.validationFailure);
+    stageFailure("synthesis", synthesis.error, synthesis.details);
+  }
+  state.metrics.salvagedItems += synthesis.salvagedItems ?? 0;
+  const synthesizedCommittedOutcomes = synthesis.graph.commitments.filter(
+    (item) => (item.execution_classification ?? "committed") === "committed"
+  ).length;
+  if (synthesizedCommittedOutcomes > 7) {
+    logExecutionStage(state.metrics, "synthesis_fragmentation_warning", {
+      committed_outcomes: synthesizedCommittedOutcomes,
+      quality_signal: "more_than_seven_commitments"
+    });
+  }
+
+  const resolved = resolveAssigneesAndDueDates(
+    linkTasksToCommitments(synthesis.graph)
+  );
+  const normalized = normalizeExecutionGraphQuality(resolved);
+  const grounded = enforceExecutionGraphGrounding({
+    source: state.source,
+    graph: normalized.graph
+  });
+  state.metrics.groundingRejectedCommitments += grounded.rejectedCommitments;
+  state.metrics.groundingRejectedTasks += grounded.rejectedTasks;
+  const deduped = mergeAndDeduplicateGraphs(grounded.graph);
+  state.metrics.deduplicatedCommitments += deduped.deduplicatedCommitments;
+  state.metrics.deduplicatedTasks += deduped.deduplicatedTasks;
+
+  const consolidated = consolidateExecutionGraph(deduped.graph, {
+    projectName: state.source.project?.name,
+    projectGoal: state.source.project?.goal
+  });
   logExecutionStage(state.metrics, "graph_consolidated", {
     merged_commitments: consolidated.mergedCommitments,
+    converted_commitments: consolidated.convertedCommitments,
     merged_tasks: consolidated.mergedTasks,
     rejected_restatements: consolidated.rejectedRestatements,
     removed_generic_inferred: consolidated.removedGenericInferred
@@ -168,7 +212,7 @@ export async function runFinalVerification(
   const committed = countCommittedWork(consolidated.graph);
   if (insightNextSteps > 0 && committed.commitments === 0 && committed.tasks === 0) {
     stageFailure(
-      "final_verification",
+      "synthesis",
       "Completeness verification found no executable work despite insight next steps."
     );
   }

@@ -46,7 +46,7 @@ export function StandaloneTasksPanel({ tasks }: { tasks: MeetingTask[] }) {
               href={`/tasks/${task.id}` as Route}
               className="text-xs font-semibold text-brand-700 hover:underline"
             >
-              Open workspace
+              Execute Task
             </Link>
           </li>
         ))}
