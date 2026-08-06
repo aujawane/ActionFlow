@@ -4,8 +4,11 @@ import test from "node:test";
 import type { ConversationEvent } from "../lib/execution-intelligence/conversation-event-schemas";
 import {
   extractConversationEvents,
+  extractAndLinkConversationEvents,
   linkConversationEvents
 } from "../lib/execution-intelligence/conversation-events";
+import { canonicalizeConversationEventChunk } from "../lib/execution-intelligence/conversation-event-identity";
+import { persistConversationEvents } from "../lib/execution-intelligence/persistence";
 import { CANDIDATE_GENERATION_PROMPT, COMPLETENESS_PROMPT } from "../lib/execution-intelligence/prompts";
 import { ensureAcceptedWorkTasks } from "../lib/execution-intelligence/standalone-events";
 
@@ -122,4 +125,136 @@ test("execution prompts make conversation events primary and insights supporting
   assert.match(CANDIDATE_GENERATION_PROMPT, /Conversation Events are the primary execution evidence/i);
   assert.match(COMPLETENESS_PROMPT, /never sufficient evidence/i);
   assert.match(COMPLETENESS_PROMPT, /must not resurrect work/i);
+});
+
+test("canonical identity preserves distinct events with duplicate model refs", async () => {
+  const result = await extractAndLinkConversationEvents(
+    {
+      meetingId: "meeting-1",
+      meetingDate: "2026-08-06",
+      transcript: `[${requestId}] Aditya: I opened the account and can share the login.`,
+      transcriptSegmentCount: 1,
+      topics: [],
+      insights: []
+    },
+    {
+      generation: 8,
+      extractChunk: async () => ({
+        ok: true,
+        latencyMs: 1,
+        events: [
+          event({
+            client_ref: "duplicate-model-ref",
+            type: "progress_update",
+            action: "opened enterprise account",
+            temporal_state: "present",
+            commitment_signal: "explicit",
+            source_quote: "I opened the account"
+          }),
+          event({
+            client_ref: "duplicate-model-ref",
+            type: "proposal",
+            action: "share enterprise login",
+            temporal_state: "future",
+            commitment_signal: "proposed",
+            source_quote: "I can share the login"
+          })
+        ]
+      })
+    }
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.events.length, 2);
+  assert.deepEqual(
+    result.events.map((item) => item.client_ref),
+    ["g8_c1_e001", "g8_c1_e002"]
+  );
+  let persistedEvents: ConversationEvent[] = [];
+  const persisted = await persistConversationEvents(
+    {
+      meetingId: "0296bd90-fd8d-4ad1-ab83-5866dab6f6f8",
+      generation: 8,
+      events: result.events,
+      validSourceSegmentIds: [requestId]
+    },
+    {
+      rpc: async (payload) => {
+        persistedEvents = payload.p_events;
+        return { error: null };
+      }
+    }
+  );
+  assert.equal(persisted.ok, true);
+  assert.equal(persistedEvents.length, 2);
+  assert.equal(
+    new Set(persistedEvents.map((item) => item.client_ref)).size,
+    2
+  );
+});
+
+test("duplicate temporary linked refs expand to valid canonical event refs", () => {
+  const events = canonicalizeConversationEventChunk({
+    generation: 8,
+    chunkIndex: 3,
+    events: [
+      event({
+        client_ref: "duplicate",
+        linked_event_refs: ["duplicate"]
+      }),
+      event({
+        client_ref: "duplicate",
+        type: "acceptance",
+        commitment_signal: "accepted",
+        linked_event_refs: ["duplicate"]
+      })
+    ]
+  });
+
+  assert.deepEqual(events[0].linked_event_refs, ["g8_c4_e002"]);
+  assert.deepEqual(events[1].linked_event_refs, ["g8_c4_e001"]);
+});
+
+test("canonical identity remains unique for more than one hundred events", () => {
+  const events = canonicalizeConversationEventChunk({
+    generation: 12,
+    chunkIndex: 4,
+    events: Array.from({ length: 125 }, (_, index) =>
+      event({ client_ref: `model-${index % 7}` })
+    )
+  });
+
+  assert.equal(events.length, 125);
+  assert.equal(new Set(events.map((item) => item.client_ref)).size, 125);
+  assert.equal(events[0].client_ref, "g12_c5_e001");
+  assert.equal(events[124].client_ref, "g12_c5_e125");
+});
+
+test("persistence validation blocks the RPC when canonical IDs are duplicated", async () => {
+  let rpcCalls = 0;
+  const duplicate = event({
+    client_ref: "g8_c1_e001",
+    source_segment_ids: [requestId]
+  });
+  const result = await persistConversationEvents(
+    {
+      meetingId: "0296bd90-fd8d-4ad1-ab83-5866dab6f6f8",
+      generation: 8,
+      events: [duplicate, { ...duplicate }],
+      validSourceSegmentIds: [requestId]
+    },
+    {
+      rpc: async () => {
+        rpcCalls += 1;
+        return { error: null };
+      }
+    }
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(rpcCalls, 0);
+  if (result.ok) return;
+  assert.match(result.details ?? "", /duplicateClientRefs/);
+  assert.match(result.details ?? "", /g8_c1_e001/);
 });

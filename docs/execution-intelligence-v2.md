@@ -1,5 +1,8 @@
 # Execution Intelligence V2
 
+> Deprecated architecture note. The active runtime is documented in
+> `docs/independent-execution.md`; responsibility clustering and promotion are no longer active.
+
 Execution Intelligence V2 is Parfait's responsibility-first reasoning layer. It preserves the
 existing transcript, topic, insight, Conversation Event, worker, retry, verification, persistence,
 and database architecture. It changes the direction of execution reasoning:
@@ -8,7 +11,7 @@ and database architecture. It changes the direction of execution reasoning:
 Transcript
   -> Conversation Events
   -> Responsibility Extraction
-  -> Action Classification
+  -> Execution Intent Classification
   -> Outcome Clustering
   -> Commitment Promotion
   -> Hierarchy Builder
@@ -27,6 +30,19 @@ This avoids a schema migration and keeps existing persistence, matching, manual-
 project rollups, and UI consumers working. The durable worker stage names remain unchanged, so
 queued and retrying jobs remain compatible.
 
+## Conversation Event identity
+
+Conversation Event `client_ref` values returned by the model are temporary parsing artifacts.
+Immediately after each extraction chunk, the application replaces them with deterministic refs in
+the form `g{generation}_c{chunk}_e{index}`. Links are rewritten through the same mapping before
+global event linking, so no downstream execution stage or database call sees model-owned identity.
+
+When one temporary ref names multiple legitimate events, each event receives its own canonical ref
+and an ambiguous link expands to all matching canonical events except itself. This preserves
+semantics without merging distinct events. Before the replacement RPC runs, persistence validates
+unique nonempty refs, link integrity, and transcript-segment membership; validation failures never
+call Supabase.
+
 ## Stage decisions
 
 ### Responsibility extraction
@@ -35,18 +51,24 @@ The candidate model has one job: preserve distinct responsibilities without summ
 hierarchy, inferred implementation ceremony, or strategic naming. Conversation Events remain the
 primary execution evidence. Linked request/acceptance records describe one responsibility.
 
-### Action classification
+### Execution intent classification
+
+The classifier asks whether the statement created future work for which someone became
+accountable. It does not treat grammatical tense as execution state. First-person future
+acceptance such as “I'll test” and “I'm going to start” is `future_accepted`; current work such as
+“I'm working on” is `in_progress`; completed statements remain `completed`. Linked requests and
+acceptances are classified together.
 
 Responsibilities use the existing graph fields as a storage adapter:
 
 | V2 meaning | Compatibility representation |
 | --- | --- |
-| Accepted/explicit open work | `execution_classification=committed` |
-| Proposal | `proposed` |
+| Future Accepted Work | `execution_classification=committed` |
+| Future Proposal | `proposed` |
 | Decision or unowned requirement | `requirement` |
 | Future idea | `future_consideration` |
-| Responsibility action/signal | Preserved in description plus event provenance |
-| Responsibility type | Derived in the durable reasoning ledger from its Conversation Event |
+| Completed/In Progress/Question | `requirement` passive compatibility record |
+| Execution intent and why | Stored in the durable reasoning ledger |
 
 Completed work and progress updates are retained in the ledger for explanation but must not be
 rewritten as new future work.
@@ -80,8 +102,9 @@ preserves source segments, Conversation Event IDs, owners, and lineage.
 ### Explanation ledger
 
 The durable checkpoint stores `state.reasoningTrace`. The development extraction endpoint exposes
-it as `pipeline.execution_intelligence_v2.reasoning_trace`. Each responsibility records its type,
-state, signal, evidence, final disposition, target ref, and a reason. Each proposed commitment also
+it as `pipeline.execution_intelligence_v2.reasoning_trace`. Each responsibility records its
+`execution_intent`, `execution_intent_reason`, state, signal, evidence, final disposition, target
+ref, and a reason. Each proposed commitment also
 records whether the guard kept or demoted it and why.
 
 Disposition meanings:

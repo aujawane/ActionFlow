@@ -1,0 +1,27 @@
+{
+  "meeting_id": "0296bd90-fd8d-4ad1-ab83-5866dab6f6f8",
+  "expected_commitments": [
+    "Deliver Parfait on Vercel before next Tuesday",
+    "Validate Chatter using real Parfait meeting context",
+    "Establish or clarify enterprise OpenAI/Codex access"
+  ],
+  "expected_tasks": [
+    "Contact OpenAI sales",
+    "Research enterprise account structure",
+    "Follow up with Kathy",
+    "Test Chatter with the transcript",
+    "Observe Chatter's proactive behavior",
+    "Message the group when Chatter is ready",
+    "Deploy Parfait",
+    "Share the deployment link"
+  ],
+  "expected_exclusions": [
+    "Completed credential delivery",
+    "Completed script fixes",
+    "Completed cron-job cleanup",
+    "Personal AI-agent idea",
+    "Memory-architecture discussion",
+    "Unaccepted proposals",
+    "Unanswered questions"
+  ]
+}

@@ -15,6 +15,10 @@ import {
 import { salvageExecutionGraph } from "./salvage";
 
 export type ExecutionModelStage =
+  | "topic_actions"
+  | "commitment_extraction"
+  | "relationship_evaluation"
+  | "graph_verification"
   | "candidates"
   | "verification"
   | "completeness"

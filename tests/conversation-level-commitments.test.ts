@@ -319,6 +319,6 @@ test("participant persistence and workspace/meeting UI preserve requested bounda
   assert.match(workspace, /sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4/);
   assert.match(workspace, /href=\{`\/tasks\/\$\{task\.id\}` as Route\}/);
   assert.doesNotMatch(meetingPage, /<ExecutionDashboard/);
-  assert.doesNotMatch(meetingPage, /<StandaloneTasksPanel/);
+  assert.match(meetingPage, /<StandaloneTasksPanel tasks=\{partitioned\.standaloneTasks\}/);
   assert.match(meetingPage, /tasks=\{\[\]\}/);
 });

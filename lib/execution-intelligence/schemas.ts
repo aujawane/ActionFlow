@@ -12,6 +12,23 @@ export const executionClassificationSchema = z.enum([
   "future_consideration"
 ]);
 
+export const actionClassificationSchema = z.enum([
+  "open_task",
+  "completed_work",
+  "in_progress",
+  "request",
+  "accepted_request",
+  "assignment",
+  "promise",
+  "decision",
+  "proposal",
+  "idea",
+  "question",
+  "blocker",
+  "reminder",
+  "scheduling"
+]);
+
 export type ExecutionClassification = z.infer<typeof executionClassificationSchema>;
 
 export const commitmentCandidateSchema = z
@@ -55,7 +72,9 @@ export const commitmentCandidateSchema = z
       "cancelled"
     ]),
     execution_classification: executionClassificationSchema.optional(),
-    consolidated_from_refs: z.array(z.string()).optional()
+    consolidated_from_refs: z.array(z.string()).optional(),
+    supporting_action_refs: z.array(z.string()).optional(),
+    commitment_reason: z.string().nullable().optional()
   })
   .strict();
 
@@ -99,7 +118,21 @@ export const taskCandidateSchema = z
     ]),
     suggested_steps: z.array(z.string()),
     execution_classification: executionClassificationSchema.optional(),
-    consolidated_from_refs: z.array(z.string()).optional()
+    consolidated_from_refs: z.array(z.string()).optional(),
+    action_classification: actionClassificationSchema.optional(),
+    action_status: z.enum([
+      "open",
+      "in_progress",
+      "blocked",
+      "completed",
+      "non_execution"
+    ]).optional(),
+    requester: z.string().nullable().optional(),
+    recipient: z.string().nullable().optional(),
+    extraction_reason: z.string().nullable().optional(),
+    relationship_confidence: z.number().min(0).max(1).nullable().optional(),
+    relationship_reason: z.string().nullable().optional(),
+    relationship_evidence: z.array(z.string()).optional()
   })
   .strict();
 
@@ -180,6 +213,13 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           consolidated_from_refs: {
             type: "array",
             items: { type: "string" }
+          },
+          supporting_action_refs: {
+            type: "array",
+            items: { type: "string" }
+          },
+          commitment_reason: {
+            type: ["string", "null"]
           }
         },
         required: [
@@ -200,7 +240,9 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           "type",
           "completion_state",
           "execution_classification",
-          "consolidated_from_refs"
+          "consolidated_from_refs",
+          "supporting_action_refs",
+          "commitment_reason"
         ]
       }
     },
@@ -269,6 +311,23 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           consolidated_from_refs: {
             type: "array",
             items: { type: "string" }
+          },
+          action_classification: {
+            type: "string",
+            enum: actionClassificationSchema.options
+          },
+          action_status: {
+            type: "string",
+            enum: ["open", "in_progress", "blocked", "completed", "non_execution"]
+          },
+          requester: { type: ["string", "null"] },
+          recipient: { type: ["string", "null"] },
+          extraction_reason: { type: ["string", "null"] },
+          relationship_confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
+          relationship_reason: { type: ["string", "null"] },
+          relationship_evidence: {
+            type: "array",
+            items: { type: "string" }
           }
         },
         required: [
@@ -292,7 +351,15 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           "workspace_type",
           "suggested_steps",
           "execution_classification",
-          "consolidated_from_refs"
+          "consolidated_from_refs",
+          "action_classification",
+          "action_status",
+          "requester",
+          "recipient",
+          "extraction_reason",
+          "relationship_confidence",
+          "relationship_reason",
+          "relationship_evidence"
         ]
       }
     }

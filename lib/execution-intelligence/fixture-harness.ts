@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { EvaluationSet } from "./evaluation";
-import { runExecutionIntelligence } from "./pipeline";
+import { runIndependentExecutionIntelligence } from "./independent-pipeline";
 
 export type ExecutionEvaluationFixture = {
   id: string;
@@ -25,7 +25,7 @@ export async function runLiveExecutionFixture(
   | { ok: false; error: string; latencyMs: number }
 > {
   const startedAt = Date.now();
-  const result = await runExecutionIntelligence({
+  const result = await runIndependentExecutionIntelligence({
     fallbackUsed: true,
     generation: 1,
     source: {
@@ -35,10 +35,8 @@ export async function runLiveExecutionFixture(
       topics: [],
       insights: []
     },
-    dependencies: {
-      persistGraph: async () => ({ ok: true, commitments: [], tasks: [] }),
-      persistEvents: async () => ({ ok: true })
-    }
+    persistGraph: async () => ({ ok: true, commitments: [], tasks: [] }),
+    persistEvents: async () => ({ ok: true })
   });
   if (!result.ok) {
     return {

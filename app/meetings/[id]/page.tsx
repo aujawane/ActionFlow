@@ -10,6 +10,7 @@ import { MeetingAnalysisStatusPanel } from "@/components/meeting-analysis-status
 import { MeetingProjectAssignment } from "@/components/meeting-project-assignment";
 import { PromptsPanel } from "@/components/prompts-panel";
 import { SpeakerMappingPanel } from "@/components/speaker-mapping-panel";
+import { StandaloneTasksPanel } from "@/components/standalone-tasks-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
 import { partitionExecutionGraph } from "@/lib/execution-display";
@@ -342,8 +343,10 @@ export default async function MeetingDetailPage({
 
       <CommitmentsPanel
         commitments={partitioned.activeCommitments}
-        tasks={partitioned.executionTasks}
+        tasks={partitioned.linkedExecutionTasks}
       />
+
+      <StandaloneTasksPanel tasks={partitioned.standaloneTasks} />
 
       <IdeasRequirementsPanel
         commitments={partitioned.ideaCommitments}

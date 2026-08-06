@@ -4,7 +4,7 @@ const features = [
   "Recall.ai bot joins your call automatically",
   "Near real-time transcript ingestion via webhook",
   "OpenAI-powered requirement and architecture extraction",
-  "One-click prompt generation for Codex, Claude Code, and Lovable"
+
 ];
 
 export default function LandingPage() {

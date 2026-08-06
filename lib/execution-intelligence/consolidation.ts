@@ -949,3 +949,4 @@ export function isCommittedClassification(
 ) {
   return !value || value === "committed";
 }
+/** @deprecated Legacy outcome clustering; bypassed by the active execution runtime. */

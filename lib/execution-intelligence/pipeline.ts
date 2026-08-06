@@ -19,6 +19,7 @@ import {
   finalizeResponsibilityTrace,
   responsibilitiesOnlyGraph
 } from "./execution-v2";
+import { transcriptSourceSegmentIds } from "./conversation-event-identity";
 import { resolveAssigneesAndDueDates } from "./resolution";
 import type { ExecutionGraph } from "./schemas";
 import {
@@ -74,7 +75,9 @@ export async function runExecutionIntelligence(input: {
 
   let source = input.source;
   if (!source.conversationEvents) {
-    const events = await dependencies.extractEvents(source);
+    const events = await dependencies.extractEvents(source, {
+      generation: input.generation
+    });
     if (!events.ok) {
       logExecutionStage(metrics, "conversation_event_extraction_failed", {
         error: events.error,
@@ -101,7 +104,10 @@ export async function runExecutionIntelligence(input: {
     return { ok: false as const, status: 502, error: candidates.error, metrics };
   }
   metrics.salvagedItems += candidates.salvagedItems ?? 0;
-  const responsibilityGraph = responsibilitiesOnlyGraph(candidates.graph);
+  const responsibilityGraph = responsibilitiesOnlyGraph(
+    candidates.graph,
+    source.conversationEvents ?? []
+  );
   let responsibilityLedger = buildResponsibilityLedger({
     graph: responsibilityGraph,
     events: conversationEvents
@@ -130,7 +136,7 @@ export async function runExecutionIntelligence(input: {
   metrics.salvagedItems += verified.salvagedItems ?? 0;
 
   const initiallyResolved = resolveAssigneesAndDueDates(
-    responsibilitiesOnlyGraph(verified.graph)
+    responsibilitiesOnlyGraph(verified.graph, source.conversationEvents ?? [])
   );
   const initiallyGrounded = enforceExecutionGraphGrounding({
     source,
@@ -166,7 +172,7 @@ export async function runExecutionIntelligence(input: {
 
   const merged = mergeAndDeduplicateGraphs(
     initiallyGrounded.graph,
-    responsibilitiesOnlyGraph(missing.graph)
+    responsibilitiesOnlyGraph(missing.graph, source.conversationEvents ?? [])
   );
   metrics.deduplicatedCommitments += merged.deduplicatedCommitments;
   metrics.deduplicatedTasks += merged.deduplicatedTasks;
@@ -204,7 +210,7 @@ export async function runExecutionIntelligence(input: {
   metrics.salvagedItems += finalVerification.salvagedItems ?? 0;
 
   const finalResolved = resolveAssigneesAndDueDates(
-    responsibilitiesOnlyGraph(finalVerification.graph)
+    responsibilitiesOnlyGraph(finalVerification.graph, source.conversationEvents ?? [])
   );
   const finalNormalized = normalizeExecutionGraphQuality(finalResolved);
   logExecutionStage(metrics, "graph_quality_normalized", {
@@ -363,7 +369,8 @@ export async function runExecutionIntelligence(input: {
   const persistedEvents = await dependencies.persistEvents({
     meetingId: source.meetingId,
     generation: input.generation,
-    events: conversationEvents
+    events: conversationEvents,
+    validSourceSegmentIds: transcriptSourceSegmentIds(source.transcript)
   });
   if (!persistedEvents.ok) {
     metrics.databaseFailures += 1;
@@ -380,3 +387,7 @@ export async function runExecutionIntelligence(input: {
     metrics
   };
 }
+/**
+ * @deprecated Historical dependency-injected V2 harness. Production and live evaluation use
+ * independent-pipeline.ts; this file remains temporarily for legacy regression tests only.
+ */

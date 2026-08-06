@@ -1,11 +1,11 @@
 import {
   persistDurableExecutionGraph,
-  runCandidateExtraction,
+  runActionExtraction,
+  runCommitmentExtraction,
   runConversationEventExtraction,
-  runCompleteness,
-  runFinalVerification,
-  runGlobalSynthesis,
-  runInitialVerification,
+  runEvidenceVerification,
+  finalizeIndependentExecution,
+  runRelationshipEvaluation,
   type DurableExecutionState
 } from "@/lib/execution-intelligence/durable-pipeline";
 import {
@@ -68,7 +68,10 @@ export async function runMeetingAnalysisStage(input: {
     }
 
     if (input.stage === "conversation_events") {
-      const source = await runConversationEventExtraction(checkpoint.prepared.source);
+      const source = await runConversationEventExtraction(
+        checkpoint.prepared.source,
+        input.generation
+      );
       const prepared = { ...checkpoint.prepared, source };
       await saveAnalysisJobCheckpoint({
         jobId: input.jobId,
@@ -78,7 +81,7 @@ export async function runMeetingAnalysisStage(input: {
     }
 
     if (input.stage === "candidates") {
-      const state = await runCandidateExtraction({
+      const state = await runActionExtraction({
         source: checkpoint.prepared.source,
         fallbackUsed: checkpoint.prepared.fallbackUsed
       });
@@ -94,7 +97,7 @@ export async function runMeetingAnalysisStage(input: {
     }
 
     if (input.stage === "verification") {
-      const state = await runInitialVerification(checkpoint.state);
+      const state = await runCommitmentExtraction(checkpoint.state);
       await saveAnalysisJobCheckpoint({
         jobId: input.jobId,
         checkpoint: { prepared: checkpoint.prepared, state }
@@ -103,7 +106,7 @@ export async function runMeetingAnalysisStage(input: {
     }
 
     if (input.stage === "completeness") {
-      const state = await runCompleteness(checkpoint.state);
+      const state = await runRelationshipEvaluation(checkpoint.state);
       await saveAnalysisJobCheckpoint({
         jobId: input.jobId,
         checkpoint: { prepared: checkpoint.prepared, state }
@@ -112,7 +115,7 @@ export async function runMeetingAnalysisStage(input: {
     }
 
     if (input.stage === "final_verification") {
-      const state = await runFinalVerification(checkpoint.state);
+      const state = await runEvidenceVerification(checkpoint.state);
       await saveAnalysisJobCheckpoint({
         jobId: input.jobId,
         checkpoint: { prepared: checkpoint.prepared, state }
@@ -121,7 +124,7 @@ export async function runMeetingAnalysisStage(input: {
     }
 
     if (input.stage === "synthesis") {
-      const state = await runGlobalSynthesis(checkpoint.state);
+      const state = await finalizeIndependentExecution(checkpoint.state);
       await saveAnalysisJobCheckpoint({
         jobId: input.jobId,
         checkpoint: { prepared: checkpoint.prepared, state }

@@ -3,6 +3,10 @@ import {
   COMPLETENESS_PROMPT,
   EXECUTION_JUDGE_PROMPT,
   GLOBAL_SYNTHESIS_PROMPT,
+  INDEPENDENT_COMMITMENT_EXTRACTION_PROMPT,
+  INDEPENDENT_GRAPH_VERIFICATION_PROMPT,
+  TASK_COMMITMENT_RELATIONSHIP_PROMPT,
+  TOPIC_ACTION_EXTRACTION_PROMPT,
   VERIFICATION_PROMPT
 } from "./prompts";
 import { getExecutionIntelligenceTimeoutMs } from "@/lib/env";
@@ -24,6 +28,7 @@ import {
 } from "./observability";
 import type { ExecutionGraph } from "./schemas";
 import type { ConversationEvent } from "./conversation-event-schemas";
+import type { TaskCandidate } from "./schemas";
 
 export type ExecutionSourceContext = {
   meetingId: string;
@@ -74,6 +79,166 @@ export function buildExecutionSourcePayload(source: ExecutionSourceContext) {
     conversation_events: source.conversationEvents ?? [],
     transcript: source.transcript
   };
+}
+
+const SEGMENT_LINE = /^\[([0-9a-f-]{36})\]/i;
+
+function transcriptForSegmentIds(transcript: string, ids: Set<string>) {
+  return transcript.split("\n").filter((line) => {
+    const id = line.match(SEGMENT_LINE)?.[1];
+    return Boolean(id && ids.has(id));
+  }).join("\n");
+}
+
+export type TopicActionExtraction = {
+  topicId: string | null;
+  topicTitle: string;
+  transcript: string;
+  actions: TaskCandidate[];
+};
+
+export async function extractTopicActions(
+  source: ExecutionSourceContext
+): Promise<
+  | { ok: true; topics: TopicActionExtraction[]; latencyMs: number }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean }
+> {
+  const startedAt = Date.now();
+  const scopes = source.topics.length > 0
+    ? source.topics.map((topic) => {
+        const ids = new Set(
+          Array.isArray(topic.segment_ids)
+            ? topic.segment_ids.filter((id): id is string => typeof id === "string")
+            : []
+        );
+        return {
+          topicId: topic.id,
+          topicTitle: topic.title,
+          topicSummary: topic.summary,
+          transcript: transcriptForSegmentIds(source.transcript, ids)
+        };
+      }).filter((topic) => topic.transcript.trim())
+    : [{
+        topicId: null,
+        topicTitle: "Whole meeting",
+        topicSummary: null,
+        transcript: source.transcript
+      }];
+  const results: Array<ModelStageResult | undefined> = new Array(scopes.length);
+  let next = 0;
+  let failed = false;
+  async function worker() {
+    while (!failed) {
+      const index = next++;
+      if (index >= scopes.length) return;
+      const scope = scopes[index];
+      const result = await runExecutionGraphModel({
+        stage: "topic_actions",
+        systemPrompt: TOPIC_ACTION_EXTRACTION_PROMPT,
+        context: {
+          meeting_id: source.meetingId,
+          meeting_date: source.meetingDate,
+          project: source.project ?? null,
+          topic: {
+            id: scope.topicId,
+            title: scope.topicTitle,
+            summary: scope.topicSummary
+          },
+          conversation_events: source.conversationEvents ?? [],
+          transcript: scope.transcript
+        }
+      });
+      results[index] = result;
+      if (!result.ok) failed = true;
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(2, scopes.length) }, () => worker()));
+  const failure = results.find((result) => result && !result.ok);
+  if (failure && !failure.ok) return { ...failure, latencyMs: Date.now() - startedAt };
+  if (results.some((result) => !result)) {
+    return {
+      ok: false,
+      error: "Topic action extraction stopped before every topic completed.",
+      latencyMs: Date.now() - startedAt,
+      validationFailure: false
+    };
+  }
+  return {
+    ok: true,
+    latencyMs: Date.now() - startedAt,
+    topics: scopes.map((scope, topicIndex) => {
+      const result = results[topicIndex]!;
+      if (!result.ok) throw new Error("Unexpected failed topic action result.");
+      return {
+        topicId: scope.topicId,
+        topicTitle: scope.topicTitle,
+        transcript: scope.transcript,
+        actions: result.graph.tasks.map((task, actionIndex) => ({
+          ...task,
+          client_ref: `action_t${topicIndex + 1}_a${actionIndex + 1}`,
+          topic_id: scope.topicId,
+          commitment_ref: null
+        }))
+      };
+    })
+  };
+}
+
+export async function extractIndependentCommitments(input: {
+  source: ExecutionSourceContext;
+  actions: TaskCandidate[];
+}): Promise<ModelStageResult> {
+  const result = await runExecutionGraphModel({
+    stage: "commitment_extraction",
+    systemPrompt: INDEPENDENT_COMMITMENT_EXTRACTION_PROMPT,
+    timeoutMs: Math.max(getExecutionIntelligenceTimeoutMs(), 90_000),
+    context: {
+      ...buildExecutionSourcePayload(input.source),
+      participants: participantMap(input.source.transcript),
+      extracted_actions: input.actions
+    }
+  });
+  if (!result.ok) return result;
+  return {
+    ...result,
+    graph: {
+      tasks: [],
+      commitments: result.graph.commitments.map((commitment, index) => ({
+        ...commitment,
+        client_ref: `commitment_c${index + 1}`,
+        execution_classification: "committed"
+      }))
+    }
+  };
+}
+
+export function evaluateTaskCommitmentRelationships(input: {
+  source: ExecutionSourceContext;
+  graph: ExecutionGraph;
+}): Promise<ModelStageResult> {
+  return runExecutionGraphModel({
+    stage: "relationship_evaluation",
+    systemPrompt: TASK_COMMITMENT_RELATIONSHIP_PROMPT,
+    context: {
+      meeting_id: input.source.meetingId,
+      transcript: input.source.transcript,
+      proposed_graph: input.graph
+    }
+  });
+}
+
+export function verifyIndependentExecutionGraph(input: {
+  source: ExecutionSourceContext;
+  graph: ExecutionGraph;
+}): Promise<ModelStageResult> {
+  return runExecutionGraphModel({
+    stage: "graph_verification",
+    systemPrompt: INDEPENDENT_GRAPH_VERIFICATION_PROMPT,
+    context: {
+      ...buildExecutionSourcePayload(input.source),
+      proposed_graph: input.graph
+    }
+  });
 }
 
 export function generateExecutionCandidates(

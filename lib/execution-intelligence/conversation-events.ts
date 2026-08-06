@@ -9,6 +9,7 @@ import {
   conversationEventsSchema,
   type ConversationEvent
 } from "./conversation-event-schemas";
+import { canonicalizeConversationEventChunk } from "./conversation-event-identity";
 import { semanticTokenSimilarity } from "./graph";
 import type { ExecutionSourceContext } from "./stages";
 
@@ -234,15 +235,6 @@ export function linkConversationEvents(
   }));
 }
 
-function namespaceEvents(events: ConversationEvent[], chunkIndex: number) {
-  const refs = new Map(events.map((event) => [event.client_ref, `chunk_${chunkIndex + 1}_${event.client_ref}`]));
-  return events.map((event) => ({
-    ...event,
-    client_ref: refs.get(event.client_ref)!,
-    linked_event_refs: event.linked_event_refs.flatMap((ref) => refs.get(ref) ?? [])
-  }));
-}
-
 function deduplicateEvents(events: ConversationEvent[]) {
   const result: ConversationEvent[] = [];
   const aliases = new Map<string, string>();
@@ -269,7 +261,10 @@ function deduplicateEvents(events: ConversationEvent[]) {
 
 export async function extractAndLinkConversationEvents(
   source: ExecutionSourceContext,
-  options: { extractChunk?: typeof extractConversationEvents } = {}
+  options: {
+    extractChunk?: typeof extractConversationEvents;
+    generation?: number;
+  } = {}
 ): Promise<ConversationEventStageResult> {
   const startedAt = Date.now();
   const chunks = splitExecutionSourceIntoChunks(source);
@@ -310,7 +305,14 @@ export async function extractAndLinkConversationEvents(
     (result): result is Extract<ConversationEventStageResult, { ok: true }> =>
       Boolean(result?.ok)
   );
-  const events = successful.flatMap((result, index) => namespaceEvents(result.events, index));
+  const generation = options.generation ?? 0;
+  const events = successful.flatMap((result, index) =>
+    canonicalizeConversationEventChunk({
+      events: result.events,
+      generation,
+      chunkIndex: index
+    })
+  );
   return {
     ok: true,
     events: linkConversationEvents(deduplicateEvents(events), source.transcript),

@@ -4,9 +4,11 @@ import test from "node:test";
 import {
   applyCommitmentPromotionGuard,
   buildResponsibilityLedger,
+  classifyExecutionIntent,
   finalizeResponsibilityTrace,
   responsibilitiesOnlyGraph
 } from "../lib/execution-intelligence/execution-v2";
+import type { ConversationEvent } from "../lib/execution-intelligence/conversation-event-schemas";
 import type {
   CommitmentCandidate,
   TaskCandidate
@@ -67,6 +69,93 @@ function commitment(client_ref: string, title: string): CommitmentCandidate {
     consolidated_from_refs: []
   };
 }
+
+function event(
+  source_quote: string,
+  overrides: Partial<ConversationEvent> = {}
+): ConversationEvent {
+  return {
+    client_ref: "event_1",
+    type: "progress_update",
+    actors: ["Aditya"],
+    action: null,
+    object: null,
+    temporal_state: "present",
+    commitment_signal: "none",
+    source_quote,
+    source_segment_ids: [segmentId],
+    linked_event_refs: [],
+    confidence: 0.99,
+    ...overrides
+  };
+}
+
+function intentFor(sourceQuote: string, overrides: Partial<ConversationEvent> = {}) {
+  const candidate = task("intent", sourceQuote);
+  candidate.source_quote = sourceQuote;
+  const sourceEvent = event(sourceQuote, overrides);
+  candidate.conversation_event_ids = [sourceEvent.client_ref];
+  return classifyExecutionIntent({
+    task: candidate,
+    event: sourceEvent,
+    events: [sourceEvent]
+  }).intent;
+}
+
+test("execution intent treats first-person future work as accepted accountability", () => {
+  assert.equal(intentFor("I'll test Chatter tomorrow."), "future_accepted");
+  assert.equal(intentFor("I'm going to start with the transcript."), "future_accepted");
+  assert.equal(intentFor("Let’s deploy before Tuesday."), "future_accepted");
+});
+
+test("execution intent separates current progress, completed work, and proposals", () => {
+  assert.equal(intentFor("I'm working on Chatter."), "in_progress");
+  assert.equal(intentFor("I finished the dashboard."), "completed");
+  assert.equal(intentFor("We should integrate Slack."), "future_proposal");
+});
+
+test("execution intent combines a request and its acceptance", () => {
+  const request = event("Can you send Laura the transcript?", {
+    client_ref: "request_1",
+    type: "request",
+    commitment_signal: "requested",
+    linked_event_refs: ["acceptance_1"]
+  });
+  const acceptance = event("Yeah, I'll send it.", {
+    client_ref: "acceptance_1",
+    type: "acceptance",
+    temporal_state: "future",
+    commitment_signal: "accepted",
+    linked_event_refs: ["request_1"]
+  });
+  const candidate = task("send", "Send Laura the transcript");
+  candidate.source_quote = request.source_quote;
+  candidate.conversation_event_ids = [request.client_ref, acceptance.client_ref];
+  const classification = classifyExecutionIntent({
+    task: candidate,
+    event: request,
+    events: [request, acceptance]
+  });
+  assert.equal(classification.intent, "future_accepted");
+  assert.match(classification.reason, /linked acceptance/i);
+  const ledger = buildResponsibilityLedger({
+    graph: { commitments: [], tasks: [candidate] },
+    events: [request, acceptance]
+  });
+  assert.equal(ledger[0].commitment_signal, "accepted");
+});
+
+test("execution intent is stored with its accountability reason in the ledger", () => {
+  const candidate = task("test", "Test Chatter tomorrow");
+  const sourceEvent = event("I'll test Chatter tomorrow.");
+  candidate.conversation_event_ids = [sourceEvent.client_ref];
+  const ledger = buildResponsibilityLedger({
+    graph: { commitments: [], tasks: [candidate] },
+    events: [sourceEvent]
+  });
+  assert.equal(ledger[0].execution_intent, "future_accepted");
+  assert.match(ledger[0].execution_intent_reason, /future commitment/i);
+});
 
 test("V2 candidate adapter makes every early object a standalone responsibility", () => {
   const graph = responsibilitiesOnlyGraph({

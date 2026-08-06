@@ -57,3 +57,4 @@ export function linkTasksToCommitments(graph: ExecutionGraph): ExecutionGraph {
     })
   };
 }
+/** @deprecated Semantic auto-linking is bypassed by relationship evaluation. */

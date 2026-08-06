@@ -1,3 +1,69 @@
+export const TOPIC_ACTION_EXTRACTION_PROMPT = `
+You extract concrete actions from one meeting topic independently of commitments.
+Return commitments=[] and one task-shaped action record for every grounded action or non-execution
+item. Never create, infer, or link a commitment.
+
+Classify each record as exactly one of: open_task, completed_work, in_progress, request,
+accepted_request, assignment, promise, decision, proposal, idea, question, blocker, reminder,
+or scheduling. Set action_status to open, in_progress, blocked, completed, or non_execution.
+
+Rules:
+- First-person accepted future work such as "I'll contact", "I'm going to test", and an acceptance
+  after a request is open execution.
+- A request without acceptance is request/non_execution and has no assigned owner.
+- Completed work stays completed. Current work stays in_progress. Never reopen either as a new task.
+- Proposals, ideas, decisions, and questions are non_execution.
+- An agreed scheduling action is open. A blocker is blocked only when it concerns real owned work.
+- Preserve requester and recipient only when supported. Do not invent implementation steps.
+- Use exact quotes and segment UUIDs from the topic transcript.
+- Set commitment_ref=null, supporting relationship fields empty/null, and use the supplied topic ID.
+- execution_classification is committed only for open accepted work; proposals use proposed, ideas
+  use future_consideration, and other non-execution records use requirement.
+- Explain the action classification in extraction_reason. Return only schema-valid JSON.
+`.trim();
+
+export const INDEPENDENT_COMMITMENT_EXTRACTION_PROMPT = `
+You identify commitments independently from tasks for one complete meeting.
+Return tasks=[] and only commitments supported by accepted future-outcome evidence.
+
+A commitment is a concrete, trackable future outcome that a person or group accepted accountability
+for delivering. It is not a topic, theme, summary, one-step action, unaccepted request, proposal,
+idea, progress update, completed work, or decision without a future outcome.
+
+Commitments may have zero supporting actions. Do not require multiple tasks, milestone keywords,
+specific title verbs, or any minimum/maximum count. A single explicit accepted outcome is enough.
+Keep titles close to meeting language. Ground owner, status, date, exact quote, and segment UUIDs.
+supporting_action_refs may contain supplied action refs when relevant, but lack of a ref is not a
+reason to reject a commitment. Explain why the record qualifies in commitment_reason. All returned
+commitments use execution_classification=committed. Return only schema-valid JSON.
+`.trim();
+
+export const TASK_COMMITMENT_RELATIONSHIP_PROMPT = `
+You evaluate relationships between independently extracted open tasks and commitments.
+Return every supplied commitment and task exactly once with stable refs and unchanged core fields.
+For each task ask: "Would completing this task materially advance completion of this commitment?"
+
+Set at most one commitment_ref. Prefer null when uncertain. Never link merely because items share a
+topic or have similar words. Completed work, in-progress reports, requests without acceptance,
+ideas, proposals, decisions, and questions must remain unlinked. A commitment may have zero tasks,
+and a standalone task is valid. Store relationship_confidence, relationship_reason, and supporting
+segment IDs in relationship_evidence. Do not add or remove items. Return only schema-valid JSON.
+`.trim();
+
+export const INDEPENDENT_GRAPH_VERIFICATION_PROMPT = `
+Verify the supplied independent commitment/task graph against transcript evidence. Verify; do not
+rebuild a hierarchy and do not invent replacement items. Preserve stable refs.
+
+For commitments, keep only accepted future outcomes with supported owners, correct state, valid
+evidence, and meaning broader than a trivial action. A commitment remains valid with zero tasks.
+If a false commitment is clearly an accepted action, it may be returned as a standalone task using
+the same evidence. For tasks, keep actual accepted/open actions, correct owner/status, and unlink any
+relationship that does not materially advance its commitment. Standalone tasks remain valid.
+Completed work and non-execution items must not be returned as pending execution.
+
+Return the verified graph only. Do not infer new commitments, tasks, owners, or evidence.
+`.trim();
+
 export const CANDIDATE_GENERATION_PROMPT = `
 You are Parfait Execution Intelligence V2's responsibility extractor.
 
@@ -6,11 +72,22 @@ Do not summarize, cluster, invent outcome names, or build commitments. Return co
 Represent each responsibility as a standalone task with commitment_ref=null; the task shape is
 only a compatibility envelope and does not mean the responsibility is already open work.
 
-Classify every responsibility conceptually as one of: Open Task, Completed Work, Proposal,
-Decision, Future Idea, Reminder, Scheduling, Blocked Work, Question, or Progress Update.
-Also determine action state (Open, Completed, Blocked, Future, Cancelled, Accepted, Rejected)
-and commitment signal (Explicit, Implicit, Accepted, Requested, Proposed). Encode these using
-the closest schema fields and preserve the classification/state/signal in description.
+Classify execution intent by asking first: "Did this statement make someone accountable for
+future work?" Do not classify from grammatical tense or sentence type. Use exactly these concepts:
+Completed Work, Current In Progress, Future Accepted Work, Future Proposal, Future Idea, Decision,
+Question, Blocked Work, Reminder, or Scheduling. Also determine action state and commitment signal.
+Encode the intent using the closest schema fields and preserve "Execution Intent: <intent>. Why:
+<accountability reason>." in description.
+
+Accountability rules:
+- "I'll", "I will", "I'm going to", "I'm gonna", "We'll", "We will", and accepted "Let's"
+  statements are Future Accepted Work when the speaker accepts responsibility. Future language
+  must never become Current In Progress merely because it uses a progressive grammatical form.
+- A request creates no responsibility until accepted. Use linked request/acceptance turns together;
+  "Can you send it?" plus "Yeah, I'll send it" is one Future Accepted Work responsibility.
+- "I'm working on", "I've been implementing", and "I'm halfway through" are Current In Progress.
+- "I fixed", "I finished", "I already sent", and "I completed" are Completed Work and never pending.
+- Maybe/could/should/might/perhaps language is Future Proposal unless explicitly accepted later.
 
 Conversation Events are the primary execution evidence. Preserve responsibilities from promises,
 requests, acceptances, assignments, decisions, progress updates, proposals, future ideas,
@@ -20,10 +97,13 @@ is context and quote verification, except that an explicit future responsibility
 the event set may be grounded directly in its transcript segment.
 
 Classification mapping:
-- accepted or explicit open responsibility: execution_classification=committed;
-- unaccepted suggestion: proposed;
-- decision/requirement without accepted follow-up: requirement;
-- optional or later idea: future_consideration.
+- Future Accepted Work: execution_classification=committed;
+- Future Proposal: proposed;
+- Future Idea: future_consideration;
+- Completed Work, Current In Progress, Decision, or Question: requirement (a passive compatibility
+  record, never pending execution);
+- Blocked Work, Reminder, or Scheduling: committed only when accepted ownership is explicit;
+  otherwise requirement.
 Completed work and progress updates must never be rewritten as new future work.
 
 Evidence rules:
@@ -48,8 +128,10 @@ Given a transcript chunk, linked Conversation Events, and responsibility records
 2. Preserve every distinct responsibility, including accepted requests/assignments, promises,
    decisions, proposals, future ideas, reminders, scheduling, blockers, questions, completed
    work, and progress updates. Do not turn passive records into future work.
-3. Resolve pronouns, corrections, actors, owners, dates, conditions, cadence, classification,
-   action state, and commitment signal. Unknown metadata stays null.
+3. Resolve pronouns, corrections, actors, owners, dates, conditions, cadence, execution intent,
+   action state, and commitment signal. Ask whether accountability for future work was created.
+   First-person future acceptance is Future Accepted Work, never a progress update. Unknown
+   metadata stays null.
 4. Keep direct actions faithful. Do not invent planning, research, monitoring, preparation,
    implementation, review, QA, or stakeholder ceremony.
 5. Do not cluster or build hierarchy. Return commitments=[] and commitment_ref=null for every task.
@@ -65,6 +147,8 @@ accepted work and also preserve decisions, proposals, future ideas, reminders, s
 blockers, questions, completed work, and progress updates without converting them into open work.
 Pay special attention to linked request/acceptance and assignment/acceptance pairs, promises,
 conditions, recurrence, corrections, group ownership, and multiple distinct accepted actions.
+Future first-person acceptance ("I'll", "I'm going to", "We'll", or accepted "Let's") is missing
+Future Accepted Work when not already represented; it is not a progress update.
 
 Only Conversation Events or explicit transcript evidence can establish a record. Summaries and
 insight next_steps are hints, never sufficient evidence, and must not resurrect work. Do not add decision-only implementation,

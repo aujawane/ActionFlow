@@ -32,6 +32,28 @@ export async function GET(request: Request) {
   const error = segments.error ?? events.error ?? commitments.error ?? tasks.error ?? job.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  const checkpoint = job.data?.checkpoint as {
+    state?: {
+      debugTrace?: unknown;
+      topicActions?: unknown;
+      mergedActions?: unknown;
+      extractedCommitments?: unknown;
+      relationshipDecisions?: unknown;
+      verificationDecisions?: unknown;
+      graph?: unknown;
+    };
+  } | null;
+  const state = checkpoint?.state;
+  const independentExecution = state?.debugTrace ?? (state ? {
+    version: "independent-commitments-tasks-v1",
+    topic_actions: state.topicActions ?? [],
+    merged_actions: state.mergedActions ?? [],
+    extracted_commitments: state.extractedCommitments ?? [],
+    relationship_decisions: state.relationshipDecisions ?? [],
+    verification_decisions: state.verificationDecisions ?? [],
+    final_graph: state.graph ?? null
+  } : null);
+
   return NextResponse.json({
     meeting_id: meetingId,
     pipeline: {
@@ -45,9 +67,8 @@ export async function GET(request: Request) {
         generation: job.data?.generation ?? null,
         status: job.data?.status ?? null,
         stage: job.data?.current_stage ?? null,
-        reasoning_trace:
-          (job.data?.checkpoint as { state?: { reasoningTrace?: unknown } } | null)
-            ?.state?.reasoningTrace ?? null
+        status_note: "Legacy stage names are retained for durable-job compatibility.",
+        independent_execution: independentExecution
       }
     }
   }, { headers: { "Cache-Control": "no-store, max-age=0" } });

@@ -82,3 +82,4 @@ export function ensureAcceptedWorkTasks(input: {
   }
   return { graph: { ...input.graph, tasks }, added };
 }
+/** @deprecated Accepted-work repair is bypassed by the active execution runtime. */
