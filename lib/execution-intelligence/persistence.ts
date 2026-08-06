@@ -6,6 +6,27 @@ import {
   matchExecutionGraphRows
 } from "./matching";
 import type { ExecutionGraph } from "./schemas";
+import type { ConversationEvent } from "./conversation-event-schemas";
+
+export async function persistConversationEvents(input: {
+  meetingId: string;
+  generation: number;
+  events: ConversationEvent[];
+}): Promise<{ ok: true } | { ok: false; error: string; details?: string }> {
+  const { error } = await supabaseAdmin.rpc("replace_meeting_conversation_events", {
+    p_meeting_id: input.meetingId,
+    p_generation: input.generation,
+    p_events: input.events
+  });
+  if (error) {
+    return {
+      ok: false,
+      error: "Failed to persist conversation events.",
+      details: error.message
+    };
+  }
+  return { ok: true };
+}
 
 export type PersistExecutionGraphResult =
   | {
@@ -74,13 +95,15 @@ export async function persistExecutionGraph(input: {
     )
   });
   const commitmentsPayload = input.graph.commitments.map((commitment, index) => ({
-    ...commitment,
+      ...commitment,
+      conversation_event_ids: commitment.conversation_event_ids ?? [],
     existing_id: matches.commitments.get(index) ?? null
   }));
   const tasksPayload = input.graph.tasks.map((task, index) => {
     const convertedCommitmentId = convertedCommitments.get(index);
     return {
       ...task,
+      conversation_event_ids: task.conversation_event_ids ?? [],
       consolidated_from_refs: convertedCommitmentId
         ? [
             ...(task.consolidated_from_refs ?? []),
@@ -110,6 +133,47 @@ export async function persistExecutionGraph(input: {
         : "Failed to atomically persist the execution graph.",
       details: rpcError.message,
       stale
+    };
+  }
+
+  const [{ data: commitmentRows }, { data: taskRows }] = await Promise.all([
+    supabaseAdmin
+      .from("meeting_commitments")
+      .select("id, metadata")
+      .eq("meeting_id", input.meetingId),
+    supabaseAdmin
+      .from("meeting_tasks")
+      .select("id, extraction_metadata")
+      .eq("meeting_id", input.meetingId)
+  ]);
+  const commitmentEvents = new Map(
+    input.graph.commitments.map((item) => [item.client_ref, item.conversation_event_ids ?? []])
+  );
+  const taskEvents = new Map(
+    input.graph.tasks.map((item) => [item.client_ref, item.conversation_event_ids ?? []])
+  );
+  const traceabilityUpdates = await Promise.all([
+    ...(commitmentRows ?? []).map((row) => {
+      const metadata = row.metadata as { client_ref?: string } | null;
+      const ids = metadata?.client_ref ? commitmentEvents.get(metadata.client_ref) : undefined;
+      return ids
+        ? supabaseAdmin.from("meeting_commitments").update({ conversation_event_ids: ids }).eq("id", row.id)
+        : Promise.resolve({ error: null });
+    }),
+    ...(taskRows ?? []).map((row) => {
+      const metadata = row.extraction_metadata as { client_ref?: string } | null;
+      const ids = metadata?.client_ref ? taskEvents.get(metadata.client_ref) : undefined;
+      return ids
+        ? supabaseAdmin.from("meeting_tasks").update({ conversation_event_ids: ids }).eq("id", row.id)
+        : Promise.resolve({ error: null });
+    })
+  ]);
+  const traceabilityError = traceabilityUpdates.find((result) => result.error)?.error;
+  if (traceabilityError) {
+    return {
+      ok: false,
+      error: "Execution graph was stored but event traceability could not be attached.",
+      details: traceabilityError.message
     };
   }
 

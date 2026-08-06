@@ -34,7 +34,7 @@ Meetings remain source evidence and analysis history.
 4. Analysis enqueued (`lib/meeting-analysis/enqueue.ts`) — sync path does not await full pipeline
 5. `POST /api/meetings/[id]/analyze` → claim generation + enqueue → **202**
 6. `POST /api/internal/meeting-analysis/worker` runs **one stage**, persists checkpoint, chains next via `after()`
-7. Stages: topics → candidates → verification → completeness → final verify → duplicate consolidation → milestone parent/child clustering → `replace_meeting_execution_graph` → categorization
+7. Stages: topics → Conversation Events → responsibility extraction → verification → completeness → final verify → outcome clustering/promotion/hierarchy → execution judge → deterministic guards → `replace_meeting_execution_graph` → categorization
 8. UI polls `GET .../analysis-status`; meeting → `completed` on success
 
 ## Execution intelligence pipeline
@@ -42,14 +42,21 @@ Meetings remain source evidence and analysis history.
 ```text
 Transcript + speaker aliases
   → topic segmentation
-  → high-recall candidates (chunked)
-  → verification / linking / owner-date resolution
+  → Conversation Events (chunked and linked)
+  → responsibility extraction (chunked; no hierarchy)
+  → action classification + verification / owner-date resolution
   → deterministic grounding + dedupe
   → completeness
   → final verification + grounding
+  → outcome clustering + commitment promotion + hierarchy
+  → independent execution judge
+  → deterministic promotion and verb-demotion guard
   → consolidateExecutionGraph (deterministic)
   → atomic persistence (generation-locked)
 ```
+
+The graph schema is a compatibility adapter: before outcome clustering, task-shaped records are
+canonical responsibilities and `commitments` is always empty. See `docs/execution-intelligence-v2.md`.
 
 Only `execution_classification = committed` drives main queue, owner workload, follow-ups. `proposed` / `requirement` / `future_consideration` → Ideas panel.
 
@@ -64,6 +71,8 @@ Modules: `lib/execution-intelligence/*`. Worker orchestration: `lib/meeting-anal
 | `POST /api/meetings/[id]/sync-status` | Poll/import transcript; may enqueue analysis |
 | `POST /api/meetings/[id]/analyze` | Claim + enqueue analysis (202) |
 | `GET/POST /api/projects`, `GET/PATCH /api/projects/[id]` | Manual project management |
+| `/api/projects/[id]/brain` | Persistent contextual Project Brain chat |
+| `/api/projects/[id]/brain/proposals/*` | Review/reject/apply typed project proposals |
 | `PATCH /api/meetings/[id]/project` | Assign/create project for a meeting |
 | `/api/commitments/[id]/tasks/*` | Create/reorder/merge milestone tasks |
 | `PUT /api/tasks/[id]/dependencies` | Replace explicit blockers |
@@ -96,8 +105,10 @@ Core tables:
 - `user_integrations`, `account_verification_events`
 - `meeting_analysis_jobs` (+ `checkpoint` jsonb)
 - `task_dependencies`, `commitment_comments`
+- `project_memory`, `project_requirements`, `project_decisions`, `project_constraints`, `project_participants`
+- `project_chat_threads`, `project_chat_messages`, `project_change_proposals`, `project_change_events`
 
-Critical RPCs: `replace_meeting_execution_graph` (generation-safe merge), `assign_meeting_project` (atomic propagation), and `merge_commitment_tasks` (moves artifacts/comments/dependencies). All are service-role only.
+Critical RPCs: `replace_meeting_execution_graph` (generation-safe merge), `assign_meeting_project` (atomic propagation), `merge_commitment_tasks` (moves artifacts/comments/dependencies), and `apply_project_change_proposal` (version-checked atomic reviewed diff). All are service-role only.
 
 ## Auth flow
 
@@ -116,6 +127,7 @@ Critical RPCs: `replace_meeting_execution_graph` (generation-safe merge), `assig
 | `lib/` | Business logic, clients, pipelines |
 | `lib/execution-intelligence/` | Extract/verify/consolidate/persist graph |
 | `lib/meeting-analysis/` | Job state + durable worker stages |
+| `lib/project-brain/` | Context, prompt/agent, typed proposal validation |
 | `lib/recall/` | Recall API + transcript processing |
 | `supabase/` | SQL schema evolution |
 | `scripts/` | Offline/live eval, staging copy |
@@ -131,7 +143,7 @@ Critical RPCs: `replace_meeting_execution_graph` (generation-safe merge), `assig
 ## Major UI components
 
 - Meeting page: analysis status → commitments → standalone tasks → ideas → work-by-owner → topics → transcript
-- Projects page: project library/create; project page: progress, next task, milestones, people, meetings, deliverables
+- Projects page: project library/create; project page: progress, next task, milestones, people, meetings, deliverables, recent changes, and responsive Project Brain
 - Milestone page: editable commitment, ordered/dependent tasks, evidence, deliverables, chat
 - `CommitmentsPanel`, `StandaloneTasksPanel`, `IdeasRequirementsPanel`, `ExecutionDashboard`
 - Task page: workspace state, clarifications chat, artifacts, badges
@@ -145,6 +157,7 @@ Critical RPCs: `replace_meeting_execution_graph` (generation-safe merge), `assig
 - `lib/meeting-follow-up-email-service.ts`
 - `lib/task-deliverable-service.ts`, `lib/task-categorization.ts`
 - `lib/ai/task-chat-patch.ts`
+- `lib/project-brain/{context,agent,schemas}.ts`
 - `lib/speaker-resolution.ts`, `lib/speaker-aliases.ts`
 
 ## External integrations

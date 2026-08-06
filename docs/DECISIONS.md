@@ -103,3 +103,15 @@ Engineering decisions for AI agents. Update when you make a new one.
 **Decision:** Store manual commitment participants in `commitment_participants`; derive the rest from the lead, child task owners, reviewers, and input providers at read time.  
 **Why:** Arrays cannot distinguish manual intent from regenerated evidence, while a join table survives graph replacement when commitment identity is preserved.  
 **Safety:** Adding/removing a participant marks the commitment protected for re-analysis; do not include every meeting attendee automatically.
+
+## D018 — Project Brain is proposal-only
+
+**Decision:** Project Brain persists user-visible chat and structured context, but every mutation is a typed proposal reviewed by the user and applied through one version-checked service-role RPC.
+**Why:** Project context can legitimately override transcript inference, but model output must never silently rewrite the execution graph.
+**Safety:** Validate operation types and project-local IDs server-side, preserve stable rows and protected fields, reject stale graph versions, roll back the full proposal on failure, and write an audit event for every accepted operation.
+
+## D019 — Scope changes require milestone planning
+
+**Decision:** Project Brain evaluates the complete outcome hierarchy before task edits; material MVP/scope changes must include or explicitly justify milestone operations.
+**Why:** Memory-only and isolated task proposals can record correct context while leaving the execution graph structurally wrong.
+**Guardrail:** Run a deterministic completeness check and allow one focused model retry. Unsupported operations are reported, never silently discarded. Proposal review defaults to human-readable diffs; technical JSON remains an advanced validated control.

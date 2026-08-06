@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { sanitizeInternalPath } from "@/lib/password-recovery";
 
 export function AuthForm() {
   const router = useRouter();
@@ -51,7 +52,7 @@ export function AuthForm() {
     );
 
     if (mode === "login") {
-      const nextPath = searchParams.get("next") || "/dashboard";
+      const nextPath = sanitizeInternalPath(searchParams.get("next"), "/dashboard");
       window.location.assign(nextPath);
       router.refresh();
     }
@@ -61,7 +62,7 @@ export function AuthForm() {
     setLoading(true);
     setMessage(null);
 
-    const nextPath = searchParams.get("next") || "/dashboard";
+    const nextPath = sanitizeInternalPath(searchParams.get("next"), "/dashboard");
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {

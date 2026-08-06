@@ -164,6 +164,7 @@ test("execution source payload sends each transcript, topic, and insight once", 
   assert.equal(payload.meeting_summaries.length, 1);
   assert.equal(payload.insight_next_steps.length, 1);
   assert.deepEqual(Object.keys(payload).sort(), [
+    "conversation_events",
     "insight_next_steps",
     "meeting_date",
     "meeting_id",
@@ -226,4 +227,3 @@ test("meeting task query falls back without hiding legacy tasks", async () => {
   assert.equal(result.data[0].task, "Legacy task");
   assert.equal(requestedColumns.length, 2);
 });
-

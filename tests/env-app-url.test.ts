@@ -7,6 +7,7 @@ import {
   getConfiguredOpenAIModel,
   getExecutionIntelligenceTimeoutMs,
   getGoogleRedirectUri,
+  getPublicAppBaseUrl,
   getRecallWebhookUrl,
   parseExecutionIntelligenceTimeoutMs
 } from "../lib/env";
@@ -107,4 +108,29 @@ test("getAppBaseUrl never invents localhost in production without configured URL
   setEnv("INTERNAL_APP_URL", previousInternal);
   setEnv("NEXT_PUBLIC_APP_URL", previousPublic);
   setEnv("NODE_ENV", previousNodeEnv);
+});
+
+test("public auth redirects use NEXT_PUBLIC_APP_URL and never an internal production URL", () => {
+  const previousInternal = process.env.INTERNAL_APP_URL;
+  const previousPublic = process.env.NEXT_PUBLIC_APP_URL;
+  const previousNodeEnv = process.env.NODE_ENV;
+  try {
+    setEnv("INTERNAL_APP_URL", "https://internal.example.com");
+    setEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com/");
+    setEnv("NODE_ENV", "production");
+    assert.equal(getPublicAppBaseUrl(), "https://app.example.com");
+
+    setEnv("NEXT_PUBLIC_APP_URL", undefined);
+    assert.throws(() => getPublicAppBaseUrl(), /NEXT_PUBLIC_APP_URL/);
+
+    setEnv("NODE_ENV", "development");
+    assert.equal(
+      getPublicAppBaseUrl({ requestOrigin: "http://localhost:3000" }),
+      "http://localhost:3000"
+    );
+  } finally {
+    setEnv("INTERNAL_APP_URL", previousInternal);
+    setEnv("NEXT_PUBLIC_APP_URL", previousPublic);
+    setEnv("NODE_ENV", previousNodeEnv);
+  }
 });

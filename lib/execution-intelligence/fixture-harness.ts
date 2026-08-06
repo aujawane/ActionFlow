@@ -36,7 +36,8 @@ export async function runLiveExecutionFixture(
       insights: []
     },
     dependencies: {
-      persistGraph: async () => ({ ok: true, commitments: [], tasks: [] })
+      persistGraph: async () => ({ ok: true, commitments: [], tasks: [] }),
+      persistEvents: async () => ({ ok: true })
     }
   });
   if (!result.ok) {

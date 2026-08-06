@@ -10,12 +10,21 @@ import {
   logExecutionStage,
   logExecutionSummary
 } from "./observability";
-import { persistExecutionGraph } from "./persistence";
+import { persistConversationEvents, persistExecutionGraph } from "./persistence";
+import { extractAndLinkConversationEvents } from "./conversation-events";
+import { ensureAcceptedWorkTasks } from "./standalone-events";
+import {
+  applyCommitmentPromotionGuard,
+  buildResponsibilityLedger,
+  finalizeResponsibilityTrace,
+  responsibilitiesOnlyGraph
+} from "./execution-v2";
 import { resolveAssigneesAndDueDates } from "./resolution";
 import type { ExecutionGraph } from "./schemas";
 import {
   findMissingExecutionWorkInBatches,
   generateChunkedExecutionCandidates,
+  judgeExecutionGraph,
   synthesizeExecutionGraph,
   verifyExecutionGraphInBatches,
   type ExecutionSourceContext
@@ -26,7 +35,10 @@ type ExecutionPipelineDependencies = {
   verifyGraph: typeof verifyExecutionGraphInBatches;
   findMissing: typeof findMissingExecutionWorkInBatches;
   synthesizeGraph: typeof synthesizeExecutionGraph;
+  judgeGraph: typeof judgeExecutionGraph;
   persistGraph: typeof persistExecutionGraph;
+  extractEvents: typeof extractAndLinkConversationEvents;
+  persistEvents: typeof persistConversationEvents;
 };
 
 export async function runExecutionIntelligence(input: {
@@ -40,15 +52,45 @@ export async function runExecutionIntelligence(input: {
     verifyGraph: verifyExecutionGraphInBatches,
     findMissing: findMissingExecutionWorkInBatches,
     synthesizeGraph: synthesizeExecutionGraph,
+    judgeGraph: judgeExecutionGraph,
     persistGraph: persistExecutionGraph,
+    extractEvents: extractAndLinkConversationEvents,
+    persistEvents: persistConversationEvents,
     ...input.dependencies
   };
+  // Preserve the existing dependency-injection contract for callers that mock synthesis.
+  // Production always uses the independent V2 judge.
+  if (input.dependencies?.synthesizeGraph && !input.dependencies.judgeGraph) {
+    dependencies.judgeGraph = async ({ graph }) => ({
+      ok: true,
+      graph,
+      latencyMs: 0
+    });
+  }
   const metrics = createExecutionMetrics(
     input.source.meetingId,
     input.fallbackUsed
   );
 
-  const candidates = await dependencies.generateCandidates(input.source);
+  let source = input.source;
+  if (!source.conversationEvents) {
+    const events = await dependencies.extractEvents(source);
+    if (!events.ok) {
+      logExecutionStage(metrics, "conversation_event_extraction_failed", {
+        error: events.error,
+        details: events.details
+      });
+      return { ok: false as const, status: 502, error: events.error, metrics };
+    }
+    source = { ...source, conversationEvents: events.events };
+  }
+  const conversationEvents = source.conversationEvents ?? [];
+  logExecutionStage(metrics, "conversation_events_extracted", {
+    events: conversationEvents.length,
+    linked_events: conversationEvents.filter((event) => event.linked_event_refs.length > 0).length
+  });
+
+  const candidates = await dependencies.generateCandidates(source);
   metrics.openAiLatencyMs.candidates = candidates.latencyMs;
   if (!candidates.ok) {
     metrics.validationFailures += Number(candidates.validationFailure);
@@ -59,16 +101,21 @@ export async function runExecutionIntelligence(input: {
     return { ok: false as const, status: 502, error: candidates.error, metrics };
   }
   metrics.salvagedItems += candidates.salvagedItems ?? 0;
-  metrics.candidateCommitments = candidates.graph.commitments.length;
-  metrics.candidateTasks = candidates.graph.tasks.length;
+  const responsibilityGraph = responsibilitiesOnlyGraph(candidates.graph);
+  let responsibilityLedger = buildResponsibilityLedger({
+    graph: responsibilityGraph,
+    events: conversationEvents
+  });
+  metrics.candidateCommitments = 0;
+  metrics.candidateTasks = responsibilityGraph.tasks.length;
   logExecutionStage(metrics, "candidates_generated", {
     commitments: metrics.candidateCommitments,
     tasks: metrics.candidateTasks
   });
 
   const verified = await dependencies.verifyGraph({
-    source: input.source,
-    graph: candidates.graph
+    source,
+    graph: responsibilityGraph
   });
   metrics.openAiLatencyMs.initialVerification = verified.latencyMs;
   if (!verified.ok) {
@@ -83,10 +130,10 @@ export async function runExecutionIntelligence(input: {
   metrics.salvagedItems += verified.salvagedItems ?? 0;
 
   const initiallyResolved = resolveAssigneesAndDueDates(
-    linkTasksToCommitments(verified.graph)
+    responsibilitiesOnlyGraph(verified.graph)
   );
   const initiallyGrounded = enforceExecutionGraphGrounding({
-    source: input.source,
+    source,
     graph: initiallyResolved
   });
   metrics.groundingRejectedCommitments +=
@@ -100,7 +147,7 @@ export async function runExecutionIntelligence(input: {
   });
 
   const missing = await dependencies.findMissing({
-    source: input.source,
+    source,
     graph: initiallyGrounded.graph
   });
   metrics.openAiLatencyMs.completeness = missing.latencyMs;
@@ -119,7 +166,7 @@ export async function runExecutionIntelligence(input: {
 
   const merged = mergeAndDeduplicateGraphs(
     initiallyGrounded.graph,
-    missing.graph
+    responsibilitiesOnlyGraph(missing.graph)
   );
   metrics.deduplicatedCommitments += merged.deduplicatedCommitments;
   metrics.deduplicatedTasks += merged.deduplicatedTasks;
@@ -136,7 +183,7 @@ export async function runExecutionIntelligence(input: {
 
   // Completeness candidates are normalized and verified again before persistence.
   const finalVerification = await dependencies.verifyGraph({
-    source: input.source,
+    source,
     graph: preFinalNormalized.graph
   });
   metrics.openAiLatencyMs.finalVerification = finalVerification.latencyMs;
@@ -157,7 +204,7 @@ export async function runExecutionIntelligence(input: {
   metrics.salvagedItems += finalVerification.salvagedItems ?? 0;
 
   const finalResolved = resolveAssigneesAndDueDates(
-    linkTasksToCommitments(finalVerification.graph)
+    responsibilitiesOnlyGraph(finalVerification.graph)
   );
   const finalNormalized = normalizeExecutionGraphQuality(finalResolved);
   logExecutionStage(metrics, "graph_quality_normalized", {
@@ -168,7 +215,7 @@ export async function runExecutionIntelligence(input: {
     blocker_tasks_added: finalNormalized.blockerTasksAdded
   });
   const finalGrounded = enforceExecutionGraphGrounding({
-    source: input.source,
+    source,
     graph: finalNormalized.graph
   });
   metrics.groundingRejectedCommitments += finalGrounded.rejectedCommitments;
@@ -177,9 +224,13 @@ export async function runExecutionIntelligence(input: {
   const finalDeduped = mergeAndDeduplicateGraphs(finalGrounded.graph);
   metrics.deduplicatedCommitments += finalDeduped.deduplicatedCommitments;
   metrics.deduplicatedTasks += finalDeduped.deduplicatedTasks;
+  responsibilityLedger = buildResponsibilityLedger({
+    graph: finalDeduped.graph,
+    events: conversationEvents
+  });
 
   const synthesis = await dependencies.synthesizeGraph({
-    source: input.source,
+    source,
     graph: finalDeduped.graph
   });
   metrics.openAiLatencyMs.synthesis = synthesis.latencyMs;
@@ -198,7 +249,15 @@ export async function runExecutionIntelligence(input: {
     };
   }
   metrics.salvagedItems += synthesis.salvagedItems ?? 0;
-  const synthesizedCommittedOutcomes = synthesis.graph.commitments.filter(
+  const judged = await dependencies.judgeGraph({ source, graph: synthesis.graph });
+  metrics.openAiLatencyMs.judge = judged.latencyMs;
+  if (!judged.ok) {
+    metrics.validationFailures += Number(judged.validationFailure);
+    return { ok: false as const, status: 502, error: judged.error, metrics };
+  }
+  metrics.salvagedItems += judged.salvagedItems ?? 0;
+  const promotionGuard = applyCommitmentPromotionGuard(judged.graph);
+  const synthesizedCommittedOutcomes = promotionGuard.graph.commitments.filter(
     (item) => (item.execution_classification ?? "committed") === "committed"
   ).length;
   if (synthesizedCommittedOutcomes > 7) {
@@ -208,10 +267,10 @@ export async function runExecutionIntelligence(input: {
     });
   }
   const synthesisResolved = resolveAssigneesAndDueDates(
-    linkTasksToCommitments(synthesis.graph)
+    linkTasksToCommitments(promotionGuard.graph)
   );
   const synthesisGrounded = enforceExecutionGraphGrounding({
-    source: input.source,
+    source,
     graph: normalizeExecutionGraphQuality(synthesisResolved).graph
   });
   metrics.groundingRejectedCommitments += synthesisGrounded.rejectedCommitments;
@@ -220,9 +279,16 @@ export async function runExecutionIntelligence(input: {
   metrics.deduplicatedCommitments += synthesisDeduped.deduplicatedCommitments;
   metrics.deduplicatedTasks += synthesisDeduped.deduplicatedTasks;
 
-  const consolidated = consolidateExecutionGraph(synthesisDeduped.graph, {
-    projectName: input.source.project?.name,
-    projectGoal: input.source.project?.goal
+  const acceptedWork = ensureAcceptedWorkTasks({
+    graph: synthesisDeduped.graph,
+    events: conversationEvents
+  });
+  logExecutionStage(metrics, "accepted_work_audited", {
+    standalone_tasks_added: acceptedWork.added
+  });
+  const consolidated = consolidateExecutionGraph(acceptedWork.graph, {
+    projectName: source.project?.name,
+    projectGoal: source.project?.goal
   });
   logExecutionStage(metrics, "graph_consolidated", {
     merged_commitments: consolidated.mergedCommitments,
@@ -233,6 +299,11 @@ export async function runExecutionIntelligence(input: {
   });
 
   const graph: ExecutionGraph = consolidated.graph;
+  const reasoningTrace = finalizeResponsibilityTrace({
+    ledger: responsibilityLedger,
+    graph,
+    judgments: promotionGuard.judgments
+  });
   metrics.verifiedCommitments = graph.commitments.length;
   metrics.verifiedTasks = graph.tasks.length;
   metrics.linkedTasks = graph.tasks.filter((task) => task.commitment_ref).length;
@@ -244,8 +315,8 @@ export async function runExecutionIntelligence(input: {
     unlinked_tasks: metrics.unlinkedTasks
   });
 
-  const insightNextSteps = input.source.insights.filter(
-    (insight) => insight.category === "next_steps"
+  const groundedExecutionSignals = conversationEvents.filter(
+    (event) => ["accepted", "explicit"].includes(event.commitment_signal)
   ).length;
   const committedCommitments = graph.commitments.filter(
     (item) => (item.execution_classification ?? "committed") === "committed"
@@ -254,24 +325,24 @@ export async function runExecutionIntelligence(input: {
     (item) => (item.execution_classification ?? "committed") === "committed"
   ).length;
   if (
-    insightNextSteps > 0 &&
+    groundedExecutionSignals > 0 &&
     committedCommitments === 0 &&
     committedTasks === 0
   ) {
     logExecutionStage(metrics, "completeness_invariant_failed", {
-      insight_next_steps: insightNextSteps
+      grounded_execution_signals: groundedExecutionSignals
     });
     return {
       ok: false as const,
       status: 502,
       error:
-        "Completeness verification found no executable work despite insight next steps.",
+        "Completeness verification found no executable work despite accepted conversation events.",
       metrics
     };
   }
 
   const persisted = await dependencies.persistGraph({
-    meetingId: input.source.meetingId,
+    meetingId: source.meetingId,
     generation: input.generation,
     graph
   });
@@ -289,6 +360,15 @@ export async function runExecutionIntelligence(input: {
       metrics
     };
   }
+  const persistedEvents = await dependencies.persistEvents({
+    meetingId: source.meetingId,
+    generation: input.generation,
+    events: conversationEvents
+  });
+  if (!persistedEvents.ok) {
+    metrics.databaseFailures += 1;
+    return { ok: false as const, status: 500, error: persistedEvents.error, metrics };
+  }
 
   logExecutionSummary(metrics);
   return {
@@ -296,6 +376,7 @@ export async function runExecutionIntelligence(input: {
     commitments: persisted.commitments,
     tasks: persisted.tasks,
     graph,
+    reasoningTrace,
     metrics
   };
 }

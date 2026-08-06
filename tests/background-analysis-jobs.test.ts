@@ -201,7 +201,7 @@ test("job status transitions queued -> running -> completed", async () => {
   store.markRunning(claimed.jobId, "candidates", 0);
   assert.equal(store.get(claimed.jobId)?.status, "running");
   assert.equal(store.get(claimed.jobId)?.current_stage, "candidates");
-  assert.equal(store.get(claimed.jobId)?.progress, 30);
+  assert.equal(store.get(claimed.jobId)?.progress, 35);
 
   store.markTerminal(claimed.jobId, "completed");
   assert.equal(store.get(claimed.jobId)?.status, "completed");

@@ -124,6 +124,21 @@ export function splitExecutionSourceIntoChunks(
       (insight) =>
         insight.topic_id === null || topicIds.has(insight.topic_id ?? "")
     );
+    const directlyRelevantEventRefs = new Set(
+      (source.conversationEvents ?? [])
+        .filter((event) => event.source_segment_ids.some((id) => selectedIds.has(id)))
+        .map((event) => event.client_ref)
+    );
+    const linkedRelevantEventRefs = new Set(
+      (source.conversationEvents ?? [])
+        .filter((event) => directlyRelevantEventRefs.has(event.client_ref))
+        .flatMap((event) => event.linked_event_refs)
+    );
+    const conversationEvents = source.conversationEvents?.filter(
+      (event) =>
+        directlyRelevantEventRefs.has(event.client_ref) ||
+        linkedRelevantEventRefs.has(event.client_ref)
+    );
     chunks.push({
       index: chunks.length,
       startSegment: start + 1,
@@ -133,7 +148,8 @@ export function splitExecutionSourceIntoChunks(
         transcript: selected.map((segment) => segment.line).join("\n"),
         transcriptSegmentCount: selected.length,
         topics,
-        insights
+        insights,
+        conversationEvents
       }
     });
     if (end >= segments.length) break;
@@ -141,4 +157,3 @@ export function splitExecutionSourceIntoChunks(
   }
   return chunks;
 }
-

@@ -1,6 +1,7 @@
 import {
   CANDIDATE_GENERATION_PROMPT,
   COMPLETENESS_PROMPT,
+  EXECUTION_JUDGE_PROMPT,
   GLOBAL_SYNTHESIS_PROMPT,
   VERIFICATION_PROMPT
 } from "./prompts";
@@ -22,6 +23,7 @@ import {
   logExecutionCandidateDiagnostics
 } from "./observability";
 import type { ExecutionGraph } from "./schemas";
+import type { ConversationEvent } from "./conversation-event-schemas";
 
 export type ExecutionSourceContext = {
   meetingId: string;
@@ -29,6 +31,15 @@ export type ExecutionSourceContext = {
     id: string;
     name: string;
     goal: string | null;
+    memory?: {
+      summary: string | null;
+      current_scope: unknown;
+      future_scope: unknown;
+      technical_context: unknown;
+      constraints: unknown[];
+      decisions: unknown[];
+      confirmed_fields: unknown;
+    } | null;
   } | null;
   transcript: string;
   transcriptSegmentCount?: number;
@@ -44,6 +55,7 @@ export type ExecutionSourceContext = {
     content: string;
   }>;
   meetingDate: string;
+  conversationEvents?: ConversationEvent[];
 };
 
 export function buildExecutionSourcePayload(source: ExecutionSourceContext) {
@@ -59,6 +71,7 @@ export function buildExecutionSourcePayload(source: ExecutionSourceContext) {
     insight_next_steps: source.insights.filter(
       (insight) => insight.category === "next_steps"
     ),
+    conversation_events: source.conversationEvents ?? [],
     transcript: source.transcript
   };
 }
@@ -275,7 +288,26 @@ export function synthesizeExecutionGraph(input: {
         .filter((insight) => insight.category === "decisions")
         .map((insight) => insight.content),
       participant_map: participantMap(input.source.transcript),
+      conversation_events: input.source.conversationEvents ?? [],
       candidate_graph: input.graph
+    }
+  });
+}
+
+export function judgeExecutionGraph(input: {
+  source: ExecutionSourceContext;
+  graph: ExecutionGraph;
+}): Promise<ModelStageResult> {
+  return runExecutionGraphModel({
+    stage: "judge",
+    systemPrompt: EXECUTION_JUDGE_PROMPT,
+    timeoutMs: Math.max(getExecutionIntelligenceTimeoutMs(), 90_000),
+    context: {
+      meeting_id: input.source.meetingId,
+      meeting_date: input.source.meetingDate,
+      project: input.source.project ?? null,
+      conversation_events: input.source.conversationEvents ?? [],
+      proposed_hierarchy: input.graph
     }
   });
 }

@@ -177,6 +177,17 @@ export function getAppBaseUrl(options?: { requestOrigin?: string | null }) {
   );
 }
 
+/** Public origin used in links delivered to a user's browser or email. */
+export function getPublicAppBaseUrl(options?: { requestOrigin?: string | null }) {
+  const publicUrl = readEnv("NEXT_PUBLIC_APP_URL");
+  if (publicUrl) return publicUrl.replace(/\/$/, "");
+
+  const requestOrigin = options?.requestOrigin?.trim().replace(/\/$/, "");
+  if (process.env.NODE_ENV !== "production" && requestOrigin) return requestOrigin;
+  if (process.env.NODE_ENV !== "production") return "http://localhost:3000";
+  throw new Error("Missing NEXT_PUBLIC_APP_URL for a public authentication redirect.");
+}
+
 export function getGoogleRedirectUri() {
   const configured = readEnv("GOOGLE_REDIRECT_URI");
   if (configured) {

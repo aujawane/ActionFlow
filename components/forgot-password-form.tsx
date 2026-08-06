@@ -2,22 +2,34 @@
 
 import { useState } from "react";
 
-export function ForgotPasswordForm() {
+export function ForgotPasswordForm({
+  initialMessage = null
+}: {
+  initialMessage?: string | null;
+}) {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(initialMessage);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setMessage(null);
 
-    const response = await fetch("/api/auth/password-reset", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email })
-    });
-    const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+    let response: Response;
+    let result: { error?: string; message?: string };
+    try {
+      response = await fetch("/api/auth/password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+      result = (await response.json().catch(() => ({}))) as typeof result;
+    } catch {
+      setLoading(false);
+      setMessage("Unable to reach the server. Please try again.");
+      return;
+    }
     setLoading(false);
 
     if (!response.ok) {

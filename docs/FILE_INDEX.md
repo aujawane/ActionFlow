@@ -42,6 +42,8 @@ App Router pages and API.
 - `meetings/[id]/pin/route.ts` — pin meeting
 - `meetings/[id]/project/route.ts` — manual project assignment/create
 - `projects/*` — project CRUD
+- `projects/[id]/brain/route.ts` — bounded project-aware chat + persistence
+- `projects/[id]/brain/proposals/*` — proposal review, rejection, and atomic apply
 - `commitments/[id]/tasks/*` — task create/reorder/merge
 - `commitments/[id]/comments/route.ts` — milestone chat
 - `tasks/[id]/route.ts` / `dependencies/route.ts` — general task edits + blockers
@@ -64,6 +66,8 @@ Shared UI (client/server mix).
 - `project-library.tsx` — project create/list cards
 - `meeting-project-assignment.tsx` — meeting project picker
 - `commitment-workspace.tsx` — milestone editing/task sequencing/chat
+- `project-brain-panel.tsx` — responsive chat, memory, proposal diff/review
+- `project-brain-operation-review.tsx` — grouped human-readable operation diffs + advanced validation
 - `standalone-tasks-panel.tsx` — committed tasks without commitment
 - `ideas-requirements-panel.tsx` — non-committed items
 - `execution-dashboard.tsx` — work-by-owner metrics/view
@@ -87,6 +91,7 @@ Domain logic.
 ### lib/execution-intelligence/
 
 - `schemas.ts` — Zod/JSON graph contracts
+- `execution-v2.ts` — responsibility adapter, promotion guard, and reasoning trace
 - `prompts.ts` — model instructions
 - `model.ts` — OpenAI structured calls + timeouts
 - `stages.ts` — candidate/verify/completeness stages
@@ -105,6 +110,13 @@ Domain logic.
 - `enqueue.ts` — claim + dispatch worker
 - `topics.ts` — topic prep for pipeline
 - `worker.ts` — one-stage execution + chain
+
+### lib/project-brain/
+
+- `schemas.ts` — typed proposal operations and response validation
+- `context.ts` — bounded project graph/memory context + meeting-analysis memory projection
+- `agent.ts` — Project Brain prompt, structured OpenAI response, deterministic high-confidence interpretations
+- `operations.ts` — operation grouping, aliases, individual validation, and milestone completeness rules
 
 ### lib/recall/
 
@@ -140,6 +152,8 @@ Domain logic.
 - `migrations/*.sql` — real schema evolution (source of truth)
 - Key late migrations: execution commitments, graph safety, analysis jobs, checkpoint, classification
 - `20260727110000_add_project_execution_hierarchy.sql` — projects, links, dependencies, chat, safety RPCs
+- `20260727120000_add_commitment_people.sql` — explicit milestone leads and participants
+- `20260727130000_project_brain_phase1.sql` — memory/chat/proposals/audit/RLS/versioned atomic apply
 
 ## scripts/
 
@@ -153,6 +167,7 @@ Domain logic.
 
 - `execution-*.test.ts` — graph, consolidation, chunking, normalization
 - `project-first-execution.test.ts` — milestone clustering, progress, blockers, evidence, migration safety
+- `project-brain.test.ts` — memory, proposals, Jamileh flow, schema/RLS/RPC/UI contracts
 - `background-analysis-jobs.test.ts` — enqueue/job semantics
 - `production-execution-safety.test.ts` / `staging-readiness.test.ts`
 - `task-*.test.ts` — comments/patches/deliverables
@@ -173,6 +188,7 @@ Domain logic.
 ### Feature docs
 
 - `execution-intelligence.md` — pipeline deep dive
+- `execution-intelligence-v2.md` — responsibility-first V2 architecture and debugging
 - `deployment-vercel.md` — Vercel deploy + timeouts
 - `copy-meeting.md` — staging copy runbook
 

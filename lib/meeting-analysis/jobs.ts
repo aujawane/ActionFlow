@@ -4,7 +4,8 @@ import type { MeetingAnalysisJob, MeetingAnalysisJobStatus } from "@/lib/types";
 export const ANALYSIS_STAGES = {
   queued: { stage: "queued", progress: 0 },
   topic_extraction: { stage: "topic_extraction", progress: 10 },
-  candidates: { stage: "candidates", progress: 30 },
+  conversation_events: { stage: "conversation_events", progress: 22 },
+  candidates: { stage: "candidates", progress: 35 },
   verification: { stage: "verification", progress: 50 },
   completeness: { stage: "completeness", progress: 65 },
   final_verification: { stage: "final_verification", progress: 80 },
@@ -18,6 +19,7 @@ export type AnalysisStageKey = keyof typeof ANALYSIS_STAGES;
 
 export const ANALYSIS_STAGE_ORDER = [
   "topic_extraction",
+  "conversation_events",
   "candidates",
   "verification",
   "completeness",

@@ -230,7 +230,7 @@ test("one failed candidate chunk prevents pipeline persistence", async () => {
   let calls = 0;
   let persisted = false;
   const result = await runExecutionIntelligence({
-    source: source(90),
+    source: { ...source(90), conversationEvents: [] },
     fallbackUsed: false,
     generation: 1,
     dependencies: {
@@ -257,7 +257,8 @@ test("one failed candidate chunk prevents pipeline persistence", async () => {
       persistGraph: async () => {
         persisted = true;
         return { ok: true, commitments: [], tasks: [] };
-      }
+      },
+      persistEvents: async () => ({ ok: true })
     }
   });
 
@@ -377,7 +378,7 @@ test("batched verification preserves cross-batch commitment task links", async (
   };
   const seenParentWithTask: boolean[] = [];
   const result = await verifyExecutionGraphInBatches({
-    source: source(100),
+    source: { ...source(100), conversationEvents: [] },
     graph,
     verifyBatch: async (batch) => {
       if (batch.graph.tasks.some((item) => item.client_ref === "t1")) {
@@ -410,7 +411,7 @@ test("failed verification batch prevents pipeline persistence", async () => {
   let verificationCalls = 0;
   let persisted = false;
   const result = await runExecutionIntelligence({
-    source: source(100),
+    source: { ...source(100), conversationEvents: [] },
     fallbackUsed: false,
     generation: 1,
     dependencies: {
@@ -439,7 +440,8 @@ test("failed verification batch prevents pipeline persistence", async () => {
       persistGraph: async () => {
         persisted = true;
         return { ok: true, commitments: [], tasks: [] };
-      }
+      },
+      persistEvents: async () => ({ ok: true })
     }
   });
 
@@ -447,4 +449,3 @@ test("failed verification batch prevents pipeline persistence", async () => {
   assert.equal(persisted, false);
   assert.match(result.error, /verification batch 2 failed/i);
 });
-

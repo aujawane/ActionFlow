@@ -114,6 +114,10 @@ function mergeCommitment(
     source_segment_ids: Array.from(
       new Set([...existing.source_segment_ids, ...candidate.source_segment_ids])
     ),
+    conversation_event_ids: Array.from(new Set([
+      ...(existing.conversation_event_ids ?? []),
+      ...(candidate.conversation_event_ids ?? [])
+    ])),
     execution_classification:
       existing.execution_classification ??
       candidate.execution_classification ??
@@ -144,6 +148,10 @@ function mergeTask(
     source_segment_ids: Array.from(
       new Set([...existing.source_segment_ids, ...candidate.source_segment_ids])
     ),
+    conversation_event_ids: Array.from(new Set([
+      ...(existing.conversation_event_ids ?? []),
+      ...(candidate.conversation_event_ids ?? [])
+    ])),
     inferred: existing.inferred && candidate.inferred,
     suggested_steps: Array.from(
       new Set([...existing.suggested_steps, ...candidate.suggested_steps])
@@ -245,6 +253,9 @@ export function enforceExecutionGraphGrounding(input: {
     .map((topic) => `${topic.title} ${topic.summary ?? ""}`)
     .join("\n");
   const insightCorpus = input.source.insights.map((insight) => insight.content).join("\n");
+  const events = input.source.conversationEvents ?? [];
+  const validEventIds = new Set(events.map((event) => event.client_ref));
+  const eventCorpus = events.map((event) => event.source_quote).join("\n");
 
   function grounded(
     item: CommitmentCandidate | TaskCandidate
@@ -255,7 +266,10 @@ export function enforceExecutionGraphGrounding(input: {
         ? insightCorpus
         : item.evidence_source === "topic_summary"
           ? summaryCorpus
-          : input.source.transcript;
+          : item.evidence_source === "conversation_event"
+            ? eventCorpus
+            : input.source.transcript;
+    const validEventEvidence = (item.conversation_event_ids ?? []).filter((id) => validEventIds.has(id));
     const quoteGrounded =
       item.evidence_source === "inferred" ||
       isQuoteGrounded(item.source_quote, corpus);
@@ -264,11 +278,13 @@ export function enforceExecutionGraphGrounding(input: {
         ...item,
         topic_id:
           item.topic_id && validTopicIds.has(item.topic_id) ? item.topic_id : null,
-        source_segment_ids: validIds
+        source_segment_ids: validIds,
+        conversation_event_ids: validEventEvidence
       },
       grounded:
         quoteGrounded &&
-        (item.evidence_source !== "transcript" || validIds.length > 0)
+        (item.evidence_source !== "transcript" || validIds.length > 0) &&
+        (item.evidence_source !== "conversation_event" || validEventEvidence.length > 0)
     };
   }
 

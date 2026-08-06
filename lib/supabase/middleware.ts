@@ -1,6 +1,30 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { recoveryErrorPath } from "@/lib/password-recovery";
+
+export function authRedirectFor(input: {
+  pathname: string;
+  hasUser: boolean;
+}): string | null {
+  const isResetPassword = input.pathname === "/account/reset-password";
+  const isProtectedRoute =
+    input.pathname.startsWith("/dashboard") ||
+    input.pathname.startsWith("/meetings") ||
+    input.pathname.startsWith("/tasks") ||
+    input.pathname.startsWith("/account");
+  const isAuthRoute =
+    input.pathname.startsWith("/login") ||
+    input.pathname.startsWith("/forgot-password");
+
+  if (!input.hasUser && isResetPassword) {
+    return recoveryErrorPath("recovery_session_required");
+  }
+  if (!input.hasUser && isProtectedRoute) return "/login";
+  if (input.hasUser && isAuthRoute) return "/dashboard";
+  return null;
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request
@@ -38,24 +62,15 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
-  const isProtectedRoute =
-    pathname.startsWith("/dashboard") ||
-    pathname.startsWith("/meetings") ||
-    pathname.startsWith("/tasks") ||
-    pathname.startsWith("/account");
-  const isAuthRoute =
-    pathname.startsWith("/login") || pathname.startsWith("/forgot-password");
-
-  if (!user && isProtectedRoute) {
+  const authRedirect = authRedirectFor({ pathname, hasUser: Boolean(user) });
+  if (authRedirect) {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  if (user && isAuthRoute) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/dashboard";
+    const destination = new URL(authRedirect, request.url);
+    redirectUrl.pathname = destination.pathname;
+    redirectUrl.search = destination.search;
+    if (destination.pathname === "/login") {
+      redirectUrl.searchParams.set("next", pathname);
+    }
     return NextResponse.redirect(redirectUrl);
   }
 

@@ -12,11 +12,23 @@ import {
   type ExecutionMetrics
 } from "./observability";
 import { persistExecutionGraph } from "./persistence";
+import { persistConversationEvents } from "./persistence";
+import { extractAndLinkConversationEvents } from "./conversation-events";
+import { ensureAcceptedWorkTasks } from "./standalone-events";
+import {
+  applyCommitmentPromotionGuard,
+  buildResponsibilityLedger,
+  finalizeResponsibilityTrace,
+  responsibilitiesOnlyGraph,
+  type ExecutionIntelligenceV2Trace,
+  type ResponsibilityLedgerEntry
+} from "./execution-v2";
 import { resolveAssigneesAndDueDates } from "./resolution";
 import type { ExecutionGraph } from "./schemas";
 import {
   findMissingExecutionWorkInBatches,
   generateChunkedExecutionCandidates,
+  judgeExecutionGraph,
   synthesizeExecutionGraph,
   verifyExecutionGraphInBatches,
   type ExecutionSourceContext
@@ -27,6 +39,8 @@ export type DurableExecutionState = {
   fallbackUsed: boolean;
   metrics: ExecutionMetrics;
   graph: ExecutionGraph;
+  responsibilityLedger: ResponsibilityLedgerEntry[];
+  reasoningTrace?: ExecutionIntelligenceV2Trace;
 };
 
 function stageFailure(stage: string, error: string, details?: string): never {
@@ -56,13 +70,31 @@ export async function runCandidateExtraction(input: {
   }
 
   metrics.salvagedItems += candidates.salvagedItems ?? 0;
-  metrics.candidateCommitments = candidates.graph.commitments.length;
-  metrics.candidateTasks = candidates.graph.tasks.length;
+  const graph = responsibilitiesOnlyGraph(candidates.graph);
+  const responsibilityLedger = buildResponsibilityLedger({
+    graph,
+    events: input.source.conversationEvents ?? []
+  });
+  metrics.candidateCommitments = 0;
+  metrics.candidateTasks = graph.tasks.length;
   logExecutionStage(metrics, "candidates_generated", {
     commitments: metrics.candidateCommitments,
     tasks: metrics.candidateTasks
   });
-  return { ...input, metrics, graph: candidates.graph };
+  return { ...input, metrics, graph, responsibilityLedger };
+}
+
+export async function runConversationEventExtraction(
+  source: ExecutionSourceContext
+): Promise<ExecutionSourceContext> {
+  const result = await extractAndLinkConversationEvents(source);
+  if (!result.ok) stageFailure("conversation_event_extraction", result.error, result.details);
+  logExecutionStage(createExecutionMetrics(source.meetingId, false), "conversation_events_extracted", {
+    events: result.events.length,
+    linked_events: result.events.filter((event) => event.linked_event_refs.length > 0).length,
+    latency_ms: result.latencyMs
+  });
+  return { ...source, conversationEvents: result.events };
 }
 
 export async function runInitialVerification(
@@ -79,7 +111,9 @@ export async function runInitialVerification(
   }
 
   state.metrics.salvagedItems += verified.salvagedItems ?? 0;
-  const resolved = resolveAssigneesAndDueDates(linkTasksToCommitments(verified.graph));
+  const resolved = resolveAssigneesAndDueDates(
+    responsibilitiesOnlyGraph(verified.graph)
+  );
   const grounded = enforceExecutionGraphGrounding({
     source: state.source,
     graph: resolved
@@ -107,7 +141,10 @@ export async function runCompleteness(
   state.metrics.salvagedItems += missing.salvagedItems ?? 0;
   state.metrics.missingCommitments = missing.graph.commitments.length;
   state.metrics.missingTasks = missing.graph.tasks.length;
-  const merged = mergeAndDeduplicateGraphs(state.graph, missing.graph);
+  const merged = mergeAndDeduplicateGraphs(
+    state.graph,
+    responsibilitiesOnlyGraph(missing.graph)
+  );
   state.metrics.deduplicatedCommitments += merged.deduplicatedCommitments;
   state.metrics.deduplicatedTasks += merged.deduplicatedTasks;
   const normalized = normalizeExecutionGraphQuality(merged.graph);
@@ -135,7 +172,9 @@ export async function runFinalVerification(
   }
 
   state.metrics.salvagedItems += verified.salvagedItems ?? 0;
-  const resolved = resolveAssigneesAndDueDates(linkTasksToCommitments(verified.graph));
+  const resolved = resolveAssigneesAndDueDates(
+    responsibilitiesOnlyGraph(verified.graph)
+  );
   const normalized = normalizeExecutionGraphQuality(resolved);
   const grounded = enforceExecutionGraphGrounding({
     source: state.source,
@@ -152,6 +191,10 @@ export async function runFinalVerification(
 export async function runGlobalSynthesis(
   state: DurableExecutionState
 ): Promise<DurableExecutionState> {
+  const responsibilityLedger = buildResponsibilityLedger({
+    graph: state.graph,
+    events: state.source.conversationEvents ?? []
+  });
   const synthesis = await synthesizeExecutionGraph({
     source: state.source,
     graph: state.graph
@@ -162,7 +205,18 @@ export async function runGlobalSynthesis(
     stageFailure("synthesis", synthesis.error, synthesis.details);
   }
   state.metrics.salvagedItems += synthesis.salvagedItems ?? 0;
-  const synthesizedCommittedOutcomes = synthesis.graph.commitments.filter(
+  const judged = await judgeExecutionGraph({
+    source: state.source,
+    graph: synthesis.graph
+  });
+  if (!judged.ok) {
+    state.metrics.validationFailures += Number(judged.validationFailure);
+    stageFailure("execution_judge", judged.error, judged.details);
+  }
+  state.metrics.openAiLatencyMs.judge = judged.latencyMs;
+  state.metrics.salvagedItems += judged.salvagedItems ?? 0;
+  const promotionGuard = applyCommitmentPromotionGuard(judged.graph);
+  const synthesizedCommittedOutcomes = promotionGuard.graph.commitments.filter(
     (item) => (item.execution_classification ?? "committed") === "committed"
   ).length;
   if (synthesizedCommittedOutcomes > 7) {
@@ -173,7 +227,7 @@ export async function runGlobalSynthesis(
   }
 
   const resolved = resolveAssigneesAndDueDates(
-    linkTasksToCommitments(synthesis.graph)
+    linkTasksToCommitments(promotionGuard.graph)
   );
   const normalized = normalizeExecutionGraphQuality(resolved);
   const grounded = enforceExecutionGraphGrounding({
@@ -186,7 +240,14 @@ export async function runGlobalSynthesis(
   state.metrics.deduplicatedCommitments += deduped.deduplicatedCommitments;
   state.metrics.deduplicatedTasks += deduped.deduplicatedTasks;
 
-  const consolidated = consolidateExecutionGraph(deduped.graph, {
+  const acceptedWork = ensureAcceptedWorkTasks({
+    graph: deduped.graph,
+    events: state.source.conversationEvents ?? []
+  });
+  logExecutionStage(state.metrics, "accepted_work_audited", {
+    standalone_tasks_added: acceptedWork.added
+  });
+  const consolidated = consolidateExecutionGraph(acceptedWork.graph, {
     projectName: state.source.project?.name,
     projectGoal: state.source.project?.goal
   });
@@ -206,17 +267,27 @@ export async function runGlobalSynthesis(
   state.metrics.unlinkedTasks =
     consolidated.graph.tasks.length - state.metrics.linkedTasks;
 
-  const insightNextSteps = state.source.insights.filter(
-    (insight) => insight.category === "next_steps"
-  ).length;
   const committed = countCommittedWork(consolidated.graph);
-  if (insightNextSteps > 0 && committed.commitments === 0 && committed.tasks === 0) {
+  const groundedExecutionSignals = (state.source.conversationEvents ?? []).filter(
+    (event) => ["accepted", "explicit"].includes(event.commitment_signal)
+  ).length;
+  if (groundedExecutionSignals > 0 && committed.commitments === 0 && committed.tasks === 0) {
     stageFailure(
       "synthesis",
-      "Completeness verification found no executable work despite insight next steps."
+      "Completeness verification found no executable work despite accepted conversation events."
     );
   }
-  return { ...state, graph: consolidated.graph };
+  const reasoningTrace = finalizeResponsibilityTrace({
+    ledger: responsibilityLedger,
+    graph: consolidated.graph,
+    judgments: promotionGuard.judgments
+  });
+  return {
+    ...state,
+    graph: consolidated.graph,
+    responsibilityLedger,
+    reasoningTrace
+  };
 }
 
 export async function persistDurableExecutionGraph(input: {
@@ -233,6 +304,12 @@ export async function persistDurableExecutionGraph(input: {
     if (persisted.stale) error.name = "StaleAnalysisError";
     throw error;
   }
+  const persistedEvents = await persistConversationEvents({
+    meetingId: input.state.source.meetingId,
+    generation: input.generation,
+    events: input.state.source.conversationEvents ?? []
+  });
+  if (!persistedEvents.ok) throw new Error(persistedEvents.error);
   logExecutionSummary(input.state.metrics);
   return {
     commitments: persisted.commitments,

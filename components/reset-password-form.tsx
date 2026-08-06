@@ -1,45 +1,58 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { PASSWORD_MIN_LENGTH, validateNewPassword } from "@/lib/password-recovery";
 
 export function ResetPasswordForm() {
   const router = useRouter();
-  const supabase = createSupabaseBrowserClient();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const submittingRef = useRef(false);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true);
     setMessage(null);
 
-    if (password.length < 8) {
+    const validationError = validateNewPassword({ password, confirmPassword });
+    if (validationError) {
       setLoading(false);
-      setMessage("Password must be at least 8 characters.");
+      submittingRef.current = false;
+      setMessage(validationError);
       return;
     }
 
-    if (password !== confirmPassword) {
+    let response: Response;
+    let result: { error?: string; message?: string };
+    try {
+      response = await fetch("/api/auth/password-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password, confirmPassword })
+      });
+      result = (await response.json().catch(() => ({}))) as typeof result;
+    } catch {
       setLoading(false);
-      setMessage("Passwords do not match.");
+      submittingRef.current = false;
+      setMessage("Unable to reach the server. Please try again.");
       return;
     }
-
-    const { error } = await supabase.auth.updateUser({ password });
     setLoading(false);
+    submittingRef.current = false;
 
-    if (error) {
-      setMessage(error.message);
+    if (!response.ok) {
+      setMessage(result.error || "Unable to update the password.");
       return;
     }
 
-    setMessage("Password updated successfully. Redirecting...");
+    setMessage(result.message || "Password updated successfully. Redirecting...");
     router.push("/dashboard");
     router.refresh();
   }
@@ -60,7 +73,7 @@ export function ResetPasswordForm() {
             id="new-password"
             type={showPassword ? "text" : "password"}
             required
-            minLength={8}
+            minLength={PASSWORD_MIN_LENGTH}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="new-password"
@@ -75,7 +88,7 @@ export function ResetPasswordForm() {
             id="confirm-new-password"
             type={showPassword ? "text" : "password"}
             required
-            minLength={8}
+            minLength={PASSWORD_MIN_LENGTH}
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
             autoComplete="new-password"

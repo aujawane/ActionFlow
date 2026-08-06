@@ -154,7 +154,8 @@ test("fallback pipeline verifies completeness before persisting executable work"
           category: "next_steps",
           content: "Send the pricing deck"
         }
-      ]
+      ],
+      conversationEvents: []
     },
     dependencies: {
       generateCandidates: async () => ({
@@ -180,7 +181,8 @@ test("fallback pipeline verifies completeness before persisting executable work"
       persistGraph: async ({ graph: inputGraph }) => {
         persistedGraph = inputGraph;
         return { ok: true, commitments: [], tasks: [] };
-      }
+      },
+      persistEvents: async () => ({ ok: true })
     }
   });
 

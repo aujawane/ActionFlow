@@ -28,7 +28,13 @@ export const commitmentCandidateSchema = z
     confidence: z.number().min(0).max(1),
     source_quote: z.string().min(1),
     source_segment_ids: z.array(z.string().uuid()),
-    evidence_source: z.enum(["transcript", "topic_summary", "insight"]),
+    evidence_source: z.enum([
+      "transcript",
+      "topic_summary",
+      "insight",
+      "conversation_event"
+    ]),
+    conversation_event_ids: z.array(z.string()).optional(),
     type: z.enum([
       "personal",
       "assignment",
@@ -68,7 +74,14 @@ export const taskCandidateSchema = z
     confidence: z.number().min(0).max(1),
     source_quote: z.string().min(1),
     source_segment_ids: z.array(z.string().uuid()),
-    evidence_source: z.enum(["transcript", "topic_summary", "insight", "inferred"]),
+    evidence_source: z.enum([
+      "transcript",
+      "topic_summary",
+      "insight",
+      "conversation_event",
+      "inferred"
+    ]),
+    conversation_event_ids: z.array(z.string()).optional(),
     inferred: z.boolean(),
     task_type: z.enum(["commitment", "implicit_commitment", "unassigned_work"]),
     workspace_type: z.enum([
@@ -135,7 +148,11 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           },
           evidence_source: {
             type: "string",
-            enum: ["transcript", "topic_summary", "insight"]
+            enum: ["transcript", "topic_summary", "insight", "conversation_event"]
+          },
+          conversation_event_ids: {
+            type: "array",
+            items: { type: "string" }
           },
           type: {
             type: "string",
@@ -179,6 +196,7 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           "source_quote",
           "source_segment_ids",
           "evidence_source",
+          "conversation_event_ids",
           "type",
           "completion_state",
           "execution_classification",
@@ -210,7 +228,17 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           },
           evidence_source: {
             type: "string",
-            enum: ["transcript", "topic_summary", "insight", "inferred"]
+            enum: [
+              "transcript",
+              "topic_summary",
+              "insight",
+              "conversation_event",
+              "inferred"
+            ]
+          },
+          conversation_event_ids: {
+            type: "array",
+            items: { type: "string" }
           },
           inferred: { type: "boolean" },
           task_type: {
@@ -258,6 +286,7 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           "source_quote",
           "source_segment_ids",
           "evidence_source",
+          "conversation_event_ids",
           "inferred",
           "task_type",
           "workspace_type",

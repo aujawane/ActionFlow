@@ -1,8 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getPublicAppBaseUrl } from "@/lib/env";
+import {
+  PASSWORD_RESET_RESPONSE_MESSAGE,
+  buildPasswordResetCallbackUrl,
+  initiatePasswordReset
+} from "@/lib/password-recovery";
+import { createSupabaseRouteClient } from "@/lib/supabase/server";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { email?: string } | null;
   const email = body?.email?.trim().toLowerCase();
 
@@ -10,12 +16,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Email is required." }, { status: 400 });
   }
 
+  const response = NextResponse.json({ message: PASSWORD_RESET_RESPONSE_MESSAGE });
   const { origin } = new URL(request.url);
-  const redirectTo = `${origin}/api/auth/callback?next=/account/reset-password`;
-
-  await supabaseAdmin.auth.resetPasswordForEmail(email, { redirectTo });
-
-  return NextResponse.json({
-    message: "If an account exists for that email, a secure password reset link has been sent."
+  const redirectTo = buildPasswordResetCallbackUrl(
+    getPublicAppBaseUrl({ requestOrigin: origin })
+  );
+  const supabase = createSupabaseRouteClient(request, response);
+  const { error } = await initiatePasswordReset({
+    email,
+    redirectTo,
+    resetPasswordForEmail: (address, options) =>
+      supabase.auth.resetPasswordForEmail(address, options)
   });
+
+  if (process.env.NODE_ENV === "development") {
+    console.info("[password-recovery] reset requested", {
+      callback_configured: true,
+      succeeded: !error,
+      error_name: error?.name,
+      error_message: error?.message
+    });
+  }
+
+  // Deliberately return the same response for known and unknown addresses.
+  return response;
 }

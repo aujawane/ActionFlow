@@ -4,6 +4,10 @@ import { notFound } from "next/navigation";
 
 import { requireUser } from "@/lib/auth";
 import {
+  ProjectBrainLauncher,
+  ProjectBrainPanel
+} from "@/components/project-brain-panel";
+import {
   buildProjectExecutionModel,
   computeCommitmentProgress
 } from "@/lib/project-execution";
@@ -14,6 +18,9 @@ import type {
   MeetingCommitment,
   MeetingTask,
   Project,
+  ProjectChangeProposal,
+  ProjectChatMessage,
+  ProjectMemory,
   TaskArtifact,
   TaskDependency
 } from "@/lib/types";
@@ -79,7 +86,13 @@ export default async function ProjectPage({
   const [
     { data: taskArtifacts },
     { data: meetingArtifacts },
-    { data: dependencies }
+    { data: dependencies },
+    { data: memory },
+    { data: brainThread },
+    { data: recentChanges },
+    { data: projectParticipants },
+    { data: projectDecisions },
+    { data: projectConstraints }
   ] = await Promise.all([
     taskIds.length
       ? supabaseAdmin
@@ -100,8 +113,59 @@ export default async function ProjectPage({
           .from("task_dependencies")
           .select("*")
           .in("task_id", taskIds)
-      : Promise.resolve({ data: [] })
+      : Promise.resolve({ data: [] }),
+    supabaseAdmin
+      .from("project_memory")
+      .select("*")
+      .eq("project_id", id)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("project_chat_threads")
+      .select("*")
+      .eq("project_id", id)
+      .eq("created_by", user.id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("project_change_events")
+      .select("*")
+      .eq("project_id", id)
+      .order("created_at", { ascending: false })
+      .limit(8),
+    supabaseAdmin
+      .from("project_participants")
+      .select("participant_name")
+      .eq("project_id", id)
+      .order("participant_name", { ascending: true }),
+    supabaseAdmin
+      .from("project_decisions")
+      .select("id,title,description,status")
+      .eq("project_id", id)
+      .neq("status", "archived")
+      .order("updated_at", { ascending: false }),
+    supabaseAdmin
+      .from("project_constraints")
+      .select("id,title,description,status")
+      .eq("project_id", id)
+      .neq("status", "archived")
+      .order("updated_at", { ascending: false })
   ]);
+  const [{ data: brainMessages }, { data: brainProposals }] = brainThread
+    ? await Promise.all([
+        supabaseAdmin
+          .from("project_chat_messages")
+          .select("*")
+          .eq("thread_id", brainThread.id)
+          .order("created_at", { ascending: true })
+          .limit(200),
+        supabaseAdmin
+          .from("project_change_proposals")
+          .select("*")
+          .eq("thread_id", brainThread.id)
+          .order("created_at", { ascending: true })
+      ])
+    : [{ data: [] }, { data: [] }];
 
   const model = buildProjectExecutionModel({
     project: project as Project,
@@ -125,9 +189,18 @@ export default async function ProjectPage({
       href: `/meetings/${artifact.meeting_id}`
     }))
   ];
+  const people = Array.from(
+    new Set([
+      ...model.people,
+      ...(projectParticipants ?? []).map(
+        (participant) => participant.participant_name
+      )
+    ])
+  );
 
   return (
-    <section className="space-y-6">
+    <div className="flex items-start gap-6">
+      <section className="min-w-0 flex-1 space-y-6">
       <header className="premium-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -141,9 +214,12 @@ export default async function ProjectPage({
               {model.project.goal || model.project.description || "No goal set yet."}
             </p>
           </div>
-          <span className="rounded-full bg-brand-50 px-3 py-1.5 text-sm font-semibold capitalize text-brand-800">
-            {model.project.status.replace("_", " ")}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <ProjectBrainLauncher starterPrompt="Here is important project context: " />
+            <span className="rounded-full bg-brand-50 px-3 py-1.5 text-sm font-semibold capitalize text-brand-800">
+              {model.project.status.replace("_", " ")}
+            </span>
+          </div>
         </div>
         <div className="mt-5">
           <div className="mb-2 flex justify-between text-sm text-slate-600">
@@ -222,12 +298,12 @@ export default async function ProjectPage({
         <section className="premium-card p-5">
           <h2 className="font-semibold text-slate-950">People</h2>
           <div className="mt-3 space-y-2">
-            {model.people.map((person) => (
+            {people.map((person) => (
               <p key={person} className="rounded-xl bg-slate-50 px-3 py-2 text-sm">
                 {person}
               </p>
             ))}
-            {model.people.length === 0 ? (
+            {people.length === 0 ? (
               <p className="text-sm text-slate-500">No owners assigned.</p>
             ) : null}
           </div>
@@ -272,6 +348,39 @@ export default async function ProjectPage({
           </div>
         </section>
       </div>
-    </section>
+
+      <section className="premium-card p-5">
+        <h2 className="font-semibold text-slate-950">Recent changes</h2>
+        <div className="mt-3 space-y-2">
+          {(recentChanges ?? []).map((event) => (
+            <article key={event.id} className="rounded-xl bg-slate-50 px-3 py-2">
+              <p className="text-sm font-medium capitalize text-slate-800">
+                {event.event_type.replaceAll("_", " ")}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {event.entity_type.replaceAll("_", " ")} ·{" "}
+                {new Date(event.created_at).toLocaleString()}
+              </p>
+            </article>
+          ))}
+          {(recentChanges ?? []).length === 0 ? (
+            <p className="text-sm text-slate-500">No reviewed Project Brain changes yet.</p>
+          ) : null}
+        </div>
+      </section>
+      </section>
+
+      <ProjectBrainPanel
+        project={model.project}
+        initialThread={brainThread ? { id: brainThread.id } : null}
+        initialMessages={(brainMessages ?? []) as ProjectChatMessage[]}
+        initialProposals={(brainProposals ?? []) as ProjectChangeProposal[]}
+        memory={(memory as ProjectMemory | null) ?? null}
+        decisions={projectDecisions ?? []}
+        constraints={projectConstraints ?? []}
+        milestones={safeCommitments}
+        tasks={safeTasks}
+      />
+    </div>
   );
 }

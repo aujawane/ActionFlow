@@ -14,6 +14,10 @@ Meaningful product/engineering changes inferred from git history + current tree.
 - One global conversation-level commitment synthesis checkpoint after chunk verification
 - Re-analysis-safe commitment participants and explicit lead-owner fields
 - Decisions as a distinct meeting insight category
+- Project Brain persistent project chat with responsive project-side workspace
+- Structured project memory, requirements, decisions, constraints, and participants with provenance
+- First-class versioned project change proposals, per-operation review, service-role-only atomic application, and audit history
+- Outcome-level Project Brain planning with milestone rename/merge/defer operations and deterministic completeness checks
 
 ### Changed
 
@@ -23,14 +27,17 @@ Meaningful product/engineering changes inferred from git history + current tree.
 - Task ownership resolves from task evidence instead of inheriting the commitment lead
 - Commitment workspaces group compact task tiles by owner with Unassigned last
 - Meeting pages no longer repeat the complete task library across primary sections
+- Future meeting analysis receives approved goal, scope, future scope, constraints, decisions, and technical context from Project Memory
+- Proposal review now groups human-readable project, milestone, task, people, decision, and dependency diffs; raw operation JSON is advanced-only
+- Major scope changes trigger one focused regeneration when the model omits milestone operations
 
 ### Reason
 
-Make meetings evidence for durable initiatives, synthesize conversation-wide outcomes instead of chunk-level pseudo-commitments, and keep execution ownership visible without duplicated task surfaces.
+Make meetings evidence for durable initiatives rather than the only project truth, synthesize conversation-wide outcomes instead of chunk-level pseudo-commitments, and keep all AI-authored graph changes reviewable and atomic.
 
 ### Files affected
 
-`app/projects/`, `app/commitments/`, meeting/commitment/task APIs, `components/commitment-workspace.tsx`, `lib/project-execution.ts`, execution-intelligence stages/consolidation/prompts, `20260727110000_add_project_execution_hierarchy.sql`, `20260727120000_add_commitment_people.sql`, tests, and AI memory docs
+`app/projects/`, `app/api/projects/[id]/brain/`, `app/commitments/`, meeting/commitment/task APIs, `components/project-brain-panel.tsx`, `components/commitment-workspace.tsx`, `lib/project-brain/`, `lib/project-execution.ts`, execution-intelligence stages/consolidation/prompts, `20260727110000_add_project_execution_hierarchy.sql`, `20260727120000_add_commitment_people.sql`, `20260727130000_project_brain_phase1.sql`, tests, and AI memory docs
 
 ---
 

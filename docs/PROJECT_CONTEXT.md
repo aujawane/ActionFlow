@@ -25,9 +25,9 @@ Captures transcripts via Recall.ai bots, extracts commitments/tasks with OpenAI,
 
 ## Status
 
-**Implemented:** auth, meeting create/start, Recall ingest, speaker aliases, topic segmentation, background analysis, first-class projects with manual meeting assignment, global conversation-level commitment synthesis, dependency-aware next task ranking, owner-grouped commitment workspaces, deliverables, follow-up emails, Google/Zoom integrations.
+**Implemented:** auth, meeting create/start, Recall ingest, speaker aliases, topic segmentation, background analysis, first-class projects with manual meeting assignment, global conversation-level commitment synthesis, Project Brain chat/memory/reviewable atomic proposals, dependency-aware next task ranking, owner-grouped commitment workspaces, deliverables, follow-up emails, Google/Zoom integrations.
 
-**Ops gap:** additive migrations through `20260727120000_*` exist in repo; **do not apply to production** until gated. Staging must apply the project hierarchy and commitment people migrations before the new workspaces use real data.
+**Ops gap:** additive migrations through `20260727130000_*` exist in repo; **do not apply to production** until gated. Staging must apply the project hierarchy, commitment people, and Project Brain migrations before the new workspaces use real data.
 
 ## Main features
 
@@ -41,10 +41,13 @@ Captures transcripts via Recall.ai bots, extracts commitments/tasks with OpenAI,
 8. Dependency-aware next best task + computed project progress
 9. Task workspace, category-aware deliverables, committed-only follow-ups
 10. Speaker roster + manual aliases
+11. Project Brain: structured project memory, persistent contextual chat, outcome-level milestone planning, human-readable diff review, explicit approval, version-checked atomic apply, and audit history
 
 ## WIP / recent focus
 
 - Global conversation-level synthesis quality vs over-extraction
+- Project Brain proposal quality and staging SQL/RLS verification
+- Project Brain milestone-plan quality across real scope changes
 - Staging verify of classification, background jobs, and project hierarchy migrations
 - Live-model quality gate (hallucination threshold historically exceeded)
 
@@ -102,6 +105,7 @@ Path alias: `@/*` → repo root.
 - Project/classification columns absent until migrations are applied
 - Global synthesis may require up to 90 seconds and can still vary by model run
 - Consolidation may rare-false-merge similar phrasings
+- Project Brain creation of milestones still requires at least one meeting because execution rows remain meeting-backed in Phase 1
 
 ## Roadmap (high level)
 

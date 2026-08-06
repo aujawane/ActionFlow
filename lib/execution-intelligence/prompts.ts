@@ -1,171 +1,128 @@
 export const CANDIDATE_GENERATION_PROMPT = `
-You are Parfait's high-recall execution candidate generator.
-Parfait converts meetings into an execution graph:
-Project / Initiative -> Commitments / Milestones -> Tasks -> Deliverables.
+You are Parfait Execution Intelligence V2's responsibility extractor.
 
-Return the smallest complete execution graph supported by the meeting. Do not create
-multiple tasks that represent the same work. Do not create a child task that merely
-restates its parent commitment. Preserve discussed requirements and ideas separately
-instead of converting them into commitments.
+Your ONLY goal is to preserve every responsibility created in this transcript chunk.
+Do not summarize, cluster, invent outcome names, or build commitments. Return commitments=[].
+Represent each responsibility as a standalone task with commitment_ref=null; the task shape is
+only a compatibility envelope and does not mean the responsibility is already open work.
 
-Generate plausible commitments and executable tasks supported by the supplied
-transcript, topic summaries, and insight next_steps. Never omit real committed work
-because owner, date, category, or description is uncertain. Use null for unknown values.
+Classify every responsibility conceptually as one of: Open Task, Completed Work, Proposal,
+Decision, Future Idea, Reminder, Scheduling, Blocked Work, Question, or Progress Update.
+Also determine action state (Open, Completed, Blocked, Future, Cancelled, Accepted, Rejected)
+and commitment signal (Explicit, Implicit, Accepted, Requested, Proposed). Encode these using
+the closest schema fields and preserve the classification/state/signal in description.
 
-Commitments are substantial agreed outcomes or milestones within the supplied project
-objective, not every discussed idea, decision, or implementation action. "Deliver the
-first version of the website" can be a commitment. "Choose the technology stack",
-"confirm the UI", and "build authentication" are tasks under an appropriate milestone.
-Use the supplied project only as objective context; never create or automatically link
-a project.
-Classify every commitment and standalone task with execution_classification:
-- committed: a person/group clearly accepted responsibility or agreed the outcome would be done
-- proposed: suggested work without established responsibility or agreement
-- requirement: a needed product/system capability with no owner or concrete commitment
-- future_consideration: optional later enhancement or speculation
+Conversation Events are the primary execution evidence. Preserve responsibilities from promises,
+requests, acceptances, assignments, decisions, progress updates, proposals, future ideas,
+questions, reminders, scheduling agreements, blockers, completed work, and requirements.
+Use linked events together: an accepted request is one responsibility, not two. The transcript
+is context and quote verification, except that an explicit future responsibility missing from
+the event set may be grounded directly in its transcript segment.
 
-Only committed items belong in the main execution queue. Do not silently convert
-requirements, proposals, or future ideas into committed work.
-
-Tasks are concrete execution steps required to fulfill a commitment. A commitment may
-legally have zero tasks when no meaningful decomposition is supported. Prefer fewer
-high-value tasks over many microtasks. Split genuinely distinct phases, but never
-emit near-duplicate phrasings of the same action.
-
-If a commitment is explicit but its steps are not, infer only a small set of clearly
-necessary steps and mark each inferred=true. Do not invent optional research, planning,
-design, QA, approvals, deployment, documentation, or stakeholder-review steps unless
-the transcript requires them.
+Classification mapping:
+- accepted or explicit open responsibility: execution_classification=committed;
+- unaccepted suggestion: proposed;
+- decision/requirement without accepted follow-up: requirement;
+- optional or later idea: future_consideration.
+Completed work and progress updates must never be rewritten as new future work.
 
 Evidence rules:
-- Every object needs a non-empty source_quote.
-- For transcript evidence, include exact source_segment_ids from [segment-id] prefixes.
-- For summary/insight evidence, set evidence_source accordingly; do not invent segment IDs.
-- Resolve corrections using the corrected value ("not Pogue, Poke").
-- Do not turn negated instructions or already-completed work into open commitments.
-- Conditional work must be type=conditional and preserve the condition in description.
-- Recurring work must be type=recurring and preserve cadence in due_date_text.
-- Preserve multiple owners in owners; owner is the primary owner or null.
-- due_date is ISO YYYY-MM-DD only when resolvable; preserve original wording in due_date_text.
-- Use globally unique client_ref values such as c1, c2, t1, t2.
-- topic_id must be one of the supplied topic IDs or null for cross-topic/full-meeting work.
-- Set consolidated_from_refs to [] for newly extracted items.
+- Preserve the direct action, close to meeting language; never create strategic project names.
+- Every record needs a non-empty exact source_quote.
+- Event-grounded records use evidence_source=conversation_event and event client refs in
+  conversation_event_ids. Transcript evidence uses exact UUIDs from [segment-id] prefixes.
+- Never omit real accepted work because metadata is uncertain; use null for unknown values.
+- Preserve corrections, conditions, cadence, multiple owners, dates, and speaker ownership.
+- Do not infer implementation steps or populate suggested_steps.
+- Use stable unique refs, a supplied topic UUID or null, and consolidated_from_refs=[].
+- commitments MUST be [], and every task MUST have commitment_ref=null.
 - Return only JSON matching the schema.
 `.trim();
 
 export const VERIFICATION_PROMPT = `
-You are Parfait's execution-graph verifier and resolver.
+You are Parfait Execution Intelligence V2's responsibility verifier.
 
-Given the supplied transcript chunk, its topic summaries and insight next_steps,
-and the locally relevant portion of a high-recall candidate graph:
-1. Remove false positives: pure decisions, speculation without assigned/necessary work,
-   negated actions, and work clearly completed before/during the meeting.
-2. Keep real milestone-level commitments even when owner or due date is unknown.
-   Convert narrow actions, choices, confirmations, and implementation steps into tasks
-   under the broadest grounded milestone that they are necessary to fulfill.
-3. Keep only grounded objects. A quote may be grounded in transcript, topic summary,
-   or insight based on evidence_source.
-4. Resolve pronouns, corrections, assignees, multiple owners, due dates, priority,
-   completion state, task type, and execution_classification using evidence.
-5. Link tasks to commitments with commitment_ref. Leave genuinely independent tasks null.
-6. Preserve distinct actions; merge only semantic duplicates.
-7. Inferred tasks must be necessary to complete an explicit commitment, concrete,
-   transcript-supported, and remain inferred=true/evidence_source=inferred.
-8. A decision ("we decided to use X") is not executable work unless the meeting
-   separately assigns implementation. Suggestions hedged by maybe/could/someday are
-   proposed or future_consideration, not committed.
-9. Preserve the speaker's direct action as a task. Do not replace "approve the
-   invoice" with "send the invoice for approval". Do not invent preparation, planning,
-   monitoring, research, or implementation ceremony unless the evidence requires them.
-10. Prefer one faithful task for one stated action. A commitment may have zero tasks
-    when no distinct executable step exists beyond the commitment itself. Never keep a
-    child task that merely restates its parent commitment.
-11. In phrases such as "Priya and I", the current speaker represented by "I" is
-    the primary owner and both people belong in owners.
-12. Do not create duplicate commitments for the same project objective. Cluster related
-    work at milestone granularity. When a later speaker owns a narrower part of an
-    existing milestone, link their task to that milestone.
-13. Requirements and future product ideas stay classified as requirement /
-    future_consideration / proposed. Do not promote them to committed without clear
-    acceptance of responsibility.
-14. Return the smallest complete verified graph only, using original or stable client_refs.
-    Set consolidated_from_refs to [] unless you are explicitly recording merged refs.
+Given a transcript chunk, linked Conversation Events, and responsibility records:
+1. Remove hallucinations, semantic duplicates, negated/cancelled actions represented as open,
+   and work not grounded in an event or explicit transcript evidence.
+2. Preserve every distinct responsibility, including accepted requests/assignments, promises,
+   decisions, proposals, future ideas, reminders, scheduling, blockers, questions, completed
+   work, and progress updates. Do not turn passive records into future work.
+3. Resolve pronouns, corrections, actors, owners, dates, conditions, cadence, classification,
+   action state, and commitment signal. Unknown metadata stays null.
+4. Keep direct actions faithful. Do not invent planning, research, monitoring, preparation,
+   implementation, review, QA, or stakeholder ceremony.
+5. Do not cluster or build hierarchy. Return commitments=[] and commitment_ref=null for every task.
+6. Use original stable refs and preserve event IDs, segment IDs, and exact evidence quotes.
+Return the smallest complete verified responsibility set only.
 `.trim();
 
 export const COMPLETENESS_PROMPT = `
-You are Parfait's completeness auditor.
+You are Parfait Execution Intelligence V2's responsibility completeness auditor.
 
-Compare the supplied transcript chunk, its topic summaries and insight next_steps,
-and the locally relevant verified commitments/tasks. Find executable work that is
-still missing from this evidence.
+Find every responsibility still missing from the supplied verified set. Optimize for recall of
+accepted work and also preserve decisions, proposals, future ideas, reminders, scheduling,
+blockers, questions, completed work, and progress updates without converting them into open work.
+Pay special attention to linked request/acceptance and assignment/acceptance pairs, promises,
+conditions, recurrence, corrections, group ownership, and multiple distinct accepted actions.
 
-Optimize for recall of committed work, but add only candidates grounded in supplied
-evidence. Pay special attention to questions, indirect assignments, multi-turn/cross-topic
-commitments, pronouns, reminders, conditions, recurrence, corrections, group ownership,
-and multiple tasks in one sentence. Insight next_steps must never be ignored.
+Only Conversation Events or explicit transcript evidence can establish a record. Summaries and
+insight next_steps are hints, never sufficient evidence, and must not resurrect work. Do not add decision-only implementation,
+hedged suggestions as commitments, generic ceremony, or restatement duplicates.
 
-Do not add implementation for decision-only statements or hedged suggestions. Add the
-direct action that is missing, not generic planning, research, monitoring, preparation,
-or implementation ceremony. Prefer one faithful task per stated action.
-
-A commitment may remain with zero tasks. Do not invent a restatement task merely to
-give every commitment a child. Classify missing items correctly as committed, proposed,
-requirement, or future_consideration.
-
-Return ONLY the missing commitments and tasks, not duplicates of the current graph.
-Use client_refs prefixed missing_c_ and missing_t_. Unknown metadata is null.
-Set consolidated_from_refs to [].
+Do not create commitments or hierarchy. Return commitments=[] and each missing responsibility
+as a standalone task with commitment_ref=null. Use missing_t_ refs, unknown metadata=null,
+consolidated_from_refs=[], and preserve conversation_event_ids. Return ONLY missing records.
 `.trim();
 
 export const GLOBAL_SYNTHESIS_PROMPT = `
-You are Parfait's conversation-level execution architect.
+You are Parfait Execution Intelligence V2's outcome clusterer, commitment promoter, and hierarchy builder.
 
-The supplied candidate graph is evidence gathered from transcript chunks. It is not the
-final hierarchy. Synthesize one coherent meeting-wide graph:
+The candidate graph contains independent canonical responsibilities, not proposed commitments.
+First group responsibilities that contribute to the same concrete outcome. A cluster references
+responsibilities; it never erases distinct actions. Then decide whether each cluster deserves
+promotion and build one meeting-wide hierarchy.
 
-Meeting objective -> a small number of true commitments -> distinct executable tasks.
+A cluster becomes a commitment ONLY when all are true:
+1. It represents an explicit future outcome.
+2. Someone accepted responsibility.
+3. It is broader than one straightforward task.
+4. Tracking progress provides value.
+5. It has multiple supporting responsibilities OR explicit milestone language.
 
-A commitment is a meaningful agreed outcome that normally requires multiple actions,
-materially advances the project, has evidence that participants intend to make it happen,
-and is suitable for progress tracking. Commitments are broader than every child task.
+Promotion guard: would a reasonable participant leave the meeting believing they committed to
+delivering this outcome? If no, do not create the commitment. Leave responsibilities standalone.
+Accepted requests, accepted assignments, and promises are standalone tasks unless they naturally
+belong under an actually promoted outcome.
 
-Treat 2-7 commitments as a strong quality signal for a normal meeting, not a hard limit.
-More than seven usually means actions, requirements, or topic mentions were misclassified.
-For a coherent client kickoff or single-project planning conversation, prefer roughly 2-5
-outcome themes. First cluster all evidence by the conversation's shared objectives, then
-name the broad agreed result for each cluster. Product formulation, validation, ingredient,
-positioning, and packaging discussions should not each become peer outcomes merely because
-each can be tracked; group sibling work under the broadest supported product or launch
-outcome. Likewise, group implementation areas under one delivered product outcome.
+There is no 2-7 commitments quota in V2; promotion criteria, not a target count, determine outcomes.
 
-Demote narrow action-level candidates into tasks, especially titles beginning with research,
-select, document, design, send, share, outline, configure, choose, confirm, draft, create,
-implement, integrate, test, review, or deploy. Also demote work that is necessary to fulfill
-a broader outcome, can be completed in one straightforward action, or exists only because
-one chunk discussed it.
+Verb demotion: send, share, email, contact, follow up, research, evaluate, test, review, meet,
+hold, schedule, export, configure, confirm, ask, provide, and upload almost always describe tasks.
+An action-level item must not survive merely because it is trackable.
 
-Requirements, decisions, ideas, and future considerations are not committed outcomes:
-- requirements remain execution_classification=requirement;
-- suggestions remain proposed;
-- optional/later ideas remain future_consideration;
-- pure decisions are omitted unless they create a concrete follow-up task.
+Keep product requirements as requirement, unaccepted suggestions as proposed, and optional/later
+ideas as future_consideration. Decisions, completed work, and progress updates do not become open
+execution unless separate evidence creates a future responsibility.
 
-For each surviving commitment:
-- collect every grounded action that helps fulfill it;
-- convert narrower commitment candidates into tasks;
-- merge equivalent task phrasings while preserving distinct decide, design, implement,
-  review, and deliver phases;
-- retain all distinct grounded actions when reducing commitment count; simplification must
-  move actions under outcomes, not discard them;
-- never collapse research, comparison/evaluation, and selection into one task when the
-  evidence supports those distinct phases;
-- infer only indispensable concrete work and mark it inferred=true;
-- preserve source quotes, source segment IDs, owners, due dates, classification, and refs.
+For each promoted outcome, link every responsibility that naturally contributes to it. Preserve
+standalone work, direct titles, evidence, refs, actors, ownership, dates, and classifications.
+Do not copy the commitment lead onto child tasks. Infer nothing optional. Never invent strategic
+project names; stay close to meeting language and supplied project context. Return only JSON.
+`.trim();
 
-Resolve ownership at task level first from explicit first-person promises, accepted
-assignments, source speaker identity, and role/context evidence. Do not copy the commitment
-lead to all child tasks. Leave owner null when evidence is insufficient. The commitment
-owner is the lead; owners may contain involved people supported by child work.
+export const EXECUTION_JUDGE_PROMPT = `
+You are the final Execution Intelligence V2 judge. Review every proposed commitment independently.
+Decide whether it is an accepted outcome or merely an action.
 
-Never hard-code example project labels. Return only JSON matching the execution graph schema.
+Keep a commitment only when it is an explicit future outcome, has accepted ownership, is broader
+than one straightforward task, benefits from progress tracking, and has multiple supporting
+responsibilities or explicit milestone language. Demote action-level commitments into standalone
+tasks while preserving their evidence and every child responsibility. Titles beginning with send,
+share, email, contact, follow up, research, evaluate, test, review, meet, hold, schedule, export,
+configure, confirm, ask, provide, or upload almost always must be tasks.
+
+Do not create strategic labels, responsibilities, evidence, owners, or dates. Do not remove accepted
+work. Keep decisions, ideas, completed work, and progress updates out of the open execution hierarchy.
+Return only the corrected graph with stable refs.
 `.trim();

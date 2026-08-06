@@ -142,6 +142,7 @@ const BROAD_OUTCOME_TERMS = [
 
 const NARROW_ACTION_TERMS = [
   "research",
+  "evaluate",
   "choose",
   "confirm",
   "configure",
@@ -153,6 +154,9 @@ const NARROW_ACTION_TERMS = [
   "request",
   "send",
   "share",
+  "email",
+  "contact",
+  "follow up",
   "select",
   "outline",
   "link",
@@ -164,11 +168,18 @@ const NARROW_ACTION_TERMS = [
   "review",
   "approve",
   "design",
-  "create"
+  "create",
+  "meet",
+  "hold",
+  "schedule",
+  "export",
+  "ask",
+  "provide",
+  "upload"
 ];
 
 const NARROW_COMMITMENT_OPENING =
-  /^(research|select|document|design|send|share|outline|configure|clarify|define|link|plan|choose|confirm|draft|create|implement|integrate|test|validate|review|deploy)\b/i;
+  /^(research|evaluate|select|document|design|send|share|email|contact|follow up|outline|configure|clarify|define|link|plan|choose|confirm|draft|create|implement|integrate|test|validate|review|meet|hold|schedule|export|ask|provide|upload)\b/i;
 
 export type MilestoneConsolidationContext = {
   projectName?: string | null;
@@ -546,6 +557,7 @@ function commitmentAsTask(
     source_quote: commitment.source_quote,
     source_segment_ids: commitment.source_segment_ids,
     evidence_source: commitment.evidence_source,
+    conversation_event_ids: commitment.conversation_event_ids ?? [],
     inferred: false,
     task_type: "commitment",
     workspace_type: taskWorkspaceForTitle(commitment.title),

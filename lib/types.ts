@@ -187,8 +187,65 @@ export interface Project {
   goal: string | null;
   status: ProjectStatus;
   owner_id: string;
+  execution_graph_version?: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectMemory {
+  project_id: string;
+  summary: string | null;
+  goal: string | null;
+  product_description: string | null;
+  target_audience: string | null;
+  current_scope: JsonValue;
+  future_scope: JsonValue;
+  technical_context: JsonValue;
+  design_context: JsonValue;
+  constraints: JsonValue;
+  assumptions: JsonValue;
+  success_criteria: JsonValue;
+  provenance: JsonValue;
+  confirmed_fields: JsonValue;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectChatMessage {
+  id: string;
+  thread_id: string;
+  project_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  metadata: JsonValue;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface ProjectChangeProposal {
+  id: string;
+  project_id: string;
+  thread_id: string | null;
+  source_message_id: string | null;
+  status:
+    | "draft"
+    | "pending_review"
+    | "approved"
+    | "applied"
+    | "rejected"
+    | "failed"
+    | "superseded";
+  summary: string;
+  proposal: JsonValue;
+  warnings: JsonValue;
+  base_graph_version: number;
+  resulting_graph_version: number | null;
+  created_by: string;
+  approved_by: string | null;
+  created_at: string;
+  applied_at: string | null;
+  rejected_at: string | null;
 }
 
 export interface MeetingTask {
@@ -250,6 +307,40 @@ export interface MeetingCommitment {
   manual_override_fields?: string[] | JsonValue;
   created_at: string;
   updated_at: string;
+}
+
+export type ConversationEventType =
+  | "promise"
+  | "request"
+  | "acceptance"
+  | "assignment"
+  | "decision"
+  | "progress_update"
+  | "proposal"
+  | "future_idea"
+  | "question"
+  | "reminder"
+  | "scheduling_agreement"
+  | "blocker"
+  | "completed_work"
+  | "requirement";
+
+export interface MeetingConversationEvent {
+  id: string;
+  meeting_id: string;
+  client_ref: string;
+  type: ConversationEventType;
+  actors: string[];
+  action: string | null;
+  object: string | null;
+  temporal_state: "past" | "present" | "future" | "conditional" | "recurring" | "unspecified";
+  commitment_signal: "none" | "proposed" | "requested" | "accepted" | "explicit";
+  source_quote: string;
+  source_segment_ids: string[];
+  linked_event_refs: string[];
+  confidence: number | null;
+  analysis_generation: number;
+  created_at: string;
 }
 
 export interface CommitmentParticipant {

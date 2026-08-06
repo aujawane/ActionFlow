@@ -54,7 +54,7 @@ for **Production** (and Preview if you want preview deploys to work).
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://xxxx.supabase.co` | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` | Public anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | **Server only** — never expose to the browser |
-| `OPENAI_API_KEY` | `sk-...` | Server only |
+| `OPENAI_API_KEY` | OpenAI API key | Server only |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | Optional; defaults to `gpt-4.1-mini` |
 | `RECALL_API_KEY` | Recall token | Server only |
 | `RECALL_REGION` | `us-west-2` | Recall API region |

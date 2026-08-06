@@ -1,6 +1,7 @@
 import {
   persistDurableExecutionGraph,
   runCandidateExtraction,
+  runConversationEventExtraction,
   runCompleteness,
   runFinalVerification,
   runGlobalSynthesis,
@@ -64,6 +65,16 @@ export async function runMeetingAnalysisStage(input: {
 
     if (!checkpoint.prepared) {
       throw new Error("Missing prepared analysis checkpoint.");
+    }
+
+    if (input.stage === "conversation_events") {
+      const source = await runConversationEventExtraction(checkpoint.prepared.source);
+      const prepared = { ...checkpoint.prepared, source };
+      await saveAnalysisJobCheckpoint({
+        jobId: input.jobId,
+        checkpoint: { prepared }
+      });
+      return { nextStage: nextWorkerStage(input.stage), done: false };
     }
 
     if (input.stage === "candidates") {

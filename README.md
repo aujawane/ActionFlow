@@ -70,8 +70,8 @@ Required variables:
   Supabase anon/public key
 - `SUPABASE_SERVICE_ROLE_KEY`  
   Supabase service role key (server-only)
-- `OPENAI_API_KEY`  
-  OpenAI API key for transcript analysis + prompt generation
+- `OPENAI_API_KEY`
+  OpenAI API key used for all transcript analysis and generation features
 - `OPENAI_MODEL`  
   Default model name (example: `gpt-4.1-mini`)
 - `RECALL_API_KEY`  
@@ -126,7 +126,7 @@ Notes:
 
 ## OpenAI Setup
 
-1. Create OpenAI API key.
+1. Create an OpenAI API key.
 2. Set:
    - `OPENAI_API_KEY`
    - `OPENAI_MODEL` (optional override)

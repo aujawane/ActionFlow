@@ -116,14 +116,45 @@ export async function prepareMeetingAnalysis(
 
   const meetingProjectId =
     typeof meeting.project_id === "string" ? meeting.project_id : null;
-  const { data: project } = meetingProjectId
-    ? await supabaseAdmin
-        .from("projects")
-        .select("id, name, goal")
-        .eq("id", meetingProjectId)
-        .eq("owner_id", meeting.user_id)
-        .maybeSingle()
-    : { data: null };
+  const [
+    { data: project },
+    { data: projectMemory },
+    { data: projectConstraints },
+    { data: projectDecisions }
+  ] = meetingProjectId
+    ? await Promise.all([
+        supabaseAdmin
+          .from("projects")
+          .select("id, name, goal")
+          .eq("id", meetingProjectId)
+          .eq("owner_id", meeting.user_id)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("project_memory")
+          .select(
+            "summary,goal,current_scope,future_scope,technical_context,confirmed_fields"
+          )
+          .eq("project_id", meetingProjectId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("project_constraints")
+          .select("id,title,description,category,manually_confirmed")
+          .eq("project_id", meetingProjectId)
+          .eq("status", "active")
+          .limit(100),
+        supabaseAdmin
+          .from("project_decisions")
+          .select("id,title,description,manually_confirmed")
+          .eq("project_id", meetingProjectId)
+          .eq("status", "active")
+          .limit(100)
+      ])
+    : [
+        { data: null },
+        { data: null },
+        { data: [] },
+        { data: [] }
+      ];
 
   const safeSegments = applySpeakerAliases(
     (segments ?? []) as TranscriptSegment[],
@@ -150,7 +181,32 @@ export async function prepareMeetingAnalysis(
         ? {
             id: (project as Pick<Project, "id">).id,
             name: (project as Pick<Project, "name">).name,
-            goal: (project as Pick<Project, "goal">).goal
+            goal:
+              (projectMemory as { goal?: string | null } | null)?.goal ??
+              (project as Pick<Project, "goal">).goal,
+            memory: {
+              summary:
+                (projectMemory as { summary?: string | null } | null)?.summary ??
+                null,
+              current_scope:
+                (
+                  projectMemory as { current_scope?: unknown } | null
+                )?.current_scope ?? [],
+              future_scope:
+                (
+                  projectMemory as { future_scope?: unknown } | null
+                )?.future_scope ?? [],
+              technical_context:
+                (
+                  projectMemory as { technical_context?: unknown } | null
+                )?.technical_context ?? {},
+              constraints: projectConstraints ?? [],
+              decisions: projectDecisions ?? [],
+              confirmed_fields:
+                (
+                  projectMemory as { confirmed_fields?: unknown } | null
+                )?.confirmed_fields ?? {}
+            }
           }
         : null,
       meetingDate,
