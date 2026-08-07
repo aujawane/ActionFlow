@@ -74,7 +74,8 @@ export const commitmentCandidateSchema = z
     execution_classification: executionClassificationSchema.optional(),
     consolidated_from_refs: z.array(z.string()).optional(),
     supporting_action_refs: z.array(z.string()).optional(),
-    commitment_reason: z.string().nullable().optional()
+    commitment_reason: z.string().nullable().optional(),
+    scope_added_beyond_actions: z.string().nullable().optional()
   })
   .strict();
 
@@ -132,7 +133,11 @@ export const taskCandidateSchema = z
     extraction_reason: z.string().nullable().optional(),
     relationship_confidence: z.number().min(0).max(1).nullable().optional(),
     relationship_reason: z.string().nullable().optional(),
-    relationship_evidence: z.array(z.string()).optional()
+    relationship_evidence: z.array(z.string()).optional(),
+    relationship_decision: z
+      .enum(["child_task", "standalone_task", "uncertain"])
+      .nullable()
+      .optional()
   })
   .strict();
 
@@ -220,6 +225,9 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           },
           commitment_reason: {
             type: ["string", "null"]
+          },
+          scope_added_beyond_actions: {
+            type: ["string", "null"]
           }
         },
         required: [
@@ -242,7 +250,8 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           "execution_classification",
           "consolidated_from_refs",
           "supporting_action_refs",
-          "commitment_reason"
+          "commitment_reason",
+          "scope_added_beyond_actions"
         ]
       }
     },
@@ -328,6 +337,10 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           relationship_evidence: {
             type: "array",
             items: { type: "string" }
+          },
+          relationship_decision: {
+            type: ["string", "null"],
+            enum: ["child_task", "standalone_task", "uncertain", null]
           }
         },
         required: [
@@ -359,7 +372,8 @@ export const executionGraphJsonSchema: Record<string, unknown> = {
           "extraction_reason",
           "relationship_confidence",
           "relationship_reason",
-          "relationship_evidence"
+          "relationship_evidence",
+          "relationship_decision"
         ]
       }
     }

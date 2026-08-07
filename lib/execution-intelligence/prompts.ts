@@ -16,50 +16,158 @@ Rules:
 - An agreed scheduling action is open. A blocker is blocked only when it concerns real owned work.
 - Preserve requester and recipient only when supported. Do not invent implementation steps.
 - Use exact quotes and segment UUIDs from the topic transcript.
-- Set commitment_ref=null, supporting relationship fields empty/null, and use the supplied topic ID.
+- Set commitment_ref=null, supporting relationship fields empty/null (including relationship_decision=null),
+  and use the supplied topic ID.
 - execution_classification is committed only for open accepted work; proposals use proposed, ideas
   use future_consideration, and other non-execution records use requirement.
 - Explain the action classification in extraction_reason. Return only schema-valid JSON.
 `.trim();
 
 export const INDEPENDENT_COMMITMENT_EXTRACTION_PROMPT = `
-You identify commitments independently from tasks for one complete meeting.
-Return tasks=[] and only commitments supported by accepted future-outcome evidence.
+You reason about accepted future outcomes for one complete meeting. Return tasks=[] and only
+commitments supported by accepted evidence.
+
+A task is a concrete action. A commitment is a broader accepted future outcome that one or more
+concrete actions serve. Never repeat an existing action as a commitment unless its wording states a
+genuinely broader outcome than the action itself.
+
+Reason in this order:
+1. Review extracted_actions, the grounded accepted-work inventory for this meeting.
+2. Identify groups of actions that serve the same purpose.
+3. For each group (or single action), ask: "What broader future outcome are these actions intended
+   to accomplish?"
+4. Create a commitment only when all of the following hold:
+   - the outcome is supported by the transcript;
+   - accountability for the outcome was explicitly accepted, not merely discussed;
+   - the outcome is broader than the concrete action(s) that support it;
+   - the outcome is useful to track independently of any single action.
+5. Separately, scan the transcript for explicit accepted future outcomes that have no supporting
+   action yet — an outcome someone accepted responsibility for before any concrete step was
+   discussed. Extract these directly with supporting_action_refs=[]. Do not require the action
+   inventory to already contain every task that will eventually support the outcome: an explicit
+   accepted outcome ("we should have a version before next Tuesday") is a commitment on its own,
+   even if the actions that will get there were not enumerated in this meeting.
+
+Before emitting any commitment, answer these four questions against the evidence:
+- Which action refs, if any, support this commitment?
+- What broader scope does this commitment add beyond those actions — write it in
+  scope_added_beyond_actions?
+- Would completing the linked actions reasonably complete or materially advance this outcome?
+- Would a meeting participant recognize this as the outcome they agreed to achieve, not just a
+  restatement of one thing they said they'd do?
+
+If the commitment title (or its evidence) is merely a paraphrase of one supporting action — same
+quote, same scope, nothing broader — do not emit it as a commitment; that action stays a task only.
+A commitment is never required to have multiple supporting actions: a single action can be the
+commitment when the action's own wording already states the broader outcome (for example "Deploy
+Parfait before next Tuesday"). What disqualifies a commitment is redundancy with an action, not a
+low action count.
 
 A commitment is a concrete, trackable future outcome that a person or group accepted accountability
-for delivering. It is not a topic, theme, summary, one-step action, unaccepted request, proposal,
-idea, progress update, completed work, or decision without a future outcome.
+for delivering. Never create a commitment from a topic, theme, discussion, summary, unaccepted
+request, proposal, idea, progress update, completed work, deferred/future-scope work, or a decision
+without a future outcome — even when participants spent significant time on it. A plan explicitly
+deferred to later ("we'll automate that eventually") is not a current commitment. A status update on
+work already in progress elsewhere ("the Mac Mini is still on backorder") is not a new commitment.
 
-Commitments may have zero supporting actions. Do not require multiple tasks, milestone keywords,
-specific title verbs, or any minimum/maximum count. A single explicit accepted outcome is enough.
-Keep titles close to meeting language. Ground owner, status, date, exact quote, and segment UUIDs.
-supporting_action_refs may contain supplied action refs when relevant, but lack of a ref is not a
-reason to reject a commitment. Explain why the record qualifies in commitment_reason. All returned
-commitments use execution_classification=committed. Return only schema-valid JSON.
+Examples:
+- Actions: create Chatter session, test transcript input, observe behavior, message the group.
+  Correct commitment: "Validate Chatter using real Parfait meeting context."
+  Incorrect: emitting "Create Chatter session," "Test transcript input," or "Message the group" as
+  their own commitments — each is redundant with its action.
+- Actions: contact sales, research enterprise billing, follow up with Kathy.
+  Correct commitment: "Establish or clarify enterprise OpenAI/Codex access."
+  Incorrect: emitting "Contact sales," "Research enterprise account usage," or "Follow up with
+  Kathy" as their own commitments.
+- Transcript: "We will deliver the client migration by September 1," with no implementation actions
+  discussed. Correct: a commitment with supporting_action_refs=[] (the zero-task case) — do not
+  withhold it merely because the action inventory has nothing to point to yet.
+
+Keep titles close to meeting language. Ground owner, status, date, exact quote, and segment UUIDs in
+the transcript evidence for the commitment itself. In commitment_reason, name the accepted actions
+(if any) that motivated the commitment and explain why the evidence shows accepted accountability
+rather than discussion. In scope_added_beyond_actions, state the broader outcome in your own words;
+for the rare single-action commitment, explain what makes that action's own wording already an
+outcome rather than a step. All returned commitments use execution_classification=committed. Return
+only schema-valid JSON.
 `.trim();
 
 export const TASK_COMMITMENT_RELATIONSHIP_PROMPT = `
-You evaluate relationships between independently extracted open tasks and commitments.
-Return every supplied commitment and task exactly once with stable refs and unchanged core fields.
-For each task ask: "Would completing this task materially advance completion of this commitment?"
+You evaluate relationships between independently extracted open tasks and commitments by purpose,
+not topic similarity. Return every supplied commitment and task exactly once with stable refs and
+unchanged core fields.
 
-Set at most one commitment_ref. Prefer null when uncertain. Never link merely because items share a
-topic or have similar words. Completed work, in-progress reports, requests without acceptance,
-ideas, proposals, decisions, and questions must remain unlinked. A commitment may have zero tasks,
-and a standalone task is valid. Store relationship_confidence, relationship_reason, and supporting
-segment IDs in relationship_evidence. Do not add or remove items. Return only schema-valid JSON.
+For every task, weigh it against every plausible commitment and ask: "Is this action being performed
+in order to accomplish this commitment?" — not "do these two items mention the same subject."
+
+Decide one of:
+- child_task: the task is being done in order to accomplish the commitment; completing it reasonably
+  advances or completes that outcome.
+- standalone_task: the task serves no supplied commitment, or serves its own separate purpose.
+- uncertain: the evidence does not clearly show purpose either way.
+
+Rules:
+- Link (child_task) only when completing the task materially advances the broader outcome the
+  commitment represents.
+- Never link merely because a task and a commitment share a topic, owner, or similar wording.
+- Do not leave a task standalone when its transcript context clearly states it is part of the same
+  experiment or outcome the commitment represents, even if the task's title alone looks generic.
+- Treat uncertain the same as standalone for the resulting relationship: when purpose is not clearly
+  shown, prefer no link over a speculative one.
+- A task may have at most one primary commitment_ref. A commitment may have zero linked tasks.
+- Completed work, in-progress reports, requests without acceptance, ideas, proposals, decisions, and
+  questions must remain unlinked regardless of topic.
+
+For each task, set: commitment_ref (the linked commitment's ref, or null for standalone_task and
+uncertain), relationship_decision (child_task, standalone_task, or uncertain),
+relationship_confidence, relationship_reason explaining the purpose judgment (this is the standalone
+reason when commitment_ref is null), and supporting segment IDs in relationship_evidence.
+
+Examples:
+- "Create Chatter session from last week's transcript" -> child_task of "Validate Chatter using real
+  Parfait meeting context": the session is how validation gets performed.
+- "Give Chatter feedback" -> child_task of the same commitment: feedback is part of the validation
+  loop, even though its title does not mention Chatter validation directly.
+- "Follow up with Kathy" -> child_task of "Establish or clarify enterprise OpenAI/Codex access":
+  the follow-up exists to unblock enterprise access.
+- "Continue Cursor support correspondence" -> standalone_task: no supplied commitment's outcome
+  depends on this thread.
+
+Do not add or remove items. Return only schema-valid JSON.
 `.trim();
 
 export const INDEPENDENT_GRAPH_VERIFICATION_PROMPT = `
 Verify the supplied independent commitment/task graph against transcript evidence. Verify; do not
 rebuild a hierarchy and do not invent replacement items. Preserve stable refs.
 
-For commitments, keep only accepted future outcomes with supported owners, correct state, valid
-evidence, and meaning broader than a trivial action. A commitment remains valid with zero tasks.
-If a false commitment is clearly an accepted action, it may be returned as a standalone task using
-the same evidence. For tasks, keep actual accepted/open actions, correct owner/status, and unlink any
-relationship that does not materially advance its commitment. Standalone tasks remain valid.
-Completed work and non-execution items must not be returned as pending execution.
+For each commitment, verify:
+- it states a broader outcome, not a single concrete action restated;
+- accountability for it was explicitly accepted, not merely discussed or proposed;
+- it is grounded in real source evidence (owner, quote, segment IDs);
+- scope_added_beyond_actions describes real added scope beyond its supporting_action_refs, not a
+  repeat of one action's wording;
+- owners are the people who actually accepted the outcome;
+- a zero-task commitment is valid only when the transcript shows an explicit accepted outcome, not
+  an idea or proposal.
+If a proposed commitment is clearly just one accepted action restated, do not keep it as a
+commitment; it may be returned as a standalone task using the same evidence instead.
+
+For each task, verify:
+- it is an actual accepted/open action, not a proposal, idea, decision, question, or unaccepted
+  request;
+- its owner is correct;
+- its child/standalone relationship is correct — unlink any relationship that does not materially
+  advance its commitment, but do not strand a task as standalone when the transcript clearly places
+  it inside the same experiment or outcome as a supplied commitment;
+- completed or already-in-progress work is not reopened as new pending work;
+- work explicitly deferred to later, or a status update on something already in progress elsewhere
+  (for example an order already placed), is not treated as active pending work.
+
+Specifically reject:
+- a task duplicated as its own zero-child commitment with the same evidence;
+- deferred or future-scope work represented as a current commitment;
+- a status update (order/backorder/progress report) represented as a new commitment;
+- completed work represented as pending execution.
 
 Return the verified graph only. Do not infer new commitments, tasks, owners, or evidence.
 `.trim();

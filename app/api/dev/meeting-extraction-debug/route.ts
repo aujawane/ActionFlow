@@ -33,6 +33,7 @@ export async function GET(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const checkpoint = job.data?.checkpoint as {
+    engine?: "independent" | "v4";
     state?: {
       debugTrace?: unknown;
       topicActions?: unknown;
@@ -42,8 +43,25 @@ export async function GET(request: Request) {
       verificationDecisions?: unknown;
       graph?: unknown;
     };
+    v4State?: {
+      debugTrace?: unknown;
+      topicWorkItems?: unknown;
+      mergedWorkItems?: unknown;
+      globalCorrections?: unknown;
+      globalAdditions?: unknown;
+      workItems?: unknown;
+      eligibleWorkItems?: unknown;
+      draftGroups?: unknown;
+      verifiedGroups?: unknown;
+      groupDecisions?: unknown;
+      workItemDecisions?: unknown;
+      tree?: unknown;
+      graph?: unknown;
+    };
   } | null;
+  const engine = checkpoint?.engine ?? "independent";
   const state = checkpoint?.state;
+  const v4State = checkpoint?.v4State;
   const independentExecution = state?.debugTrace ?? (state ? {
     version: "independent-commitments-tasks-v1",
     topic_actions: state.topicActions ?? [],
@@ -52,6 +70,25 @@ export async function GET(request: Request) {
     relationship_decisions: state.relationshipDecisions ?? [],
     verification_decisions: state.verificationDecisions ?? [],
     final_graph: state.graph ?? null
+  } : null);
+  // Phase K: expose every stage of the hardened V4 pipeline in one place -- raw topic work items,
+  // the merged ledger, the global correction pass's corrections/additions, the eligible subset
+  // actually handed to grouping, excluded items with their reasons, both grouping passes' raw
+  // output, and deterministic assembly's decisions -- so a bad tree is traceable without guessing.
+  const v4Execution = v4State?.debugTrace ?? (v4State ? {
+    version: "execution-tree-v4-hardened-1",
+    topic_work_items: v4State.topicWorkItems ?? [],
+    merged_work_items: v4State.mergedWorkItems ?? [],
+    global_corrections: v4State.globalCorrections ?? [],
+    global_additions: v4State.globalAdditions ?? [],
+    corrected_work_items: v4State.workItems ?? [],
+    eligible_work_items: v4State.eligibleWorkItems ?? [],
+    draft_groups: v4State.draftGroups ?? [],
+    verified_groups: v4State.verifiedGroups ?? [],
+    group_decisions: v4State.groupDecisions ?? [],
+    work_item_decisions: v4State.workItemDecisions ?? [],
+    final_tree: v4State.tree ?? null,
+    final_graph: v4State.graph ?? null
   } : null);
 
   return NextResponse.json({
@@ -68,7 +105,9 @@ export async function GET(request: Request) {
         status: job.data?.status ?? null,
         stage: job.data?.current_stage ?? null,
         status_note: "Legacy stage names are retained for durable-job compatibility.",
-        independent_execution: independentExecution
+        engine,
+        independent_execution: independentExecution,
+        execution_tree_v4: v4Execution
       }
     }
   }, { headers: { "Cache-Control": "no-store, max-age=0" } });

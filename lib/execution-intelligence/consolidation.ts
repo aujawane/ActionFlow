@@ -1,3 +1,8 @@
+/**
+ * @deprecated Hierarchy consolidation is not used by the active `independent` or `v4` engines.
+ * Retained only for old tests and migration context. See docs/execution-intelligence-v4.md for
+ * the removal plan.
+ */
 import { semanticTokenSimilarity } from "./graph";
 import type {
   CommitmentCandidate,

@@ -185,6 +185,15 @@ export async function finalizeIndependentExecution(
   ).length;
   state.metrics.unlinkedTasks =
     state.graph.tasks.length - state.metrics.linkedTasks;
+  const verificationByRef = new Map(
+    state.verificationDecisions.map((decision) => [
+      `${decision.item_type}:${decision.item_ref}`,
+      decision
+    ])
+  );
+  const relationshipByRef = new Map(
+    state.relationshipDecisions.map((decision) => [decision.action_ref, decision])
+  );
   const debugTrace: IndependentExecutionTrace = {
     version: "independent-commitments-tasks-v1",
     topics: state.topicActions.map((topic) => ({
@@ -197,6 +206,15 @@ export async function finalizeIndependentExecution(
     extracted_commitments: state.extractedCommitments,
     relationship_decisions: state.relationshipDecisions,
     verification_decisions: state.verificationDecisions,
+    commitments_debug: state.extractedCommitments.map((commitment) => ({
+      ...commitment,
+      verification: verificationByRef.get(`commitment:${commitment.client_ref}`) ?? null
+    })),
+    tasks_debug: state.mergedActions.map((task) => ({
+      ...task,
+      relationship: relationshipByRef.get(task.client_ref) ?? null,
+      verification: verificationByRef.get(`task:${task.client_ref}`) ?? null
+    })),
     final_graph: state.graph
   };
   logExecutionStage(state.metrics, "independent_graph_finalized", {

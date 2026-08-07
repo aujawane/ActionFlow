@@ -9,6 +9,21 @@ import {
   type DurableExecutionState
 } from "@/lib/execution-intelligence/durable-pipeline";
 import {
+  finalizeV4Execution,
+  persistV4ExecutionGraph,
+  runV4ConversationEventExtraction,
+  runV4GlobalCorrection,
+  runV4Grouping,
+  runV4GroupingVerification,
+  runV4TreeAssembly,
+  runV4WorkItemExtraction,
+  type V4ExecutionState
+} from "@/lib/execution-intelligence/v4-pipeline";
+import {
+  getExecutionIntelligenceEngine,
+  type ExecutionIntelligenceEngine
+} from "@/lib/env";
+import {
   assertAnalysisJobStillCurrent,
   getMeetingAnalysisJob,
   markAnalysisJobRunning,
@@ -25,14 +40,25 @@ import {
 import { categorizeMeetingTasksBestEffort } from "@/lib/task-categorization-batch";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+/**
+ * `engine` is selected once, at `topic_extraction`, and carried through the rest of the durable
+ * run so a single generation is never split across two execution-intelligence architectures. Jobs
+ * queued before this field existed fall back to "independent" (see `resolveEngine`).
+ */
 type AnalysisCheckpoint = {
+  engine?: ExecutionIntelligenceEngine;
   prepared?: PreparedMeetingAnalysis;
   state?: DurableExecutionState;
+  v4State?: V4ExecutionState;
 };
 
 function asCheckpoint(value: unknown): AnalysisCheckpoint {
   if (!value || typeof value !== "object") return {};
   return value as AnalysisCheckpoint;
+}
+
+function resolveEngine(checkpoint: AnalysisCheckpoint): ExecutionIntelligenceEngine {
+  return checkpoint.engine ?? "independent";
 }
 
 export async function runMeetingAnalysisStage(input: {
@@ -56,9 +82,10 @@ export async function runMeetingAnalysisStage(input: {
   try {
     if (input.stage === "topic_extraction") {
       const prepared = await prepareMeetingAnalysis(input.meetingId);
+      const engine = getExecutionIntelligenceEngine();
       await saveAnalysisJobCheckpoint({
         jobId: input.jobId,
-        checkpoint: { prepared }
+        checkpoint: { prepared, engine }
       });
       return { nextStage: nextWorkerStage(input.stage), done: false };
     }
@@ -66,69 +93,127 @@ export async function runMeetingAnalysisStage(input: {
     if (!checkpoint.prepared) {
       throw new Error("Missing prepared analysis checkpoint.");
     }
+    const engine = resolveEngine(checkpoint);
 
     if (input.stage === "conversation_events") {
-      const source = await runConversationEventExtraction(
-        checkpoint.prepared.source,
-        input.generation
-      );
+      const source =
+        engine === "v4"
+          ? await runV4ConversationEventExtraction(checkpoint.prepared.source, input.generation)
+          : await runConversationEventExtraction(checkpoint.prepared.source, input.generation);
       const prepared = { ...checkpoint.prepared, source };
       await saveAnalysisJobCheckpoint({
         jobId: input.jobId,
-        checkpoint: { prepared }
+        checkpoint: { prepared, engine }
       });
       return { nextStage: nextWorkerStage(input.stage), done: false };
     }
 
     if (input.stage === "candidates") {
-      const state = await runActionExtraction({
-        source: checkpoint.prepared.source,
-        fallbackUsed: checkpoint.prepared.fallbackUsed
-      });
-      await saveAnalysisJobCheckpoint({
-        jobId: input.jobId,
-        checkpoint: { prepared: checkpoint.prepared, state }
-      });
+      if (engine === "v4") {
+        const v4State = await runV4WorkItemExtraction({
+          source: checkpoint.prepared.source,
+          fallbackUsed: checkpoint.prepared.fallbackUsed
+        });
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, v4State }
+        });
+      } else {
+        const state = await runActionExtraction({
+          source: checkpoint.prepared.source,
+          fallbackUsed: checkpoint.prepared.fallbackUsed
+        });
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, state }
+        });
+      }
       return { nextStage: nextWorkerStage(input.stage), done: false };
     }
 
-    if (!checkpoint.state) {
+    if (input.stage === "global_correction") {
+      // Only v4 has a global correction/completeness pass; `independent` has no such concept and
+      // passes the checkpoint through unchanged.
+      if (engine === "v4") {
+        if (!checkpoint.v4State) throw new Error("Missing execution graph checkpoint.");
+        const v4State = await runV4GlobalCorrection(checkpoint.v4State);
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, v4State }
+        });
+      }
+      return { nextStage: nextWorkerStage(input.stage), done: false };
+    }
+
+    if (engine === "v4" ? !checkpoint.v4State : !checkpoint.state) {
       throw new Error("Missing execution graph checkpoint.");
     }
 
     if (input.stage === "verification") {
-      const state = await runCommitmentExtraction(checkpoint.state);
-      await saveAnalysisJobCheckpoint({
-        jobId: input.jobId,
-        checkpoint: { prepared: checkpoint.prepared, state }
-      });
+      if (engine === "v4") {
+        const v4State = await runV4Grouping(checkpoint.v4State!);
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, v4State }
+        });
+      } else {
+        const state = await runCommitmentExtraction(checkpoint.state!);
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, state }
+        });
+      }
       return { nextStage: nextWorkerStage(input.stage), done: false };
     }
 
     if (input.stage === "completeness") {
-      const state = await runRelationshipEvaluation(checkpoint.state);
-      await saveAnalysisJobCheckpoint({
-        jobId: input.jobId,
-        checkpoint: { prepared: checkpoint.prepared, state }
-      });
+      if (engine === "v4") {
+        const v4State = await runV4GroupingVerification(checkpoint.v4State!);
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, v4State }
+        });
+      } else {
+        const state = await runRelationshipEvaluation(checkpoint.state!);
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, state }
+        });
+      }
       return { nextStage: nextWorkerStage(input.stage), done: false };
     }
 
     if (input.stage === "final_verification") {
-      const state = await runEvidenceVerification(checkpoint.state);
-      await saveAnalysisJobCheckpoint({
-        jobId: input.jobId,
-        checkpoint: { prepared: checkpoint.prepared, state }
-      });
+      if (engine === "v4") {
+        const v4State = await runV4TreeAssembly(checkpoint.v4State!);
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, v4State }
+        });
+      } else {
+        const state = await runEvidenceVerification(checkpoint.state!);
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, state }
+        });
+      }
       return { nextStage: nextWorkerStage(input.stage), done: false };
     }
 
     if (input.stage === "synthesis") {
-      const state = await finalizeIndependentExecution(checkpoint.state);
-      await saveAnalysisJobCheckpoint({
-        jobId: input.jobId,
-        checkpoint: { prepared: checkpoint.prepared, state }
-      });
+      if (engine === "v4") {
+        const v4State = await finalizeV4Execution(checkpoint.v4State!);
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, v4State }
+        });
+      } else {
+        const state = await finalizeIndependentExecution(checkpoint.state!);
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, state }
+        });
+      }
       return { nextStage: nextWorkerStage(input.stage), done: false };
     }
 
@@ -137,10 +222,13 @@ export async function runMeetingAnalysisStage(input: {
       jobId: input.jobId,
       stage: "persistence"
     });
-    const persisted = await persistDurableExecutionGraph({
-      state: checkpoint.state,
-      generation: input.generation
-    });
+    const persisted =
+      engine === "v4"
+        ? await persistV4ExecutionGraph({ state: checkpoint.v4State!, generation: input.generation })
+        : await persistDurableExecutionGraph({
+            state: checkpoint.state!,
+            generation: input.generation
+          });
 
     await markAnalysisJobRunning({
       jobId: input.jobId,

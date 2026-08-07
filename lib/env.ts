@@ -56,6 +56,60 @@ export function getConfiguredOpenAIModel() {
   return readEnv("OPENAI_MODEL") ?? DEFAULT_OPENAI_MODEL;
 }
 
+export type ExecutionIntelligenceEngine = "independent" | "v4";
+
+/**
+ * Selects which execution-intelligence architecture a new analysis generation runs under.
+ * Explicit `EXECUTION_INTELLIGENCE_ENGINE` always wins. Without it, v4 (grounded work items +
+ * holistic grouping) is the default outside production, and `independent` (parallel task/
+ * commitment extraction + relationship evaluation) remains the production default until v4 has
+ * been compared against it on real meetings. See docs/execution-intelligence-v4.md.
+ */
+export function getExecutionIntelligenceEngine(): ExecutionIntelligenceEngine {
+  const configured = readEnv("EXECUTION_INTELLIGENCE_ENGINE");
+  if (configured === "independent" || configured === "v4") return configured;
+  return process.env.NODE_ENV === "production" ? "independent" : "v4";
+}
+
+export type V4Stage =
+  | "work_item_extraction"
+  | "global_correction"
+  | "grouping"
+  | "grouping_verification";
+
+const V4_STAGE_MODEL_ENV: Record<V4Stage, string> = {
+  work_item_extraction: "OPENAI_MODEL_V4_EXTRACTION",
+  global_correction: "OPENAI_MODEL_V4_CORRECTION",
+  grouping: "OPENAI_MODEL_V4_GROUPING",
+  grouping_verification: "OPENAI_MODEL_V4_VERIFICATION"
+};
+
+const V4_STAGE_TIMEOUT_ENV: Record<V4Stage, string> = {
+  work_item_extraction: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION",
+  global_correction: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION",
+  grouping: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_GROUPING",
+  grouping_verification: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_VERIFICATION"
+};
+
+/**
+ * Each V4 stage can be pointed at its own model via a dedicated env var, independent of the
+ * global `OPENAI_MODEL` used by topic/insight extraction and the `independent` engine. Unset
+ * falls back to `getConfiguredOpenAIModel()` -- no override changes today's behavior. During
+ * stabilization, point `OPENAI_MODEL_V4_CORRECTION` / `_GROUPING` / `_VERIFICATION` at the
+ * strongest reasoning model your account supports; extraction is high-volume and stays on the
+ * cheaper default unless overridden too.
+ */
+export function getV4StageModel(stage: V4Stage): string {
+  return readEnv(V4_STAGE_MODEL_ENV[stage]) ?? getConfiguredOpenAIModel();
+}
+
+/** Same override pattern as `getV4StageModel`, for per-stage timeouts. */
+export function getV4StageTimeoutMs(stage: V4Stage): number {
+  const raw = readEnv(V4_STAGE_TIMEOUT_ENV[stage]);
+  if (raw === undefined) return getExecutionIntelligenceTimeoutMs();
+  return parseExecutionIntelligenceTimeoutMs(raw);
+}
+
 const coreEnvSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().trim().url(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().trim().url(),

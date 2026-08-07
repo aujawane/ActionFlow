@@ -1,3 +1,10 @@
+/**
+ * Implements the `independent` execution-intelligence engine: parallel task/commitment
+ * extraction reconciled by a relationship-evaluation pass. `v4` (work-item-schemas.ts,
+ * execution-tree.ts, work-item-*.ts) is now the default engine outside production; this module
+ * is kept live behind `EXECUTION_INTELLIGENCE_ENGINE=independent` for direct comparison. See
+ * docs/execution-intelligence-v4.md for what changed and the removal plan for this engine.
+ */
 import { semanticTokenSimilarity } from "./graph";
 import type {
   CommitmentCandidate,
@@ -33,6 +40,13 @@ export type IndependentExecutionTrace = {
   extracted_commitments: CommitmentCandidate[];
   relationship_decisions: RelationshipDecision[];
   verification_decisions: VerificationDecision[];
+  commitments_debug: Array<CommitmentCandidate & { verification: VerificationDecision | null }>;
+  tasks_debug: Array<
+    TaskCandidate & {
+      relationship: RelationshipDecision | null;
+      verification: VerificationDecision | null;
+    }
+  >;
   final_graph: ExecutionGraph;
 };
 
@@ -145,12 +159,20 @@ export function reconcileRelationshipEvaluation(input: {
   );
   const tasks = input.proposed.tasks.map((task) => {
     const evaluation = evaluatedTasks.get(task.client_ref);
+    const modelWantsLink = Boolean(
+      evaluation?.commitment_ref && validCommitments.has(evaluation.commitment_ref)
+    );
     const chosen =
       isOpenExecutionAction(task) &&
-      evaluation?.commitment_ref &&
-      validCommitments.has(evaluation.commitment_ref)
-        ? evaluation.commitment_ref
+      modelWantsLink &&
+      evaluation?.relationship_decision !== "uncertain"
+        ? evaluation!.commitment_ref
         : null;
+    const decision: TaskCandidate["relationship_decision"] = chosen
+      ? "child_task"
+      : evaluation?.relationship_decision === "uncertain"
+        ? "uncertain"
+        : "standalone_task";
     return {
       ...task,
       commitment_ref: chosen,
@@ -158,7 +180,8 @@ export function reconcileRelationshipEvaluation(input: {
       relationship_reason:
         evaluation?.relationship_reason ??
         (chosen ? "Linked by relationship evaluation." : "No supported commitment relationship."),
-      relationship_evidence: evaluation?.relationship_evidence ?? []
+      relationship_evidence: evaluation?.relationship_evidence ?? [],
+      relationship_decision: decision
     };
   });
   const decisions: RelationshipDecision[] = tasks.map((task) => ({
@@ -172,6 +195,86 @@ export function reconcileRelationshipEvaluation(input: {
     graph: { commitments: input.proposed.commitments, tasks },
     decisions
   };
+}
+
+function normalizeEvidenceText(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function sameIdSet(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const set = new Set(left);
+  return right.every((id) => set.has(id));
+}
+
+function isVacuousScopeStatement(
+  scope: string | null | undefined,
+  task: TaskCandidate
+) {
+  const normalized = normalizeEvidenceText(scope);
+  if (!normalized) return true;
+  return (
+    normalized === normalizeEvidenceText(task.title) ||
+    normalized === normalizeEvidenceText(task.description) ||
+    normalized === normalizeEvidenceText(task.source_quote)
+  );
+}
+
+function isRedundantSingleTaskCommitment(
+  commitment: CommitmentCandidate,
+  task: TaskCandidate
+) {
+  const sameEvidence =
+    normalizeEvidenceText(commitment.source_quote) === normalizeEvidenceText(task.source_quote) &&
+    sameIdSet(commitment.source_segment_ids, task.source_segment_ids) &&
+    normalizeEvidenceText(commitment.title) === normalizeEvidenceText(task.title) &&
+    normalizeEvidenceText(commitment.description) === normalizeEvidenceText(task.description) &&
+    (commitment.due_date ?? null) === (task.due_date ?? null) &&
+    normalizeEvidenceText(commitment.due_date_text) === normalizeEvidenceText(task.due_date_text);
+  // Both signals must agree: identical grounding evidence AND a scope statement that names no
+  // outcome beyond the task itself. Either signal alone is not enough to collapse a commitment.
+  return sameEvidence && isVacuousScopeStatement(commitment.scope_added_beyond_actions, task);
+}
+
+function collapseRedundantSingleTaskCommitments(input: {
+  commitments: CommitmentCandidate[];
+  tasks: TaskCandidate[];
+}) {
+  const linkedTasksByCommitment = new Map<string, TaskCandidate[]>();
+  for (const task of input.tasks) {
+    if (!task.commitment_ref) continue;
+    const linked = linkedTasksByCommitment.get(task.commitment_ref) ?? [];
+    linked.push(task);
+    linkedTasksByCommitment.set(task.commitment_ref, linked);
+  }
+
+  const collapsedCommitmentRefs = new Set<string>();
+  const collapsedTaskRefs = new Map<string, string>();
+  for (const commitment of input.commitments) {
+    const linked = linkedTasksByCommitment.get(commitment.client_ref);
+    if (!linked || linked.length !== 1) continue;
+    const [task] = linked;
+    if (!isRedundantSingleTaskCommitment(commitment, task)) continue;
+    collapsedCommitmentRefs.add(commitment.client_ref);
+    collapsedTaskRefs.set(task.client_ref, commitment.client_ref);
+  }
+
+  const commitments = input.commitments.filter(
+    (commitment) => !collapsedCommitmentRefs.has(commitment.client_ref)
+  );
+  const tasks = input.tasks.map((task) =>
+    collapsedTaskRefs.has(task.client_ref)
+      ? {
+          ...task,
+          commitment_ref: null,
+          relationship_confidence: null,
+          relationship_reason:
+            "Collapsed: the linked commitment added no evidence, deadline, or scope beyond this task.",
+          relationship_evidence: []
+        }
+      : task
+  );
+  return { commitments, tasks, collapsedCommitmentRefs, collapsedTaskRefs };
 }
 
 function transcriptSegmentIds(transcript: string) {
@@ -236,36 +339,60 @@ export function deterministicallyValidateIndependentGraph(input: {
       consolidated_from_refs: original?.consolidated_from_refs ?? [candidate.client_ref]
     }];
   });
-  const keptCommitments = new Set(commitments.map((item) => item.client_ref));
-  const keptTasks = new Map(tasks.map((item) => [item.client_ref, item]));
+  const collapsed = collapseRedundantSingleTaskCommitments({ commitments, tasks });
+  const keptCommitments = new Set(collapsed.commitments.map((item) => item.client_ref));
+  const keptTasks = new Map(collapsed.tasks.map((item) => [item.client_ref, item]));
   const decisions: VerificationDecision[] = [
-    ...input.proposed.commitments.map((item) => ({
-      item_ref: item.client_ref,
-      item_type: "commitment" as const,
-      disposition: keptCommitments.has(item.client_ref) ? "kept" as const : "excluded" as const,
-      reason: keptCommitments.has(item.client_ref)
-        ? "Verified as an accepted future outcome; zero child tasks are allowed."
-        : "Verifier or deterministic evidence validation rejected the commitment."
-    })),
+    ...input.proposed.commitments.map((item) => {
+      if (keptCommitments.has(item.client_ref)) {
+        return {
+          item_ref: item.client_ref,
+          item_type: "commitment" as const,
+          disposition: "kept" as const,
+          reason: "Verified as an accepted future outcome; zero child tasks are allowed."
+        };
+      }
+      return {
+        item_ref: item.client_ref,
+        item_type: "commitment" as const,
+        disposition: "excluded" as const,
+        reason: collapsed.collapsedCommitmentRefs.has(item.client_ref)
+          ? "Collapsed: its single linked task already covers this commitment's evidence, title, and scope."
+          : "Verifier or deterministic evidence validation rejected the commitment."
+      };
+    }),
     ...input.proposed.tasks.map((item) => {
       const kept = keptTasks.get(item.client_ref);
+      const collapsedInto = collapsed.collapsedTaskRefs.get(item.client_ref);
+      if (!kept) {
+        return {
+          item_ref: item.client_ref,
+          item_type: "task" as const,
+          disposition: "excluded" as const,
+          reason: `Excluded because ${item.action_classification ?? "the item"} is not verified open execution.`
+        };
+      }
+      if (collapsedInto) {
+        return {
+          item_ref: item.client_ref,
+          item_type: "task" as const,
+          disposition: "standalone" as const,
+          reason: "Standalone: absorbed its linked commitment, which added no evidence, deadline, or scope beyond this task."
+        };
+      }
       return {
         item_ref: item.client_ref,
         item_type: "task" as const,
-        disposition: !kept
-          ? "excluded" as const
-          : kept.commitment_ref
-            ? "child_task" as const
-            : item.commitment_ref
-              ? "unlinked" as const
-              : "standalone" as const,
-        reason: !kept
-          ? `Excluded because ${item.action_classification ?? "the item"} is not verified open execution.`
-          : kept.commitment_ref
-            ? kept.relationship_reason ?? "Verified as materially advancing the commitment."
-            : kept.relationship_reason ?? "Verified open work with no supported commitment relationship."
+        disposition: kept.commitment_ref
+          ? ("child_task" as const)
+          : item.commitment_ref
+            ? ("unlinked" as const)
+            : ("standalone" as const),
+        reason: kept.commitment_ref
+          ? kept.relationship_reason ?? "Verified as materially advancing the commitment."
+          : kept.relationship_reason ?? "Verified open work with no supported commitment relationship."
       };
     })
   ];
-  return { graph: { commitments, tasks }, decisions };
+  return { graph: { commitments: collapsed.commitments, tasks: collapsed.tasks }, decisions };
 }

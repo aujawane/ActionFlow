@@ -1,27 +1,53 @@
 {
   "meeting_id": "0296bd90-fd8d-4ad1-ab83-5866dab6f6f8",
   "expected_commitments": [
-    "Deliver Parfait on Vercel before next Tuesday",
-    "Validate Chatter using real Parfait meeting context",
-    "Establish or clarify enterprise OpenAI/Codex access"
+    {
+      "title": "Deliver Parfait for internal team use before next Tuesday",
+      "owners": ["Aditya Ujawane"],
+      "child_tasks": [
+        "Finish remaining extraction work",
+        "Deploy Parfait to Vercel",
+        "Provide Craig and Laura access to the deployment"
+      ]
+    },
+    {
+      "title": "Validate Chatter using real Parfait meeting context",
+      "owners": ["Laura Wetherhold"],
+      "child_tasks": [
+        "Create an initial Chatter session using last week's transcript",
+        "Test whether Chatter can process transcript/CSV input",
+        "Observe whether Chatter creates useful proactive follow-ups or cron jobs",
+        "Give Chatter feedback",
+        "Message the group when it is ready",
+        "Open it to the team for testing",
+        "Experiment with suitable privacy/channel settings when needed"
+      ]
+    },
+    {
+      "title": "Establish or clarify enterprise OpenAI/Codex access",
+      "owners": ["Aditya Ujawane", "Craig Lauer"],
+      "child_tasks": [
+        "Contact OpenAI sales",
+        "Research enterprise account structure and billing",
+        "Determine whether individual Codex subscriptions are required",
+        "Follow up with Kathy",
+        "Provide enterprise account access once available"
+      ]
+    }
   ],
-  "expected_tasks": [
-    "Contact OpenAI sales",
-    "Research enterprise account structure",
-    "Follow up with Kathy",
-    "Test Chatter with the transcript",
-    "Observe Chatter's proactive behavior",
-    "Message the group when Chatter is ready",
-    "Deploy Parfait",
-    "Share the deployment link"
+  "expected_standalone_tasks": [
+    "Continue following up with Cursor support"
+  ],
+  "expected_uncertain_items": [
+    "Test Letta memory flow with the transcript"
   ],
   "expected_exclusions": [
-    "Completed credential delivery",
-    "Completed script fixes",
-    "Completed cron-job cleanup",
-    "Personal AI-agent idea",
-    "Memory-architecture discussion",
-    "Unaccepted proposals",
-    "Unanswered questions"
+    "Automate Parfait and Chatter integration",
+    "Manage Mac Mini backorder",
+    "Personal AI agent exploration",
+    "Memory architecture discussion",
+    "Completed credentials delivery",
+    "Completed dashboard fixes",
+    "Completed cron-job cleanup"
   ]
 }

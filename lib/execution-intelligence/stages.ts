@@ -83,7 +83,7 @@ export function buildExecutionSourcePayload(source: ExecutionSourceContext) {
 
 const SEGMENT_LINE = /^\[([0-9a-f-]{36})\]/i;
 
-function transcriptForSegmentIds(transcript: string, ids: Set<string>) {
+export function transcriptForSegmentIds(transcript: string, ids: Set<string>) {
   return transcript.split("\n").filter((line) => {
     const id = line.match(SEGMENT_LINE)?.[1];
     return Boolean(id && ids.has(id));
@@ -403,7 +403,7 @@ export function verifyExecutionGraph(input: {
   });
 }
 
-function participantMap(transcript: string) {
+export function participantMap(transcript: string) {
   const counts = new Map<string, number>();
   for (const line of transcript.split("\n")) {
     const match = line.match(
