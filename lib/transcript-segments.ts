@@ -1,4 +1,5 @@
 import { applySpeakerAliases } from "@/lib/speaker-aliases";
+import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import type { MeetingSpeakerAlias, TranscriptSegment } from "@/lib/types";
 
 const UUID_PATTERN =
@@ -56,7 +57,7 @@ export async function loadMeetingTranscriptSegments(input: {
     const scoped = await baseQuery().in("id", segmentIds);
     if (!scoped.error && (scoped.data?.length ?? 0) > 0) {
       return {
-        segments: (scoped.data ?? []) as TranscriptSegment[],
+        segments: canonicalTranscriptOrder((scoped.data ?? []) as TranscriptSegment[]),
         error: null as null
       };
     }
@@ -72,7 +73,7 @@ export async function loadMeetingTranscriptSegments(input: {
 
   const fallback = await baseQuery().limit(limit);
   return {
-    segments: (fallback.data ?? []) as TranscriptSegment[],
+    segments: canonicalTranscriptOrder((fallback.data ?? []) as TranscriptSegment[]),
     error: fallback.error
   };
 }

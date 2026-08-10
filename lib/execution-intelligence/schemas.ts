@@ -31,6 +31,16 @@ export const actionClassificationSchema = z.enum([
 
 export type ExecutionClassification = z.infer<typeof executionClassificationSchema>;
 
+export const commitmentAcceptanceCriterionSchema = z
+  .object({
+    ref: z.string(),
+    title: z.string(),
+    description: z.string().nullable(),
+    source_quote: z.string(),
+    source_segment_ids: z.array(z.string())
+  })
+  .strict();
+
 export const commitmentCandidateSchema = z
   .object({
     client_ref: z.string().min(1),
@@ -75,7 +85,10 @@ export const commitmentCandidateSchema = z
     consolidated_from_refs: z.array(z.string()).optional(),
     supporting_action_refs: z.array(z.string()).optional(),
     commitment_reason: z.string().nullable().optional(),
-    scope_added_beyond_actions: z.string().nullable().optional()
+    scope_added_beyond_actions: z.string().nullable().optional(),
+    acceptance_criteria: z.array(commitmentAcceptanceCriterionSchema).optional(),
+    group_basis: z.string().optional(),
+    primary_owner_reason: z.string().nullable().optional()
   })
   .strict();
 
@@ -136,6 +149,20 @@ export const taskCandidateSchema = z
     relationship_evidence: z.array(z.string()).optional(),
     relationship_decision: z
       .enum(["child_task", "standalone_task", "uncertain"])
+      .nullable()
+      .optional(),
+    work_item_role: z.string().nullable().optional(),
+    scope_state: z.string().nullable().optional(),
+    merge_provenance: z
+      .object({
+        merged_from_task_refs: z.array(z.string()),
+        merge_type: z.enum(["exact", "semantic", "standalone_absorption"]),
+        merge_reason: z.string(),
+        merge_confidence: z.number(),
+        consolidation_generation: z.number(),
+        preserved_sequence_notes: z.array(z.string())
+      })
+      .strict()
       .nullable()
       .optional()
   })

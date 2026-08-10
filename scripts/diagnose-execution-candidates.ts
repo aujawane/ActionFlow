@@ -11,6 +11,7 @@ import {
   generateExecutionCandidates
 } from "../lib/execution-intelligence/stages";
 import { applySpeakerAliases } from "../lib/speaker-aliases";
+import { canonicalTranscriptOrder } from "../lib/transcript-order";
 import type {
   ExtractedInsight,
   MeetingSpeakerAlias,
@@ -117,7 +118,7 @@ async function main() {
   }
 
   const segments = applySpeakerAliases(
-    (segmentsResult.data ?? []) as TranscriptSegment[],
+    canonicalTranscriptOrder((segmentsResult.data ?? []) as TranscriptSegment[]),
     (aliasesResult.data ?? []) as MeetingSpeakerAlias[]
   );
   if (segments.length === 0) {

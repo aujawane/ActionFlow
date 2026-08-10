@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 
 export async function GET(request: Request) {
   if (process.env.NODE_ENV !== "development") {
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
   if (!meeting) return NextResponse.json({ error: "Meeting not found." }, { status: 404 });
 
   const [segments, events, commitments, tasks, job] = await Promise.all([
-    supabaseAdmin.from("transcript_segments").select("id, timestamp, speaker, text").eq("meeting_id", meetingId).order("timestamp"),
+    supabaseAdmin.from("transcript_segments").select("id, timestamp, speaker, text, raw_payload").eq("meeting_id", meetingId).order("timestamp"),
     supabaseAdmin.from("meeting_conversation_events").select("*").eq("meeting_id", meetingId).order("created_at"),
     supabaseAdmin.from("meeting_commitments").select("*").eq("meeting_id", meetingId).order("created_at"),
     supabaseAdmin.from("meeting_tasks").select("*").eq("meeting_id", meetingId).order("created_at"),
@@ -45,16 +46,23 @@ export async function GET(request: Request) {
     };
     v4State?: {
       debugTrace?: unknown;
+      normalization?: unknown;
       topicWorkItems?: unknown;
       mergedWorkItems?: unknown;
       globalCorrections?: unknown;
       globalAdditions?: unknown;
       workItems?: unknown;
       eligibleWorkItems?: unknown;
+      acceptanceCriteriaItems?: unknown;
       draftGroups?: unknown;
       verifiedGroups?: unknown;
       groupDecisions?: unknown;
       workItemDecisions?: unknown;
+      preConsolidationTree?: unknown;
+      consolidationDecisions?: unknown;
+      consolidationSuggestions?: unknown;
+      consolidationProvenance?: unknown;
+      finalValidation?: unknown;
       tree?: unknown;
       graph?: unknown;
     };
@@ -71,22 +79,31 @@ export async function GET(request: Request) {
     verification_decisions: state.verificationDecisions ?? [],
     final_graph: state.graph ?? null
   } : null);
-  // Phase K: expose every stage of the hardened V4 pipeline in one place -- raw topic work items,
-  // the merged ledger, the global correction pass's corrections/additions, the eligible subset
-  // actually handed to grouping, excluded items with their reasons, both grouping passes' raw
-  // output, and deterministic assembly's decisions -- so a bad tree is traceable without guessing.
+  // Phase 8: expose every stage of the hardened V4 pipeline in one place -- normalization,
+  // raw topic work items, the merged ledger, scope/role reconciliation, the eligible/criteria
+  // subsets actually handed to grouping, excluded items with reasons, both grouping passes' raw
+  // output, deterministic assembly's decisions, the pre-consolidation tree, task-consolidation
+  // candidates/proposals/suggestions, final validation, and the persisted graph -- so a bad tree
+  // is traceable without guessing or rerunning anything.
   const v4Execution = v4State?.debugTrace ?? (v4State ? {
-    version: "execution-tree-v4-hardened-1",
+    version: "execution-tree-v4-hardened-2",
+    normalization: v4State.normalization ?? null,
     topic_work_items: v4State.topicWorkItems ?? [],
     merged_work_items: v4State.mergedWorkItems ?? [],
     global_corrections: v4State.globalCorrections ?? [],
     global_additions: v4State.globalAdditions ?? [],
     corrected_work_items: v4State.workItems ?? [],
     eligible_work_items: v4State.eligibleWorkItems ?? [],
+    acceptance_criteria_items: v4State.acceptanceCriteriaItems ?? [],
     draft_groups: v4State.draftGroups ?? [],
     verified_groups: v4State.verifiedGroups ?? [],
     group_decisions: v4State.groupDecisions ?? [],
     work_item_decisions: v4State.workItemDecisions ?? [],
+    pre_consolidation_tree: v4State.preConsolidationTree ?? null,
+    consolidation_decisions: v4State.consolidationDecisions ?? [],
+    consolidation_suggestions: v4State.consolidationSuggestions ?? [],
+    consolidation_provenance: v4State.consolidationProvenance ?? {},
+    final_validation: v4State.finalValidation ?? null,
     final_tree: v4State.tree ?? null,
     final_graph: v4State.graph ?? null
   } : null);
@@ -94,7 +111,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     meeting_id: meetingId,
     pipeline: {
-      transcript: segments.data ?? [],
+      transcript: canonicalTranscriptOrder(segments.data ?? []),
       conversation_events: events.data ?? [],
       execution_graph: {
         commitments: commitments.data ?? [],

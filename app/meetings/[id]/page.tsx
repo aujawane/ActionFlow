@@ -22,6 +22,7 @@ import {
 } from "@/lib/speaker-aliases";
 import { loadMeetingTasksWithFallback } from "@/lib/meeting-task-query";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import type {
   MeetingAnalysisJob,
   MeetingCommitment,
@@ -137,7 +138,7 @@ export default async function MeetingDetailPage({
   const rawTasks = (tasksMissingTable ? [] : (tasks ?? [])) as MeetingTask[];
   const typedTopics = safeTopics as MeetingTopic[];
   const safeAliases = (aliases ?? []) as MeetingSpeakerAlias[];
-  const rawSegments = (segments ?? []) as TranscriptSegment[];
+  const rawSegments = canonicalTranscriptOrder((segments ?? []) as TranscriptSegment[]);
   const safeSegments = applySpeakerAliases(rawSegments, safeAliases);
   const safeTasks = applySpeakerAliasesToTasks(rawTasks, safeAliases);
   const safeCommitments = (commitmentsMissingTable

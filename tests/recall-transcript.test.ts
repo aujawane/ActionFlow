@@ -102,3 +102,28 @@ test("preserves Recall speaker fields while parsing artifact transcript entries"
     words: [{ text: "Hello", start_timestamp: 1 }]
   });
 });
+
+test("parses the real Recall { absolute, relative } word timestamp shape instead of falling back to now()", () => {
+  const [segment] = parseRecallTranscriptToSegments([
+    {
+      participant: { id: 1, name: "Craig" },
+      words: [
+        {
+          text: "hello",
+          start_timestamp: { absolute: "2026-08-05T18:53:32.573Z", relative: 2968.6714 },
+          end_timestamp: { absolute: "2026-08-05T18:53:32.813Z", relative: 2968.9114 }
+        }
+      ]
+    }
+  ]);
+  assert.equal(segment.timestamp, "2026-08-05T18:53:32.573Z");
+});
+
+test("falls back to now() only when no word/utterance timestamp of any recognized shape is present", () => {
+  const before = Date.now();
+  const [segment] = parseRecallTranscriptToSegments([
+    { participant: { id: 1, name: "Craig" }, words: [{ text: "hello" }] }
+  ]);
+  const parsed = Date.parse(segment.timestamp);
+  assert.ok(parsed >= before && parsed <= Date.now());
+});

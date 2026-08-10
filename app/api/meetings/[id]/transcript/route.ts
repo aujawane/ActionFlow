@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import type { MeetingSpeakerAlias, TranscriptSegment } from "@/lib/types";
 
 export async function GET(
@@ -53,7 +54,7 @@ export async function GET(
   }
 
   const resolvedSegments = applySpeakerAliases(
-    (data ?? []) as TranscriptSegment[],
+    canonicalTranscriptOrder((data ?? []) as TranscriptSegment[]),
     (aliases ?? []) as MeetingSpeakerAlias[]
   );
 

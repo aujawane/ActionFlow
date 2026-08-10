@@ -9,7 +9,8 @@ import {
   runGlobalCorrectionModel,
   runGroupingModel,
   runGroupingVerificationModel,
-  runWorkItemExtractionModel
+  runWorkItemExtractionModel,
+  type TokenUsage
 } from "./work-item-model";
 import { assignDraftGroupRefs } from "./execution-tree";
 import type {
@@ -27,6 +28,19 @@ import {
 } from "./stages";
 
 const SEGMENT_LINE = /^\[([0-9a-f-]{36})\]/i;
+
+function sumUsage(usages: Array<TokenUsage | null>): TokenUsage | null {
+  const present = usages.filter((usage): usage is TokenUsage => usage !== null);
+  if (present.length === 0) return null;
+  return present.reduce(
+    (total, usage) => ({
+      input_tokens: (total.input_tokens ?? 0) + (usage.input_tokens ?? 0),
+      output_tokens: (total.output_tokens ?? 0) + (usage.output_tokens ?? 0),
+      total_tokens: (total.total_tokens ?? 0) + (usage.total_tokens ?? 0)
+    }),
+    { input_tokens: 0, output_tokens: 0, total_tokens: 0 }
+  );
+}
 
 /** One or two neighboring transcript turns around a work item's own evidence, for grouping
  * context only -- never the full transcript, so proximity to unrelated conversation can't leak
@@ -61,6 +75,7 @@ function toEligibleView(item: WorkItem, transcript: string): EligibleWorkItemVie
     description: item.description,
     owner: item.owner,
     status: item.status,
+    work_item_role: item.work_item_role,
     source_quote: item.source_quote,
     source_segment_ids: item.source_segment_ids,
     context_turns: neighboringTranscriptTurns(transcript, item.source_segment_ids)
@@ -70,7 +85,7 @@ function toEligibleView(item: WorkItem, transcript: string): EligibleWorkItemVie
 export async function extractTopicWorkItems(
   source: ExecutionSourceContext
 ): Promise<
-  | { ok: true; topics: TopicWorkItemExtraction[]; latencyMs: number }
+  | { ok: true; topics: TopicWorkItemExtraction[]; latencyMs: number; usage: TokenUsage | null }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean }
 > {
   const startedAt = Date.now();
@@ -133,6 +148,7 @@ export async function extractTopicWorkItems(
   return {
     ok: true,
     latencyMs: Date.now() - startedAt,
+    usage: sumUsage(results.map((result) => (result?.ok ? result.usage : null))),
     topics: scopes.map((scope, index) => {
       const result = results[index]!;
       if (!result.ok) throw new Error("Unexpected failed work-item extraction result.");
@@ -169,8 +185,9 @@ export async function runGlobalCorrectionPass(input: {
 export async function runGroupingPass(input: {
   source: ExecutionSourceContext;
   eligibleItems: WorkItem[];
+  acceptanceCriteria: WorkItem[];
 }): Promise<
-  | { ok: true; groups: GroupProposal[]; latencyMs: number; salvagedItems: number }
+  | { ok: true; groups: GroupProposal[]; latencyMs: number; salvagedItems: number; usage: TokenUsage | null }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean }
 > {
   const result = await runGroupingModel({
@@ -183,6 +200,9 @@ export async function runGroupingPass(input: {
       participants: participantMap(input.source.transcript),
       eligible_work_items: input.eligibleItems.map((item) =>
         toEligibleView(item, input.source.transcript)
+      ),
+      acceptance_criteria: input.acceptanceCriteria.map((item) =>
+        toEligibleView(item, input.source.transcript)
       )
     }
   });
@@ -191,13 +211,15 @@ export async function runGroupingPass(input: {
     ok: true,
     groups: assignDraftGroupRefs(result.groups as RawGroupProposal[]),
     latencyMs: result.latencyMs,
-    salvagedItems: result.salvagedItems
+    salvagedItems: result.salvagedItems,
+    usage: result.usage
   };
 }
 
 export async function runGroupingVerificationPass(input: {
   source: ExecutionSourceContext;
   eligibleItems: WorkItem[];
+  acceptanceCriteria: WorkItem[];
   draftGroups: GroupProposal[];
 }) {
   return runGroupingVerificationModel({
@@ -206,6 +228,9 @@ export async function runGroupingVerificationPass(input: {
     context: {
       meeting_id: input.source.meetingId,
       eligible_work_items: input.eligibleItems.map((item) =>
+        toEligibleView(item, input.source.transcript)
+      ),
+      acceptance_criteria: input.acceptanceCriteria.map((item) =>
         toEligibleView(item, input.source.transcript)
       ),
       proposed_groups: input.draftGroups

@@ -17,6 +17,9 @@ export type ExecutionMetrics = {
   salvagedItems: number;
   databaseFailures: number;
   openAiLatencyMs: Record<string, number>;
+  /** Populated only for stages that returned OpenAI usage on their response; used for replay/eval
+   * cost reporting (`scripts/eval-v4.ts`). Absent entries mean the SDK/mock did not report usage. */
+  openAiUsage: Record<string, { input_tokens: number | null; output_tokens: number | null; total_tokens: number | null }>;
 };
 
 export function createExecutionMetrics(
@@ -41,7 +44,8 @@ export function createExecutionMetrics(
     validationFailures: 0,
     salvagedItems: 0,
     databaseFailures: 0,
-    openAiLatencyMs: {}
+    openAiLatencyMs: {},
+    openAiUsage: {}
   };
 }
 

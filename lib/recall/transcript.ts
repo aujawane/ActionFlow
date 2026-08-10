@@ -63,6 +63,14 @@ function asTimestamp(value: unknown): string | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return new Date(value).toISOString();
   }
+  // Real Recall payloads carry word-level timing as { absolute, relative } rather than a bare
+  // string/number -- without this branch every segment falls through to `new Date().toISOString()`
+  // below in extractTimestamp, which collapses an entire meeting's segments to within
+  // milliseconds of each other (the bug behind the canonical transcript-ordering work).
+  const asObject = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  if (typeof asObject?.absolute === "string" && asObject.absolute.trim()) {
+    return asObject.absolute.trim();
+  }
   return null;
 }
 

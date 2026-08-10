@@ -10,6 +10,10 @@ import {
   groupingJsonSchema,
   rawGroupProposalSchema,
   rawWorkItemSchema,
+  taskConsolidationJsonSchema,
+  taskConsolidationProposalSchema,
+  transcriptCorrectionSchema,
+  transcriptNormalizationJsonSchema,
   verificationJsonSchema,
   verifiedGroupSchema,
   workItemExtractionJsonSchema,
@@ -17,6 +21,8 @@ import {
   type GlobalWorkItemCorrection,
   type RawGroupProposal,
   type RawWorkItem,
+  type TaskConsolidationProposal,
+  type TranscriptCorrection,
   type VerifiedGroup
 } from "./work-item-schemas";
 
@@ -24,8 +30,30 @@ const MODEL_MAX_OUTPUT_TOKENS = 16_000;
 const MODEL_MAX_ATTEMPTS = 2;
 const MODEL_SDK_MAX_RETRIES = 0;
 
-type StructuredResponse = { output_text?: string | null };
+export type TokenUsage = {
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+};
+
+type StructuredResponse = {
+  output_text?: string | null;
+  usage?: {
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    total_tokens?: number | null;
+  } | null;
+};
 type CreateStructuredResponse = (signal: AbortSignal) => Promise<StructuredResponse>;
+
+function extractUsage(response: StructuredResponse): TokenUsage | null {
+  if (!response.usage) return null;
+  return {
+    input_tokens: response.usage.input_tokens ?? null,
+    output_tokens: response.usage.output_tokens ?? null,
+    total_tokens: response.usage.total_tokens ?? null
+  };
+}
 
 class WorkItemModelTimeoutError extends Error {
   constructor(readonly timeoutMs: number) {
@@ -65,7 +93,7 @@ async function withRequestTimeout(
 }
 
 type RawJsonResult =
-  | { ok: true; raw: unknown; latencyMs: number }
+  | { ok: true; raw: unknown; latencyMs: number; usage: TokenUsage | null }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
 async function requestStructuredJson(input: {
@@ -127,7 +155,12 @@ async function requestStructuredJson(input: {
         };
       } else {
         try {
-          return { ok: true, raw: JSON.parse(raw), latencyMs: Date.now() - startedAt };
+          return {
+            ok: true,
+            raw: JSON.parse(raw),
+            latencyMs: Date.now() - startedAt,
+            usage: extractUsage(response)
+          };
         } catch {
           lastError = {
             ok: false,
@@ -197,7 +230,7 @@ function salvageArray<T>(
 }
 
 export type WorkItemExtractionModelResult =
-  | { ok: true; items: RawWorkItem[]; latencyMs: number; salvagedItems: number }
+  | { ok: true; items: RawWorkItem[]; latencyMs: number; salvagedItems: number; usage: TokenUsage | null }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
 export async function runWorkItemExtractionModel(input: {
@@ -220,7 +253,8 @@ export async function runWorkItemExtractionModel(input: {
     ok: true,
     items: salvaged.items,
     latencyMs: result.latencyMs,
-    salvagedItems: salvaged.dropped
+    salvagedItems: salvaged.dropped,
+    usage: result.usage
   };
 }
 
@@ -231,6 +265,7 @@ export type GlobalCorrectionModelResult =
       additions: GlobalWorkItemAddition[];
       latencyMs: number;
       salvagedItems: number;
+      usage: TokenUsage | null;
     }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
@@ -256,12 +291,13 @@ export async function runGlobalCorrectionModel(input: {
     corrections: corrections.items,
     additions: additions.items,
     latencyMs: result.latencyMs,
-    salvagedItems: corrections.dropped + additions.dropped
+    salvagedItems: corrections.dropped + additions.dropped,
+    usage: result.usage
   };
 }
 
 export type GroupingModelResult =
-  | { ok: true; groups: RawGroupProposal[]; latencyMs: number; salvagedItems: number }
+  | { ok: true; groups: RawGroupProposal[]; latencyMs: number; salvagedItems: number; usage: TokenUsage | null }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
 export async function runGroupingModel(input: {
@@ -284,12 +320,13 @@ export async function runGroupingModel(input: {
     ok: true,
     groups: salvaged.items,
     latencyMs: result.latencyMs,
-    salvagedItems: salvaged.dropped
+    salvagedItems: salvaged.dropped,
+    usage: result.usage
   };
 }
 
 export type GroupingVerificationModelResult =
-  | { ok: true; groups: VerifiedGroup[]; latencyMs: number; salvagedItems: number }
+  | { ok: true; groups: VerifiedGroup[]; latencyMs: number; salvagedItems: number; usage: TokenUsage | null }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
 export async function runGroupingVerificationModel(input: {
@@ -312,6 +349,65 @@ export async function runGroupingVerificationModel(input: {
     ok: true,
     groups: groups.items,
     latencyMs: result.latencyMs,
-    salvagedItems: groups.dropped
+    salvagedItems: groups.dropped,
+    usage: result.usage
+  };
+}
+
+export type TranscriptNormalizationModelResult =
+  | { ok: true; corrections: TranscriptCorrection[]; latencyMs: number; salvagedItems: number; usage: TokenUsage | null }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+export async function runTranscriptNormalizationModel(input: {
+  systemPrompt: string;
+  context: unknown;
+  timeoutMs?: number;
+  createResponse?: CreateStructuredResponse;
+}): Promise<TranscriptNormalizationModelResult> {
+  const result = await requestStructuredJson({
+    stage: "transcript_normalization",
+    systemPrompt: input.systemPrompt,
+    context: input.context,
+    jsonSchema: transcriptNormalizationJsonSchema,
+    timeoutMs: input.timeoutMs,
+    createResponse: input.createResponse
+  });
+  if (!result.ok) return result;
+  const corrections = salvageArray(result.raw, "corrections", transcriptCorrectionSchema);
+  return {
+    ok: true,
+    corrections: corrections.items,
+    latencyMs: result.latencyMs,
+    salvagedItems: corrections.dropped,
+    usage: result.usage
+  };
+}
+
+export type TaskConsolidationModelResult =
+  | { ok: true; proposals: TaskConsolidationProposal[]; latencyMs: number; salvagedItems: number; usage: TokenUsage | null }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+export async function runTaskConsolidationModel(input: {
+  systemPrompt: string;
+  context: unknown;
+  timeoutMs?: number;
+  createResponse?: CreateStructuredResponse;
+}): Promise<TaskConsolidationModelResult> {
+  const result = await requestStructuredJson({
+    stage: "task_consolidation",
+    systemPrompt: input.systemPrompt,
+    context: input.context,
+    jsonSchema: taskConsolidationJsonSchema,
+    timeoutMs: input.timeoutMs,
+    createResponse: input.createResponse
+  });
+  if (!result.ok) return result;
+  const proposals = salvageArray(result.raw, "proposals", taskConsolidationProposalSchema);
+  return {
+    ok: true,
+    proposals: proposals.items,
+    latencyMs: result.latencyMs,
+    salvagedItems: proposals.dropped,
+    usage: result.usage
   };
 }

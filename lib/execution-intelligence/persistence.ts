@@ -249,7 +249,10 @@ export async function persistExecutionGraph(input: {
             metadata: {
               ...(metadata ?? {}),
               commitment_reason: item.commitment_reason ?? null,
-              supporting_action_refs: item.supporting_action_refs ?? []
+              supporting_action_refs: item.supporting_action_refs ?? [],
+              acceptance_criteria: item.acceptance_criteria ?? [],
+              group_basis: item.group_basis ?? null,
+              primary_owner_reason: item.primary_owner_reason ?? null
             }
           }).eq("id", row.id)
         : Promise.resolve({ error: null });
@@ -269,7 +272,10 @@ export async function persistExecutionGraph(input: {
               extraction_reason: item.extraction_reason ?? null,
               relationship_confidence: item.relationship_confidence ?? null,
               relationship_reason: item.relationship_reason ?? null,
-              relationship_evidence: item.relationship_evidence ?? []
+              relationship_evidence: item.relationship_evidence ?? [],
+              work_item_role: item.work_item_role ?? null,
+              scope_state: item.scope_state ?? null,
+              merge_provenance: item.merge_provenance ?? null
             }
           }).eq("id", row.id)
         : Promise.resolve({ error: null });

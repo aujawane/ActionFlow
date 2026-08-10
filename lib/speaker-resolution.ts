@@ -4,6 +4,7 @@ import {
 } from "@/lib/speaker-aliases";
 import { mergeManualOverrideFields } from "@/lib/manual-overrides";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import type {
   MeetingCommitment,
   MeetingSpeakerAlias,
@@ -55,7 +56,7 @@ async function loadRows(meetingId: string) {
   if (error) throw new Error(error.message);
 
   return {
-    segments: (segments ?? []) as TranscriptSegment[],
+    segments: canonicalTranscriptOrder((segments ?? []) as TranscriptSegment[]),
     aliases: (aliases ?? []) as MeetingSpeakerAlias[],
     tasks: (tasks ?? []) as MeetingTask[],
     commitments: (commitments ?? []) as MeetingCommitment[]

@@ -15,6 +15,7 @@ import {
   runV4GlobalCorrection,
   runV4Grouping,
   runV4GroupingVerification,
+  runV4TaskConsolidation,
   runV4TreeAssembly,
   runV4WorkItemExtraction,
   type V4ExecutionState
@@ -195,6 +196,18 @@ export async function runMeetingAnalysisStage(input: {
         await saveAnalysisJobCheckpoint({
           jobId: input.jobId,
           checkpoint: { prepared: checkpoint.prepared, engine, state }
+        });
+      }
+      return { nextStage: nextWorkerStage(input.stage), done: false };
+    }
+
+    if (input.stage === "task_consolidation") {
+      // Only v4 consolidates fragmented child tasks; `independent` has no such concept.
+      if (engine === "v4") {
+        const v4State = await runV4TaskConsolidation(checkpoint.v4State!);
+        await saveAnalysisJobCheckpoint({
+          jobId: input.jobId,
+          checkpoint: { prepared: checkpoint.prepared, engine, v4State }
         });
       }
       return { nextStage: nextWorkerStage(input.stage), done: false };

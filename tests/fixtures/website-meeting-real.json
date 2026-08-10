@@ -1,0 +1,2679 @@
+{
+  "version": "website-meeting-real-3",
+  "meetingId": "5a9ce44b-f65a-49f2-b313-31402a56feb1",
+  "meetingTitle": "Meeting with Jamleh",
+  "meetingDate": "2026-07-24",
+  "participants": [
+    "Aditya Ujawane",
+    "Jamileh Hamideh"
+  ],
+  "project": {
+    "id": "e1d2b25f-1e0c-498d-87fc-a09a1f1f09cf",
+    "name": "Jamileh's Product Website",
+    "goal": "Deliver Informational Website First Release"
+  },
+  "source_note": "Verbatim transcript pasted by the user from a meeting export for the real \"Meeting with Jamleh\" (project: Jamileh's Product Website), 2026-08-08. This export has no real per-segment UUIDs and every turn shares the same displayed timestamp (1:59:47 PM). Per instruction, segment_index is the literal, deterministic, source-order identity (1..378, exact original turn order, never derived from the uninformative shared timestamp) -- lib/transcript-order.ts's canonicalTranscriptOrder sorts by segment_index (tier 1) ahead of timestamp, so source order is preserved exactly. `id` is a deterministic UUID-shaped string (00000000-0000-4000-8000-<12-hex-digit segment_index>) rather than the literal string \"website_segment_NNNN\": every V4 stage's segment-boundary regex (SEGMENT_LINE/SEGMENT_PREFIX, e.g. lib/execution-intelligence/stages.ts) and every WorkItem.source_segment_ids field is Zod-validated with z.string().uuid() -- a literal \"website_segment_0001\" fails that validation and gets silently dropped by the model-output salvage step, producing zero extracted work items (confirmed by an initial failed replay: extraction reported success but returned 0 items). The UUID-shaped id is still 100% deterministic and fixture-only (the all-zero prefix and monotonic suffix make it unmistakably synthetic, never a real database UUID) and is fully traceable back to source order via segment_index.",
+  "gate": "website",
+  "expected": {
+    "commitment_titles": [
+      "Build and present the first informational website draft before August 1"
+    ],
+    "excluded_phrases": [
+      "domain connection",
+      "founder story preparation",
+      "FAQ preparation",
+      "customer accounts",
+      "recurring subscriptions",
+      "email migration",
+      "Use an ecommerce website"
+    ]
+  },
+  "segments": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "segment_index": 1,
+      "speaker": "Aditya Ujawane",
+      "text": "azure react can you hear yeah i can't hear you either i don't know what's happening",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "segment_index": 2,
+      "speaker": "Jamileh Hamideh",
+      "text": "hi sorry can you hear me sorry sorry i thought i was gonna be take it from my phone yeah my parents wanted me to stop by and it was just crazy",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "segment_index": 3,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah totally",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000004",
+      "segment_index": 4,
+      "speaker": "Jamileh Hamideh",
+      "text": "oh sorry",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "segment_index": 5,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah i think i'm gonna think i'm gonna breathe",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000006",
+      "segment_index": 6,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000007",
+      "segment_index": 7,
+      "speaker": "Aditya Ujawane",
+      "text": "in everything i'll say get some order",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000008",
+      "segment_index": 8,
+      "speaker": "Jamileh Hamideh",
+      "text": "close one lane because of construction and i'm like yeah great of course",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000009",
+      "segment_index": 9,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah this is san diego like as traffic is always like weird and everything sometimes like i was stuck in traffic for 20 minutes yesterday and i'm like damn this is a lot",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000000a",
+      "segment_index": 10,
+      "speaker": "Jamileh Hamideh",
+      "text": "we're not used to it",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000000b",
+      "segment_index": 11,
+      "speaker": "Aditya Ujawane",
+      "text": "exactly like this is not la this is san diego come on",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000000c",
+      "segment_index": 12,
+      "speaker": "Jamileh Hamideh",
+      "text": "exactly",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000000d",
+      "segment_index": 13,
+      "speaker": "Aditya Ujawane",
+      "text": "okay so did you take a look at some different websites that you wanna draw some inspiration from okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000000e",
+      "segment_index": 14,
+      "speaker": "Jamileh Hamideh",
+      "text": "let's see if i can find it really quickly",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000000f",
+      "segment_index": 15,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000010",
+      "segment_index": 16,
+      "speaker": "Jamileh Hamideh",
+      "text": "i sent it to the",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000011",
+      "segment_index": 17,
+      "speaker": "Aditya Ujawane",
+      "text": "to my email",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000012",
+      "segment_index": 18,
+      "speaker": "Jamileh Hamideh",
+      "text": "no the one where cameron is it's that was at the beginning oh i don't know where i put it landing page website yeah he had a shared folder",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000013",
+      "segment_index": 19,
+      "speaker": "Aditya Ujawane",
+      "text": "oh yeah sure for now",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000014",
+      "segment_index": 20,
+      "speaker": "Jamileh Hamideh",
+      "text": "like",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000015",
+      "segment_index": 21,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000016",
+      "segment_index": 22,
+      "speaker": "Jamileh Hamideh",
+      "text": "a google",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000017",
+      "segment_index": 23,
+      "speaker": "Aditya Ujawane",
+      "text": "so it might be",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000018",
+      "segment_index": 24,
+      "speaker": "Jamileh Hamideh",
+      "text": "but i don't know if it's still there",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000019",
+      "segment_index": 25,
+      "speaker": "Aditya Ujawane",
+      "text": "it's in a drive probably then yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000001a",
+      "segment_index": 26,
+      "speaker": "Jamileh Hamideh",
+      "text": "but i'm not i'm not it's not set on stone so like whatever i figure like there's probably going to be something better out there",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000001b",
+      "segment_index": 27,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah okay cool so yeah let's basically talk about like what are the some sections that you actually like really want like some founder story or some let's say like definitely a picture of your war and everything",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000001c",
+      "segment_index": 28,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah the founder",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000001d",
+      "segment_index": 29,
+      "speaker": "Aditya Ujawane",
+      "text": "and what else",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000001e",
+      "segment_index": 30,
+      "speaker": "Jamileh Hamideh",
+      "text": "story",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000001f",
+      "segment_index": 31,
+      "speaker": "Aditya Ujawane",
+      "text": "like",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000020",
+      "segment_index": 32,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah because i'm going to say that it all started because i have digestive issues and i couldn't digest the protein that's out there so i had to come up with this new product so yeah the founder story yes because these protein bar helps digestion and i was diagnosed with diverticulitis so it was like it's like it aligns with a lot of founders are usually it's because of something like that",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000021",
+      "segment_index": 33,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah yeah like so basically what i'll do is like i'll let you draft a founder story because of course you know it like much better and i'll just like leave a section blank in the website and we can just basically copy and paste our text and it will be like there founder story and do you want like do you just want it to be like an information page or do you want it to be like an e-commerce website where you ship from as well",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000022",
+      "segment_index": 34,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah e-commerce as well",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000023",
+      "segment_index": 35,
+      "speaker": "Aditya Ujawane",
+      "text": "e-commerce okay perfect so we need login and sign up page for users and everything so they can like order stuff and they can see our product in there",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000024",
+      "segment_index": 36,
+      "speaker": "Jamileh Hamideh",
+      "text": "yes",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000025",
+      "segment_index": 37,
+      "speaker": "Aditya Ujawane",
+      "text": "commerce website okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000026",
+      "segment_index": 38,
+      "speaker": "Jamileh Hamideh",
+      "text": "once i have one this one's in brazil it's not here but it's like a fun i'm gonna put it on the chat so it's",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000027",
+      "segment_index": 39,
+      "speaker": "Aditya Ujawane",
+      "text": "take a look",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000028",
+      "segment_index": 40,
+      "speaker": "Jamileh Hamideh",
+      "text": "gonna",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000029",
+      "segment_index": 41,
+      "speaker": "Aditya Ujawane",
+      "text": "at",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000002a",
+      "segment_index": 42,
+      "speaker": "Jamileh Hamideh",
+      "text": "be",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000002b",
+      "segment_index": 43,
+      "speaker": "Aditya Ujawane",
+      "text": "this",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000002c",
+      "segment_index": 44,
+      "speaker": "Jamileh Hamideh",
+      "text": "eventually it's gonna be powder and bars",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000002d",
+      "segment_index": 45,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000002e",
+      "segment_index": 46,
+      "speaker": "Jamileh Hamideh",
+      "text": "so",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000002f",
+      "segment_index": 47,
+      "speaker": "Aditya Ujawane",
+      "text": "it's going to be",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000030",
+      "segment_index": 48,
+      "speaker": "Jamileh Hamideh",
+      "text": "like",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000031",
+      "segment_index": 49,
+      "speaker": "Aditya Ujawane",
+      "text": "powder and bars",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000032",
+      "segment_index": 50,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000033",
+      "segment_index": 51,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000034",
+      "segment_index": 52,
+      "speaker": "Jamileh Hamideh",
+      "text": "i don't know what they sell here i think they have other stuff but i'm gonna do powders and bars and my colors are gonna be more",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000035",
+      "segment_index": 53,
+      "speaker": "Aditya Ujawane",
+      "text": "like pastel green and violet",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000036",
+      "segment_index": 54,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah this doesn't have an about us but i like how like you get straight to the point too you know i would say because there has to be an educational component about what the protein",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000037",
+      "segment_index": 55,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000038",
+      "segment_index": 56,
+      "speaker": "Jamileh Hamideh",
+      "text": "is",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000039",
+      "segment_index": 57,
+      "speaker": "Aditya Ujawane",
+      "text": "sorry i think",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000003a",
+      "segment_index": 58,
+      "speaker": "Jamileh Hamideh",
+      "text": "sorry",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000003b",
+      "segment_index": 59,
+      "speaker": "Aditya Ujawane",
+      "text": "your the connection was like off and i did not hear anything after like the colors",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000003c",
+      "segment_index": 60,
+      "speaker": "Jamileh Hamideh",
+      "text": "there has to be a there has to be a place where it talks about the protein itself",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000003d",
+      "segment_index": 61,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000003e",
+      "segment_index": 62,
+      "speaker": "Jamileh Hamideh",
+      "text": "and what it is and where it comes from yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000003f",
+      "segment_index": 63,
+      "speaker": "Aditya Ujawane",
+      "text": "so where the protein comes from okay perfect so that's your info page basically and do you like want to do like a subscription based model where like people just like subscribe to your bars and like every month you basically ship it to them have you",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000040",
+      "segment_index": 64,
+      "speaker": "Jamileh Hamideh",
+      "text": "that'll",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000041",
+      "segment_index": 65,
+      "speaker": "Aditya Ujawane",
+      "text": "thought of that",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000042",
+      "segment_index": 66,
+      "speaker": "Jamileh Hamideh",
+      "text": "be cool",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000043",
+      "segment_index": 67,
+      "speaker": "Aditya Ujawane",
+      "text": "okay because like i think like this is like something people eat every single day and they don't want to like keep bothering to like order it every single month or week so like that might be helpful like you're going to have like a monthly supplier or weekly supply",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000044",
+      "segment_index": 68,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah yeah because this is like that kind of food that you know you take",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000045",
+      "segment_index": 69,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000046",
+      "segment_index": 70,
+      "speaker": "Jamileh Hamideh",
+      "text": "like",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000047",
+      "segment_index": 71,
+      "speaker": "Aditya Ujawane",
+      "text": "like",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000048",
+      "segment_index": 72,
+      "speaker": "Jamileh Hamideh",
+      "text": "after",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000049",
+      "segment_index": 73,
+      "speaker": "Aditya Ujawane",
+      "text": "i",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000004a",
+      "segment_index": 74,
+      "speaker": "Jamileh Hamideh",
+      "text": "you work",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000004b",
+      "segment_index": 75,
+      "speaker": "Aditya Ujawane",
+      "text": "pretty",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000004c",
+      "segment_index": 76,
+      "speaker": "Jamileh Hamideh",
+      "text": "out",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000004d",
+      "segment_index": 77,
+      "speaker": "Aditya Ujawane",
+      "text": "much like almost every single day",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000004e",
+      "segment_index": 78,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000004f",
+      "segment_index": 79,
+      "speaker": "Aditya Ujawane",
+      "text": "subscription variable so i can implement that too",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000050",
+      "segment_index": 80,
+      "speaker": "Jamileh Hamideh",
+      "text": "the subscription and pretty much the store and then about us and about tauri",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000051",
+      "segment_index": 81,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000052",
+      "segment_index": 82,
+      "speaker": "Jamileh Hamideh",
+      "text": "i don't even say it right",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000053",
+      "segment_index": 83,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah it's yeah i don't know for some reason the site is like not reachable but i'll just open it in the google chart and just open it and see what's looking for",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000054",
+      "segment_index": 84,
+      "speaker": "Jamileh Hamideh",
+      "text": "and then i guess the contact right shipping policy return policy all those things i don't know in terms of service i don't know if that's they have that in this website that i that i gave you",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000055",
+      "segment_index": 85,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000056",
+      "segment_index": 86,
+      "speaker": "Jamileh Hamideh",
+      "text": "but yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000057",
+      "segment_index": 87,
+      "speaker": "Aditya Ujawane",
+      "text": "something",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000058",
+      "segment_index": 88,
+      "speaker": "Jamileh Hamideh",
+      "text": "this one's not in the u",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000059",
+      "segment_index": 89,
+      "speaker": "Aditya Ujawane",
+      "text": "specific",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000005a",
+      "segment_index": 90,
+      "speaker": "Jamileh Hamideh",
+      "text": "s",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000005b",
+      "segment_index": 91,
+      "speaker": "Aditya Ujawane",
+      "text": "something specific that you really really want on the website like no one has it or something like that",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000005c",
+      "segment_index": 92,
+      "speaker": "Jamileh Hamideh",
+      "text": "something different",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000005d",
+      "segment_index": 93,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah something different probably no",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000005e",
+      "segment_index": 94,
+      "speaker": "Jamileh Hamideh",
+      "text": "i mean",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000005f",
+      "segment_index": 95,
+      "speaker": "Aditya Ujawane",
+      "text": "just",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000060",
+      "segment_index": 96,
+      "speaker": "Jamileh Hamideh",
+      "text": "i don't know",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000061",
+      "segment_index": 97,
+      "speaker": "Aditya Ujawane",
+      "text": "like",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000062",
+      "segment_index": 98,
+      "speaker": "Jamileh Hamideh",
+      "text": "i wouldn't",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000063",
+      "segment_index": 99,
+      "speaker": "Aditya Ujawane",
+      "text": "a",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000064",
+      "segment_index": 100,
+      "speaker": "Jamileh Hamideh",
+      "text": "know what",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000065",
+      "segment_index": 101,
+      "speaker": "Aditya Ujawane",
+      "text": "okay yeah i'll do my research and if i come up with something i'll definitely let you know and be like okay so this is",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "segment_index": 102,
+      "speaker": "Jamileh Hamideh",
+      "text": "maybe",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000067",
+      "segment_index": 103,
+      "speaker": "Aditya Ujawane",
+      "text": "i think",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000068",
+      "segment_index": 104,
+      "speaker": "Jamileh Hamideh",
+      "text": "like",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000069",
+      "segment_index": 105,
+      "speaker": "Aditya Ujawane",
+      "text": "would be",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000006a",
+      "segment_index": 106,
+      "speaker": "Jamileh Hamideh",
+      "text": "reviews too",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000006b",
+      "segment_index": 107,
+      "speaker": "Aditya Ujawane",
+      "text": "reviews yes reviews is a good thing",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000006c",
+      "segment_index": 108,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000006d",
+      "segment_index": 109,
+      "speaker": "Aditya Ujawane",
+      "text": "building trust reviews are important yes pictures and yeah basically it's like a e-commerce website so it should be okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000006e",
+      "segment_index": 110,
+      "speaker": "Jamileh Hamideh",
+      "text": "like follow us in instagram or stuff like that",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000006f",
+      "segment_index": 111,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah instagram integrations do you want to do like a chatbot that answers questions based on users",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000070",
+      "segment_index": 112,
+      "speaker": "Jamileh Hamideh",
+      "text": "d be cool like if they",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000071",
+      "segment_index": 113,
+      "speaker": "Aditya Ujawane",
+      "text": "we",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000072",
+      "segment_index": 114,
+      "speaker": "Jamileh Hamideh",
+      "text": "have",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000073",
+      "segment_index": 115,
+      "speaker": "Aditya Ujawane",
+      "text": "can do that",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000074",
+      "segment_index": 116,
+      "speaker": "Jamileh Hamideh",
+      "text": "if they have questions about tari i could connect that to a chat bot",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000075",
+      "segment_index": 117,
+      "speaker": "Aditya Ujawane",
+      "text": "we can have a chatbot feature too that answers common questions or faqs and we can have a faq section by itself too so frequently asked questions how many grams do you protein do",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000076",
+      "segment_index": 118,
+      "speaker": "Jamileh Hamideh",
+      "text": "oh",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000077",
+      "segment_index": 119,
+      "speaker": "Aditya Ujawane",
+      "text": "you have",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000078",
+      "segment_index": 120,
+      "speaker": "Jamileh Hamideh",
+      "text": "there you go",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000079",
+      "segment_index": 121,
+      "speaker": "Aditya Ujawane",
+      "text": "how many grams of fiber do you have",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000007a",
+      "segment_index": 122,
+      "speaker": "Jamileh Hamideh",
+      "text": "fiverr",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000007b",
+      "segment_index": 123,
+      "speaker": "Aditya Ujawane",
+      "text": "and yeah like i can i can generate a few questions and i can send them to you and you can answer them so i can just put them in the website",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000007c",
+      "segment_index": 124,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah because probably i'll do a blend that gives you energy with maka and like caffeine free energy so if you have",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000007d",
+      "segment_index": 125,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000007e",
+      "segment_index": 126,
+      "speaker": "Jamileh Hamideh",
+      "text": "coffee and that's not enough",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000007f",
+      "segment_index": 127,
+      "speaker": "Aditya Ujawane",
+      "text": "exactly",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000080",
+      "segment_index": 128,
+      "speaker": "Jamileh Hamideh",
+      "text": "so there's gonna be questions about that and all that yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000081",
+      "segment_index": 129,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah i think we should also have like a tiny section like what makes us different from other people like other bars on the market so like something",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000082",
+      "segment_index": 130,
+      "speaker": "Jamileh Hamideh",
+      "text": "i feel like",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000083",
+      "segment_index": 131,
+      "speaker": "Aditya Ujawane",
+      "text": "like",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000084",
+      "segment_index": 132,
+      "speaker": "Jamileh Hamideh",
+      "text": "that",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000085",
+      "segment_index": 133,
+      "speaker": "Aditya Ujawane",
+      "text": "your",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000086",
+      "segment_index": 134,
+      "speaker": "Jamileh Hamideh",
+      "text": "goes",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000087",
+      "segment_index": 135,
+      "speaker": "Aditya Ujawane",
+      "text": "usb",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000088",
+      "segment_index": 136,
+      "speaker": "Jamileh Hamideh",
+      "text": "with that tao i like that instead of white tari like why are we different and then i can",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000089",
+      "segment_index": 137,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000008a",
+      "segment_index": 138,
+      "speaker": "Jamileh Hamideh",
+      "text": "talk about tari and the sourcing",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000008b",
+      "segment_index": 139,
+      "speaker": "Aditya Ujawane",
+      "text": "and what",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000008c",
+      "segment_index": 140,
+      "speaker": "Jamileh Hamideh",
+      "text": "i'm",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000008d",
+      "segment_index": 141,
+      "speaker": "Aditya Ujawane",
+      "text": "star",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000008e",
+      "segment_index": 142,
+      "speaker": "Jamileh Hamideh",
+      "text": "sorting",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000008f",
+      "segment_index": 143,
+      "speaker": "Aditya Ujawane",
+      "text": "are we again",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000090",
+      "segment_index": 144,
+      "speaker": "Jamileh Hamideh",
+      "text": "it",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000091",
+      "segment_index": 145,
+      "speaker": "Aditya Ujawane",
+      "text": "except that the protein like source",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000092",
+      "segment_index": 146,
+      "speaker": "Jamileh Hamideh",
+      "text": "it's a",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000093",
+      "segment_index": 147,
+      "speaker": "Aditya Ujawane",
+      "text": "or",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000094",
+      "segment_index": 148,
+      "speaker": "Jamileh Hamideh",
+      "text": "plant protein",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000095",
+      "segment_index": 149,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000096",
+      "segment_index": 150,
+      "speaker": "Jamileh Hamideh",
+      "text": "from the",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000097",
+      "segment_index": 151,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000098",
+      "segment_index": 152,
+      "speaker": "Jamileh Hamideh",
+      "text": "in gas",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000099",
+      "segment_index": 153,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000009a",
+      "segment_index": 154,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000009b",
+      "segment_index": 155,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000009c",
+      "segment_index": 156,
+      "speaker": "Jamileh Hamideh",
+      "text": "maybe i'll mention the incas it's a protein of the incas",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000009d",
+      "segment_index": 157,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah so i'm going to basically like make like a structured website that does not have like the fillers inside and i think like i'll just ask you for like these questions and we can just like fill it out later and i'll just have some placeholders right now like i'll have some fake facts and we can just replace them later",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000009e",
+      "segment_index": 158,
+      "speaker": "Jamileh Hamideh",
+      "text": "do you need",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000009f",
+      "segment_index": 159,
+      "speaker": "Aditya Ujawane",
+      "text": "like before launching",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a0",
+      "segment_index": 160,
+      "speaker": "Jamileh Hamideh",
+      "text": "eight",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a1",
+      "segment_index": 161,
+      "speaker": "Aditya Ujawane",
+      "text": "of course",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a2",
+      "segment_index": 162,
+      "speaker": "Jamileh Hamideh",
+      "text": "okay i'm so excited do you need like an image of the package i don't know if i shared that with you",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a3",
+      "segment_index": 163,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah like any image possible outside that give me an image of the bars the image of your packaging the contents on the back of it because like every time i'm trying to like buy something online i always like try to find like oh ingredients or something like that so like i can know like what i'm eating before order",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a4",
+      "segment_index": 164,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah i'm not there yet",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a5",
+      "segment_index": 165,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a6",
+      "segment_index": 166,
+      "speaker": "Jamileh Hamideh",
+      "text": "i mean oh i can put the ingredients that are not the final ingredients the ones that i've been playing with just for like the farmers market",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a7",
+      "segment_index": 167,
+      "speaker": "Aditya Ujawane",
+      "text": "and we can like ai generate an image and be like okay just make this as a label and we can just put it in there so you don't have to like manufacture packaging right now either we can like android images",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a8",
+      "segment_index": 168,
+      "speaker": "Jamileh Hamideh",
+      "text": "so ingredients",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000a9",
+      "segment_index": 169,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000aa",
+      "segment_index": 170,
+      "speaker": "Jamileh Hamideh",
+      "text": "ingredients and packaging",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ab",
+      "segment_index": 171,
+      "speaker": "Aditya Ujawane",
+      "text": "ingredients",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ac",
+      "segment_index": 172,
+      "speaker": "Jamileh Hamideh",
+      "text": "i'll",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ad",
+      "segment_index": 173,
+      "speaker": "Aditya Ujawane",
+      "text": "and",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ae",
+      "segment_index": 174,
+      "speaker": "Jamileh Hamideh",
+      "text": "send",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000af",
+      "segment_index": 175,
+      "speaker": "Aditya Ujawane",
+      "text": "packagements",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b0",
+      "segment_index": 176,
+      "speaker": "Jamileh Hamideh",
+      "text": "that to you okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b1",
+      "segment_index": 177,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b2",
+      "segment_index": 178,
+      "speaker": "Jamileh Hamideh",
+      "text": "awesome did you get the email i sent you from sanjana oh okay yeah so i'll just send another email then with the ingredients and the packaging",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b3",
+      "segment_index": 179,
+      "speaker": "Aditya Ujawane",
+      "text": "like any images useful like i can just like just go three images and be like okay this image will look dirty here and like let's see",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b4",
+      "segment_index": 180,
+      "speaker": "Jamileh Hamideh",
+      "text": "so it's gonna be two two different product lines like the bars and then the powder",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b5",
+      "segment_index": 181,
+      "speaker": "Aditya Ujawane",
+      "text": "yes",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b6",
+      "segment_index": 182,
+      "speaker": "Jamileh Hamideh",
+      "text": "protein",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b7",
+      "segment_index": 183,
+      "speaker": "Aditya Ujawane",
+      "text": "turtle",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b8",
+      "segment_index": 184,
+      "speaker": "Jamileh Hamideh",
+      "text": "powder and protein bar i don't know which ones yeah i'm gonna do both because i want to see which one people",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000b9",
+      "segment_index": 185,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ba",
+      "segment_index": 186,
+      "speaker": "Jamileh Hamideh",
+      "text": "buys more at the farmers market",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000bb",
+      "segment_index": 187,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah later you can always like focus on like manufacturing more",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000bc",
+      "segment_index": 188,
+      "speaker": "Jamileh Hamideh",
+      "text": "so",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000bd",
+      "segment_index": 189,
+      "speaker": "Aditya Ujawane",
+      "text": "that sells more as well",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000be",
+      "segment_index": 190,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah yeah so yeah besides that i don't know",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000bf",
+      "segment_index": 191,
+      "speaker": "Aditya Ujawane",
+      "text": "i think yeah we are but for now if i have any questions you know what i think we should just like share phone numbers so i can just like text you on like this email thing is like taking too long i feel",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000c0",
+      "segment_index": 192,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah of course here",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000c1",
+      "segment_index": 193,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000c2",
+      "segment_index": 194,
+      "speaker": "Jamileh Hamideh",
+      "text": "i'll write mine now down here",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000c3",
+      "segment_index": 195,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah like if i have any questions i can just like text you about it and ask",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000c4",
+      "segment_index": 196,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000c5",
+      "segment_index": 197,
+      "speaker": "Aditya Ujawane",
+      "text": "you quickly",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000c6",
+      "segment_index": 198,
+      "speaker": "Jamileh Hamideh",
+      "text": "totally",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000c7",
+      "segment_index": 199,
+      "speaker": "Aditya Ujawane",
+      "text": "other type mine into if you have any questions or yeah set up another meeting",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000c8",
+      "segment_index": 200,
+      "speaker": "Jamileh Hamideh",
+      "text": "okay i let it now",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000c9",
+      "segment_index": 201,
+      "speaker": "Aditya Ujawane",
+      "text": "perfect yeah okay so i think like this is like enough for me to like start working because i wanted to know if it's like a static website or if it has like a it's an ecommerce website and you just have until summer right like as a student working with",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ca",
+      "segment_index": 202,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000cb",
+      "segment_index": 203,
+      "speaker": "Aditya Ujawane",
+      "text": "zep",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000cc",
+      "segment_index": 204,
+      "speaker": "Jamileh Hamideh",
+      "text": "but my daughter's with me",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000cd",
+      "segment_index": 205,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ce",
+      "segment_index": 206,
+      "speaker": "Jamileh Hamideh",
+      "text": "and she has two more years",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000cf",
+      "segment_index": 207,
+      "speaker": "Aditya Ujawane",
+      "text": "perfect so basically she's part",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000d0",
+      "segment_index": 208,
+      "speaker": "Jamileh Hamideh",
+      "text": "so",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000d1",
+      "segment_index": 209,
+      "speaker": "Aditya Ujawane",
+      "text": "of the whole business as well",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000d2",
+      "segment_index": 210,
+      "speaker": "Jamileh Hamideh",
+      "text": "she started it with me she just doesn't go to the meetings because she's doing an internship",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000d3",
+      "segment_index": 211,
+      "speaker": "Aditya Ujawane",
+      "text": "okay perfect",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000d4",
+      "segment_index": 212,
+      "speaker": "Jamileh Hamideh",
+      "text": "but",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000d5",
+      "segment_index": 213,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000d6",
+      "segment_index": 214,
+      "speaker": "Jamileh Hamideh",
+      "text": "they know like even yesterday when i presented for the seed funds or the day before yesterday i mentioned her",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000d7",
+      "segment_index": 215,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000d8",
+      "segment_index": 216,
+      "speaker": "Jamileh Hamideh",
+      "text": "and they know her she presented with me a few times already",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000d9",
+      "segment_index": 217,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000da",
+      "segment_index": 218,
+      "speaker": "Jamileh Hamideh",
+      "text": "so i think that should be fine i can confirm with them but yeah she's part of it",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000db",
+      "segment_index": 219,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah so like yeah we have some time because e commerce kind of kind of takes like a little bit more time than like a normal website",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000dc",
+      "segment_index": 220,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000dd",
+      "segment_index": 221,
+      "speaker": "Aditya Ujawane",
+      "text": "so we can do like a normal website first and",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000de",
+      "segment_index": 222,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000df",
+      "segment_index": 223,
+      "speaker": "Aditya Ujawane",
+      "text": "like integrate e-commerce inside it so like at least like you have something to show",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e0",
+      "segment_index": 224,
+      "speaker": "Jamileh Hamideh",
+      "text": "to show people",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e1",
+      "segment_index": 225,
+      "speaker": "Aditya Ujawane",
+      "text": "like we make the e commerce website",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e2",
+      "segment_index": 226,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah and the one i paid for it's like this is naviva foods com",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e3",
+      "segment_index": 227,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e4",
+      "segment_index": 228,
+      "speaker": "Jamileh Hamideh",
+      "text": "i don't know it's capitalized",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e5",
+      "segment_index": 229,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e6",
+      "segment_index": 230,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e7",
+      "segment_index": 231,
+      "speaker": "Aditya Ujawane",
+      "text": "i got it i'll just write it down and research on it later",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e8",
+      "segment_index": 232,
+      "speaker": "Jamileh Hamideh",
+      "text": "so",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000e9",
+      "segment_index": 233,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ea",
+      "segment_index": 234,
+      "speaker": "Jamileh Hamideh",
+      "text": "because",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000eb",
+      "segment_index": 235,
+      "speaker": "Aditya Ujawane",
+      "text": "if you need like something to show i feel like because like if you don't have a website i don't think like the finding everyone will like you like that seriously",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ec",
+      "segment_index": 236,
+      "speaker": "Jamileh Hamideh",
+      "text": "they don't",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ed",
+      "segment_index": 237,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ee",
+      "segment_index": 238,
+      "speaker": "Jamileh Hamideh",
+      "text": "they don't",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ef",
+      "segment_index": 239,
+      "speaker": "Aditya Ujawane",
+      "text": "because like",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000f0",
+      "segment_index": 240,
+      "speaker": "Jamileh Hamideh",
+      "text": "they",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000f1",
+      "segment_index": 241,
+      "speaker": "Aditya Ujawane",
+      "text": "first",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000f2",
+      "segment_index": 242,
+      "speaker": "Jamileh Hamideh",
+      "text": "don't",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000f3",
+      "segment_index": 243,
+      "speaker": "Aditya Ujawane",
+      "text": "thing they ask us for like the other website if how many customers yeah how many sales",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000f4",
+      "segment_index": 244,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000f5",
+      "segment_index": 245,
+      "speaker": "Aditya Ujawane",
+      "text": "have you done and",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000f6",
+      "segment_index": 246,
+      "speaker": "Jamileh Hamideh",
+      "text": "even",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000f7",
+      "segment_index": 247,
+      "speaker": "Aditya Ujawane",
+      "text": "that's it",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000f8",
+      "segment_index": 248,
+      "speaker": "Jamileh Hamideh",
+      "text": "the supplier in peru like i'm going to go in september and they're",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000f9",
+      "segment_index": 249,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000fa",
+      "segment_index": 250,
+      "speaker": "Jamileh Hamideh",
+      "text": "like okay what's your website yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000fb",
+      "segment_index": 251,
+      "speaker": "Aditya Ujawane",
+      "text": "yes website",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000fc",
+      "segment_index": 252,
+      "speaker": "Jamileh Hamideh",
+      "text": "you know",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000fd",
+      "segment_index": 253,
+      "speaker": "Aditya Ujawane",
+      "text": "is required",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000fe",
+      "segment_index": 254,
+      "speaker": "Jamileh Hamideh",
+      "text": "that's",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000000ff",
+      "segment_index": 255,
+      "speaker": "Aditya Ujawane",
+      "text": "so",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000100",
+      "segment_index": 256,
+      "speaker": "Jamileh Hamideh",
+      "text": "how i",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000101",
+      "segment_index": 257,
+      "speaker": "Aditya Ujawane",
+      "text": "like my",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000102",
+      "segment_index": 258,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000103",
+      "segment_index": 259,
+      "speaker": "Aditya Ujawane",
+      "text": "goal is to like give you like a first draft within like two weeks i'll say or like a week",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000104",
+      "segment_index": 260,
+      "speaker": "Jamileh Hamideh",
+      "text": "okay yeah whenever you",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000105",
+      "segment_index": 261,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000106",
+      "segment_index": 262,
+      "speaker": "Jamileh Hamideh",
+      "text": "i have to yeah august 13th is like my last day",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000107",
+      "segment_index": 263,
+      "speaker": "Aditya Ujawane",
+      "text": "okay yeah i tried to do it like before august 1st because yeah i think you should have a website fast",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000108",
+      "segment_index": 264,
+      "speaker": "Jamileh Hamideh",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000109",
+      "segment_index": 265,
+      "speaker": "Aditya Ujawane",
+      "text": "and it does not take that long to like make a website",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000010a",
+      "segment_index": 266,
+      "speaker": "Jamileh Hamideh",
+      "text": "okay awesome and i'll send you the ingredients and packagings even though",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000010b",
+      "segment_index": 267,
+      "speaker": "Aditya Ujawane",
+      "text": "as",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000010c",
+      "segment_index": 268,
+      "speaker": "Jamileh Hamideh",
+      "text": "that",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000010d",
+      "segment_index": 269,
+      "speaker": "Aditya Ujawane",
+      "text": "many pictures",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000010e",
+      "segment_index": 270,
+      "speaker": "Jamileh Hamideh",
+      "text": "might",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000010f",
+      "segment_index": 271,
+      "speaker": "Aditya Ujawane",
+      "text": "as possible",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000110",
+      "segment_index": 272,
+      "speaker": "Jamileh Hamideh",
+      "text": "change",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000111",
+      "segment_index": 273,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000112",
+      "segment_index": 274,
+      "speaker": "Jamileh Hamideh",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000113",
+      "segment_index": 275,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah that's",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000114",
+      "segment_index": 276,
+      "speaker": "Jamileh Hamideh",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000115",
+      "segment_index": 277,
+      "speaker": "Aditya Ujawane",
+      "text": "that's fine for now we can always replace images",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000116",
+      "segment_index": 278,
+      "speaker": "Jamileh Hamideh",
+      "text": "okay perfect",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000117",
+      "segment_index": 279,
+      "speaker": "Aditya Ujawane",
+      "text": "perfect",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000118",
+      "segment_index": 280,
+      "speaker": "Jamileh Hamideh",
+      "text": "yay i think that do you like the website i sent you like it's pretty",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000119",
+      "segment_index": 281,
+      "speaker": "Aditya Ujawane",
+      "text": "i'll take",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000011a",
+      "segment_index": 282,
+      "speaker": "Jamileh Hamideh",
+      "text": "to the point",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000011b",
+      "segment_index": 283,
+      "speaker": "Aditya Ujawane",
+      "text": "a look right now",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000011c",
+      "segment_index": 284,
+      "speaker": "Jamileh Hamideh",
+      "text": "i mean i don't need",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000011d",
+      "segment_index": 285,
+      "speaker": "Aditya Ujawane",
+      "text": "i have so many tabs",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000011e",
+      "segment_index": 286,
+      "speaker": "Jamileh Hamideh",
+      "text": "all",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000011f",
+      "segment_index": 287,
+      "speaker": "Aditya Ujawane",
+      "text": "open right now it's kind of crazy okay so yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000120",
+      "segment_index": 288,
+      "speaker": "Jamileh Hamideh",
+      "text": "those",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000121",
+      "segment_index": 289,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000122",
+      "segment_index": 290,
+      "speaker": "Jamileh Hamideh",
+      "text": "the same",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000123",
+      "segment_index": 291,
+      "speaker": "Aditya Ujawane",
+      "text": "it's basically",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000124",
+      "segment_index": 292,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000125",
+      "segment_index": 293,
+      "speaker": "Aditya Ujawane",
+      "text": "made by like the service provider you have which is godaddy yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000126",
+      "segment_index": 294,
+      "speaker": "Jamileh Hamideh",
+      "text": "now they are from brazil",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000127",
+      "segment_index": 295,
+      "speaker": "Aditya Ujawane",
+      "text": "okay yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000128",
+      "segment_index": 296,
+      "speaker": "Jamileh Hamideh",
+      "text": "this is",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000129",
+      "segment_index": 297,
+      "speaker": "Aditya Ujawane",
+      "text": "this is",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000012a",
+      "segment_index": 298,
+      "speaker": "Jamileh Hamideh",
+      "text": "a company",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000012b",
+      "segment_index": 299,
+      "speaker": "Aditya Ujawane",
+      "text": "basically",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000012c",
+      "segment_index": 300,
+      "speaker": "Jamileh Hamideh",
+      "text": "in brazil that's kind of doing like what i'm doing",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000012d",
+      "segment_index": 301,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000012e",
+      "segment_index": 302,
+      "speaker": "Jamileh Hamideh",
+      "text": "they probably buy from peru who knows",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000012f",
+      "segment_index": 303,
+      "speaker": "Aditya Ujawane",
+      "text": "maybe okay and",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000130",
+      "segment_index": 304,
+      "speaker": "Jamileh Hamideh",
+      "text": "but they don't",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000131",
+      "segment_index": 305,
+      "speaker": "Aditya Ujawane",
+      "text": "what's your name",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000132",
+      "segment_index": 306,
+      "speaker": "Jamileh Hamideh",
+      "text": "sell it here",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000133",
+      "segment_index": 307,
+      "speaker": "Aditya Ujawane",
+      "text": "like for your company",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000134",
+      "segment_index": 308,
+      "speaker": "Jamileh Hamideh",
+      "text": "naba",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000135",
+      "segment_index": 309,
+      "speaker": "Aditya Ujawane",
+      "text": "okay okay so the naviva foodscom is your website right right now",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000136",
+      "segment_index": 310,
+      "speaker": "Jamileh Hamideh",
+      "text": "foods",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000137",
+      "segment_index": 311,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000138",
+      "segment_index": 312,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah com",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000139",
+      "segment_index": 313,
+      "speaker": "Aditya Ujawane",
+      "text": "okay and",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000013a",
+      "segment_index": 314,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000013b",
+      "segment_index": 315,
+      "speaker": "Aditya Ujawane",
+      "text": "the other one was the one from brazil was the other way",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000013c",
+      "segment_index": 316,
+      "speaker": "Jamileh Hamideh",
+      "text": "co they just i guess their brand name is the name of the",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000013d",
+      "segment_index": 317,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah of the",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000013e",
+      "segment_index": 318,
+      "speaker": "Jamileh Hamideh",
+      "text": "protein",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000013f",
+      "segment_index": 319,
+      "speaker": "Aditya Ujawane",
+      "text": "plant protein basically",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000140",
+      "segment_index": 320,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000141",
+      "segment_index": 321,
+      "speaker": "Aditya Ujawane",
+      "text": "which is all the data took initiative and just got the name first basis i guess so no one can like have a copy claim on it",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000142",
+      "segment_index": 322,
+      "speaker": "Jamileh Hamideh",
+      "text": "i get i wonder if i can",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000143",
+      "segment_index": 323,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000144",
+      "segment_index": 324,
+      "speaker": "Jamileh Hamideh",
+      "text": "use it here",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000145",
+      "segment_index": 325,
+      "speaker": "Aditya Ujawane",
+      "text": "i think you can like because like you're telling",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000146",
+      "segment_index": 326,
+      "speaker": "Jamileh Hamideh",
+      "text": "but it's",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000147",
+      "segment_index": 327,
+      "speaker": "Aditya Ujawane",
+      "text": "it's",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000148",
+      "segment_index": 328,
+      "speaker": "Jamileh Hamideh",
+      "text": "an ingredient",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000149",
+      "segment_index": 329,
+      "speaker": "Aditya Ujawane",
+      "text": "a plant protein",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000014a",
+      "segment_index": 330,
+      "speaker": "Jamileh Hamideh",
+      "text": "you know it's",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000014b",
+      "segment_index": 331,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000014c",
+      "segment_index": 332,
+      "speaker": "Jamileh Hamideh",
+      "text": "weird",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000014d",
+      "segment_index": 333,
+      "speaker": "Aditya Ujawane",
+      "text": "it's an ingredient",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000014e",
+      "segment_index": 334,
+      "speaker": "Jamileh Hamideh",
+      "text": "it's like if somebody named their company quinoa like it doesn't",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000014f",
+      "segment_index": 335,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000150",
+      "segment_index": 336,
+      "speaker": "Jamileh Hamideh",
+      "text": "i don't know",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000151",
+      "segment_index": 337,
+      "speaker": "Aditya Ujawane",
+      "text": "i think you can because there's a company called granola as well and",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000152",
+      "segment_index": 338,
+      "speaker": "Jamileh Hamideh",
+      "text": "oh",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000153",
+      "segment_index": 339,
+      "speaker": "Aditya Ujawane",
+      "text": "they",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000154",
+      "segment_index": 340,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000155",
+      "segment_index": 341,
+      "speaker": "Aditya Ujawane",
+      "text": "recycle you don't have a copyright or granola so i think target should be fine too",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000156",
+      "segment_index": 342,
+      "speaker": "Jamileh Hamideh",
+      "text": "i'll try it out",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000157",
+      "segment_index": 343,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000158",
+      "segment_index": 344,
+      "speaker": "Jamileh Hamideh",
+      "text": "nothing said i'm stoned yet but at least yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000159",
+      "segment_index": 345,
+      "speaker": "Aditya Ujawane",
+      "text": "for now we can we can do maybe i guess yeah and it's fine like it's an ingredient like if someone name their company mustard it's not like they own mustard so you can always like be like yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000015a",
+      "segment_index": 346,
+      "speaker": "Jamileh Hamideh",
+      "text": "and the thing is what if i don't use tarwin some bars i don't know",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000015b",
+      "segment_index": 347,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah yeah yeah if you switch that we can always switch and just do",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000015c",
+      "segment_index": 348,
+      "speaker": "Jamileh Hamideh",
+      "text": "the name",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000015d",
+      "segment_index": 349,
+      "speaker": "Aditya Ujawane",
+      "text": "a next section and be like okay yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000015e",
+      "segment_index": 350,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000015f",
+      "segment_index": 351,
+      "speaker": "Aditya Ujawane",
+      "text": "and it's good that you already have a domain so you don't have to like buy a domain or anything so we can just like link that to that and just push on versa",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000160",
+      "segment_index": 352,
+      "speaker": "Jamileh Hamideh",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000161",
+      "segment_index": 353,
+      "speaker": "Aditya Ujawane",
+      "text": "that",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000162",
+      "segment_index": 354,
+      "speaker": "Jamileh Hamideh",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000163",
+      "segment_index": 355,
+      "speaker": "Aditya Ujawane",
+      "text": "should be fine",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000164",
+      "segment_index": 356,
+      "speaker": "Jamileh Hamideh",
+      "text": "no i did that and my email to jamila at navivafoodscom",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000165",
+      "segment_index": 357,
+      "speaker": "Aditya Ujawane",
+      "text": "okay",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000166",
+      "segment_index": 358,
+      "speaker": "Jamileh Hamideh",
+      "text": "so",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000167",
+      "segment_index": 359,
+      "speaker": "Aditya Ujawane",
+      "text": "perfect yeah okay i think we are good for now and i'll work on this and",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000168",
+      "segment_index": 360,
+      "speaker": "Jamileh Hamideh",
+      "text": "i'll",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000169",
+      "segment_index": 361,
+      "speaker": "Aditya Ujawane",
+      "text": "present",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000016a",
+      "segment_index": 362,
+      "speaker": "Jamileh Hamideh",
+      "text": "send you",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000016b",
+      "segment_index": 363,
+      "speaker": "Aditya Ujawane",
+      "text": "you",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000016c",
+      "segment_index": 364,
+      "speaker": "Jamileh Hamideh",
+      "text": "what",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000016d",
+      "segment_index": 365,
+      "speaker": "Aditya Ujawane",
+      "text": "the",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000016e",
+      "segment_index": 366,
+      "speaker": "Jamileh Hamideh",
+      "text": "i",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000016f",
+      "segment_index": 367,
+      "speaker": "Aditya Ujawane",
+      "text": "first draft",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000170",
+      "segment_index": 368,
+      "speaker": "Jamileh Hamideh",
+      "text": "have",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000171",
+      "segment_index": 369,
+      "speaker": "Aditya Ujawane",
+      "text": "as soon as possible",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000172",
+      "segment_index": 370,
+      "speaker": "Jamileh Hamideh",
+      "text": "awesome",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000173",
+      "segment_index": 371,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000174",
+      "segment_index": 372,
+      "speaker": "Jamileh Hamideh",
+      "text": "thank you so much",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000175",
+      "segment_index": 373,
+      "speaker": "Aditya Ujawane",
+      "text": "all right perfect",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000176",
+      "segment_index": 374,
+      "speaker": "Jamileh Hamideh",
+      "text": "i really appreciate",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000177",
+      "segment_index": 375,
+      "speaker": "Aditya Ujawane",
+      "text": "of course",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000178",
+      "segment_index": 376,
+      "speaker": "Jamileh Hamideh",
+      "text": "it",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000179",
+      "segment_index": 377,
+      "speaker": "Aditya Ujawane",
+      "text": "yeah really",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000017a",
+      "segment_index": 378,
+      "speaker": "Jamileh Hamideh",
+      "text": "have an amazing weekend take care",
+      "timestamp": "2026-07-24T20:59:47.000Z"
+    }
+  ]
+}

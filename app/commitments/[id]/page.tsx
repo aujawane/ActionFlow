@@ -6,6 +6,7 @@ import { CommitmentWorkspace } from "@/components/commitment-workspace";
 import { requireUser } from "@/lib/auth";
 import { buildCommitmentWorkspaceModel } from "@/lib/project-execution";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import type {
   CommitmentComment,
   CommitmentParticipant,
@@ -105,7 +106,7 @@ export default async function CommitmentPage({
     artifacts: (artifacts ?? []) as TaskArtifact[],
     participants: (participants ?? []) as CommitmentParticipant[]
   });
-  const { data: evidence } = model.evidenceSegmentIds.length
+  const { data: evidenceRows } = model.evidenceSegmentIds.length
     ? await supabaseAdmin
         .from("transcript_segments")
         .select("*")
@@ -113,6 +114,7 @@ export default async function CommitmentPage({
         .in("id", model.evidenceSegmentIds)
         .order("timestamp", { ascending: true })
     : { data: [] };
+  const evidence = canonicalTranscriptOrder((evidenceRows ?? []) as TranscriptSegment[]);
 
   return (
     <section className="space-y-6">

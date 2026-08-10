@@ -21,6 +21,20 @@ function formatStatus(status: string) {
   return status.replaceAll("_", " ");
 }
 
+type AcceptanceCriterion = { ref: string; title: string };
+
+/** V4 stores acceptance criteria in commitment.metadata (see execution-graph-v4.ts); other
+ * engines simply have none, so this renders nothing for them. */
+function acceptanceCriteria(commitment: MeetingCommitment): AcceptanceCriterion[] {
+  const metadata = commitment.metadata as { acceptance_criteria?: unknown } | null;
+  const raw = metadata?.acceptance_criteria;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is AcceptanceCriterion =>
+      Boolean(item) && typeof item === "object" && typeof (item as { title?: unknown }).title === "string"
+  );
+}
+
 export function CommitmentsPanel({
   commitments,
   tasks
@@ -124,6 +138,22 @@ export function CommitmentsPanel({
                 <p className="mt-3 text-sm leading-6 text-slate-700">
                   {commitment.description}
                 </p>
+              ) : null}
+
+              {acceptanceCriteria(commitment).length > 0 ? (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white/70 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Acceptance criteria
+                  </p>
+                  <ul className="mt-1.5 space-y-1 text-sm text-slate-700">
+                    {acceptanceCriteria(commitment).map((criterion) => (
+                      <li key={criterion.ref} className="flex gap-2">
+                        <span aria-hidden="true">•</span>
+                        <span>{criterion.title}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
 
             </article>

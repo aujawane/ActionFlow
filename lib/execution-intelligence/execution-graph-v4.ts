@@ -1,5 +1,5 @@
 import type { CommitmentCandidate, ExecutionGraph, TaskCandidate } from "./schemas";
-import type { ExecutionTree, WorkItem } from "./work-item-schemas";
+import type { ExecutionTree, TaskMergeProvenance, WorkItem } from "./work-item-schemas";
 
 /**
  * Flattens the V4 execution tree into the legacy ExecutionGraph shape (commitments + tasks with a
@@ -7,7 +7,10 @@ import type { ExecutionTree, WorkItem } from "./work-item-schemas";
  * persistence path can be reused without a schema migration. The tree, not this flat shape, is the
  * authoritative V4 output -- this function only exists at the boundary to storage.
  */
-export function treeToExecutionGraph(tree: ExecutionTree): ExecutionGraph {
+export function treeToExecutionGraph(
+  tree: ExecutionTree,
+  provenanceByRef: Record<string, TaskMergeProvenance> = {}
+): ExecutionGraph {
   const commitments: CommitmentCandidate[] = tree.commitments.map((commitment) => {
     const evidenceQuote =
       commitment.tasks[0]?.source_quote ??
@@ -38,7 +41,16 @@ export function treeToExecutionGraph(tree: ExecutionTree): ExecutionGraph {
       consolidated_from_refs: [],
       supporting_action_refs: commitment.member_refs,
       commitment_reason: commitment.purpose_reason,
-      scope_added_beyond_actions: commitment.scope_added_beyond_members
+      scope_added_beyond_actions: null,
+      acceptance_criteria: commitment.acceptance_criteria.map((criterion) => ({
+        ref: criterion.ref,
+        title: criterion.title,
+        description: criterion.description,
+        source_quote: criterion.source_quote,
+        source_segment_ids: criterion.source_segment_ids
+      })),
+      group_basis: commitment.group_basis,
+      primary_owner_reason: commitment.primary_owner_reason
     };
   });
 
@@ -75,7 +87,10 @@ export function treeToExecutionGraph(tree: ExecutionTree): ExecutionGraph {
         ? `Claimed by a verified group as part of its accepted outcome.`
         : "Active accepted work not claimed by any verified group.",
       relationship_evidence: [],
-      relationship_decision: commitmentRef ? "child_task" : "standalone_task"
+      relationship_decision: commitmentRef ? "child_task" : "standalone_task",
+      work_item_role: item.work_item_role,
+      scope_state: item.scope_state,
+      merge_provenance: provenanceByRef[item.ref] ?? null
     };
   }
 

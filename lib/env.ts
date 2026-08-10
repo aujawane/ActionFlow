@@ -72,23 +72,29 @@ export function getExecutionIntelligenceEngine(): ExecutionIntelligenceEngine {
 }
 
 export type V4Stage =
+  | "transcript_normalization"
   | "work_item_extraction"
   | "global_correction"
   | "grouping"
-  | "grouping_verification";
+  | "grouping_verification"
+  | "task_consolidation";
 
 const V4_STAGE_MODEL_ENV: Record<V4Stage, string> = {
+  transcript_normalization: "OPENAI_MODEL_V4_NORMALIZATION",
   work_item_extraction: "OPENAI_MODEL_V4_EXTRACTION",
   global_correction: "OPENAI_MODEL_V4_CORRECTION",
   grouping: "OPENAI_MODEL_V4_GROUPING",
-  grouping_verification: "OPENAI_MODEL_V4_VERIFICATION"
+  grouping_verification: "OPENAI_MODEL_V4_VERIFICATION",
+  task_consolidation: "EXECUTION_TASK_CONSOLIDATION_MODEL"
 };
 
 const V4_STAGE_TIMEOUT_ENV: Record<V4Stage, string> = {
+  transcript_normalization: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_NORMALIZATION",
   work_item_extraction: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION",
   global_correction: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION",
   grouping: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_GROUPING",
-  grouping_verification: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_VERIFICATION"
+  grouping_verification: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_VERIFICATION",
+  task_consolidation: "EXECUTION_TASK_CONSOLIDATION_TIMEOUT_MS"
 };
 
 /**
@@ -108,6 +114,48 @@ export function getV4StageTimeoutMs(stage: V4Stage): number {
   const raw = readEnv(V4_STAGE_TIMEOUT_ENV[stage]);
   if (raw === undefined) return getExecutionIntelligenceTimeoutMs();
   return parseExecutionIntelligenceTimeoutMs(raw);
+}
+
+const DEFAULT_TRANSCRIPT_NORMALIZATION_AUTO_THRESHOLD = 0.9;
+
+/** Phase 0: optional, non-blocking entity-name correction before topic extraction. Off changes
+ * nothing; a failure at runtime always falls back to the raw transcript, regardless of this flag. */
+export function isTranscriptNormalizationEnabled(): boolean {
+  return readEnv("TRANSCRIPT_NORMALIZATION_ENABLED") === "true";
+}
+
+/** Corrections at or above this confidence auto-apply; everything below is recorded as a
+ * suggestion only and the original text is left untouched. */
+export function getTranscriptNormalizationAutoThreshold(): number {
+  const raw = readEnv("TRANSCRIPT_NORMALIZATION_AUTO_THRESHOLD");
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1
+    ? parsed
+    : DEFAULT_TRANSCRIPT_NORMALIZATION_AUTO_THRESHOLD;
+}
+
+const DEFAULT_TASK_CONSOLIDATION_AUTO_THRESHOLD = 0.92;
+const DEFAULT_TASK_CONSOLIDATION_SUGGEST_THRESHOLD = 0.75;
+
+export function isTaskConsolidationEnabled(): boolean {
+  const configured = readEnv("TASK_CONSOLIDATION_ENABLED");
+  return configured === undefined ? true : configured === "true";
+}
+
+export function getTaskConsolidationAutoThreshold(): number {
+  const raw = readEnv("TASK_CONSOLIDATION_AUTO_THRESHOLD");
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1
+    ? parsed
+    : DEFAULT_TASK_CONSOLIDATION_AUTO_THRESHOLD;
+}
+
+export function getTaskConsolidationSuggestThreshold(): number {
+  const raw = readEnv("TASK_CONSOLIDATION_SUGGEST_THRESHOLD");
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1
+    ? parsed
+    : DEFAULT_TASK_CONSOLIDATION_SUGGEST_THRESHOLD;
 }
 
 const coreEnvSchema = z.object({

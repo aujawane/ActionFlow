@@ -16,35 +16,39 @@ const ELIGIBLE_CLASSIFICATIONS = [
   "in_progress"
 ];
 const ELIGIBLE_STATUSES = ["open", "in_progress", "blocked"];
+const ELIGIBLE_ROLES = ["action", "input_dependency"];
 
 /**
  * The single deterministic eligibility gate for grouping membership and for the final tree.
  * Personal logistics, informational status, unaccepted requests/proposals/ideas/questions,
- * decisions with no accepted follow-up, and completed work are never eligible -- by construction,
- * not by a later filter -- so they can never persist as pending work, child or standalone.
+ * decisions with no accepted follow-up, completed work, acceptance criteria, scope decisions,
+ * future features, references, and anything not in current scope are never eligible -- by
+ * construction, not by a later filter -- so none of them can ever persist as pending work, child
+ * or standalone.
  */
 export function isExecutionEligible(item: WorkItem) {
   return (
     item.execution_scope === "project_work" &&
     item.acceptance_state === "accepted" &&
+    item.scope_state === "current_scope" &&
     ELIGIBLE_STATUSES.includes(item.status) &&
-    ELIGIBLE_CLASSIFICATIONS.includes(item.classification)
+    ELIGIBLE_CLASSIFICATIONS.includes(item.classification) &&
+    ELIGIBLE_ROLES.includes(item.work_item_role)
   );
+}
+
+/** A current-scope requirement attachable to a commitment. Never a task, never standalone. */
+export function isEligibleAcceptanceCriterion(item: WorkItem) {
+  return item.scope_state === "current_scope" && item.work_item_role === "acceptance_criterion";
+}
+
+/** A current-scope item explicitly deferred, i.e. everything the "future scope" UI surfaces. */
+export function isFutureScopeItem(item: WorkItem) {
+  return item.scope_state === "future_scope" && item.work_item_role !== "reference";
 }
 
 function normalizeEvidenceText(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
-}
-
-/** A group's stated scope is vacuous when it says nothing beyond its one member's own wording. */
-function isVacuousScopeStatement(scope: string | null | undefined, member: WorkItem) {
-  const normalized = normalizeEvidenceText(scope);
-  if (!normalized) return true;
-  return (
-    normalized === normalizeEvidenceText(member.title) ||
-    normalized === normalizeEvidenceText(member.description) ||
-    normalized === normalizeEvidenceText(member.source_quote)
-  );
 }
 
 function isValidOutcomeEvidence(
@@ -55,6 +59,37 @@ function isValidOutcomeEvidence(
     Boolean(evidence?.source_quote?.trim()) &&
     (evidence?.source_segment_ids ?? []).some((id) => validSegments.has(id))
   );
+}
+
+/** An explicit_deliverable group is redundant when its own evidence and title are just its one
+ * member restated verbatim -- no broader outcome was actually articulated. */
+function isRedundantSingleMemberOutcome(
+  candidate: Pick<GroupProposal, "title" | "explicit_outcome_evidence">,
+  member: WorkItem
+) {
+  const sameTitle = normalizeEvidenceText(candidate.title) === normalizeEvidenceText(member.title);
+  const sameQuote =
+    normalizeEvidenceText(candidate.explicit_outcome_evidence?.source_quote) ===
+    normalizeEvidenceText(member.source_quote);
+  return sameTitle && sameQuote;
+}
+
+/** A description that just restates one member/acceptance-criterion item is misleading on a
+ * broader-titled group; strip it rather than reject work that is otherwise well-supported. */
+function sanitizeNarrowDescription(
+  description: string | null,
+  items: WorkItem[]
+): { description: string | null; wasNarrow: boolean } {
+  if (!description || items.length < 2) return { description, wasNarrow: false };
+  const normalized = normalizeEvidenceText(description);
+  const matchesExactlyOne = items.filter(
+    (item) =>
+      normalizeEvidenceText(item.title) === normalized ||
+      normalizeEvidenceText(item.description) === normalized ||
+      normalizeEvidenceText(item.source_quote) === normalized
+  ).length;
+  if (matchesExactlyOne === 1) return { description: null, wasNarrow: true };
+  return { description, wasNarrow: false };
 }
 
 /** Assigns application-owned refs to a model's raw group output. The model never owns identity. */
@@ -71,7 +106,7 @@ export type GroupDecision = {
 export type WorkItemDecision = {
   work_item_ref: string;
   claimed_group_ref: string | null;
-  disposition: "child" | "standalone" | "excluded_ineligible";
+  disposition: "child" | "acceptance_criterion" | "standalone" | "excluded_ineligible";
   reason: string;
 };
 
@@ -85,9 +120,9 @@ export type AssembledExecutionTree = {
  * Deterministically assembles the final execution tree from verified grouping output. This is the
  * only place a group is accepted, rejected, or demoted, and the only place "standalone" is
  * decided -- it is always the computed complement of claimed eligible work items, never a modeled
- * choice. Work-item-level correction (classification, status, acceptance_state, execution_scope,
- * owner, evidence) happens upstream in the global correction stage; this function never rewrites a
- * work item, it only decides which ones a group may keep.
+ * choice. Work-item-level correction/reconciliation happens upstream in the global correction
+ * stage; this function never rewrites a work item's evidence, only its description-sanitization
+ * pass (narrow-description stripping) touches presentation, and only on the group, never the item.
  */
 export function assembleExecutionTree(input: {
   transcript: string;
@@ -100,8 +135,9 @@ export function assembleExecutionTree(input: {
   const draftByRef = new Map(input.draftGroups.map((group) => [group.ref, group]));
 
   const groupDecisions: GroupDecision[] = [];
-  const claimedRefs = new Set<string>();
-  const commitments: Array<GroupProposal & { tasks: WorkItem[] }> = [];
+  const claimedTaskRefs = new Set<string>();
+  const claimedCriterionRefs = new Set<string>();
+  const commitments: ExecutionTree["commitments"] = [];
 
   let newGroupIndex = 0;
   const seenDraftRefs = new Set<string>();
@@ -109,10 +145,7 @@ export function assembleExecutionTree(input: {
   for (const verified of input.verifiedGroups) {
     const isNew = verified.ref === null;
     const draft = verified.ref !== null ? draftByRef.get(verified.ref) : undefined;
-    if (!isNew && !draft) {
-      // The verifier echoed a ref that was never proposed; ignore it defensively.
-      continue;
-    }
+    if (!isNew && !draft) continue; // verifier echoed an unknown ref; ignore defensively
     if (draft) seenDraftRefs.add(draft.ref);
 
     const ref = isNew ? `group_new_${++newGroupIndex}` : draft!.ref;
@@ -126,80 +159,146 @@ export function assembleExecutionTree(input: {
       due_date_text: verified.due_date_text,
       group_basis: verified.group_basis,
       member_refs: verified.member_refs,
+      acceptance_criteria_refs: verified.acceptance_criteria_refs,
       purpose_reason: verified.purpose_reason,
-      scope_added_beyond_members: verified.scope_added_beyond_members,
       explicit_outcome_evidence: verified.explicit_outcome_evidence
     };
 
-    // A group may only ever reference refs that actually exist and are eligible. Any reference to
-    // an unknown or ineligible ref rejects the whole group -- it is never silently repaired,
-    // because grouping/verification were only ever given the eligible universe to begin with, so
-    // such a reference is either a hallucination or an attempt to smuggle in excluded work.
-    const unknownOrIneligible = candidate.member_refs.filter((memberRef) => {
+    // A group may only reference refs that actually exist and are eligible for the role being
+    // claimed. Any reference to an unknown/ineligible ref rejects the whole group outright --
+    // grouping/verification were only ever given the eligible/criterion universe, so such a
+    // reference is either a hallucination or an attempt to smuggle in excluded work.
+    const unknownOrIneligibleMembers = candidate.member_refs.filter((memberRef) => {
       const item = workItemsByRef.get(memberRef);
       return !item || !isExecutionEligible(item);
     });
-    if (unknownOrIneligible.length > 0) {
+    const unknownOrIneligibleCriteria = candidate.acceptance_criteria_refs.filter((criterionRef) => {
+      const item = workItemsByRef.get(criterionRef);
+      return !item || !isEligibleAcceptanceCriterion(item);
+    });
+    if (unknownOrIneligibleMembers.length > 0 || unknownOrIneligibleCriteria.length > 0) {
       groupDecisions.push({
         group_ref: ref,
         disposition: "removed",
-        reason: `References unknown or ineligible ref(s): ${unknownOrIneligible.join(", ")}.`
+        reason: `References unknown or ineligible ref(s): ${[
+          ...unknownOrIneligibleMembers,
+          ...unknownOrIneligibleCriteria
+        ].join(", ")}.`
       });
       continue;
     }
 
-    // Among refs confirmed eligible, an earlier group in this same run may already have claimed
-    // one -- that is ordinary first-claim-wins competition between two legitimate groups, not an
-    // eligibility failure, so it only shrinks this group rather than rejecting it outright.
     const resolvedMembers = candidate.member_refs
-      .filter((memberRef) => !claimedRefs.has(memberRef))
+      .filter((memberRef) => !claimedTaskRefs.has(memberRef))
       .map((memberRef) => workItemsByRef.get(memberRef)!);
+    const resolvedCriteria = candidate.acceptance_criteria_refs
+      .filter((criterionRef) => !claimedCriterionRefs.has(criterionRef))
+      .map((criterionRef) => workItemsByRef.get(criterionRef)!);
 
-    if (candidate.group_basis === "explicit_outcome") {
-      if (resolvedMembers.length > 1) {
-        groupDecisions.push({
-          group_ref: ref,
-          disposition: "removed",
-          reason: `group_basis=explicit_outcome allows at most one member; had ${resolvedMembers.length} after claim resolution.`
-        });
-        continue;
-      }
-      const validEvidence = isValidOutcomeEvidence(candidate.explicit_outcome_evidence, validSegments);
-      if (!validEvidence) {
-        groupDecisions.push({
-          group_ref: ref,
-          disposition: "removed",
-          reason: "explicit_outcome group has no valid explicit_outcome_evidence."
-        });
-        continue;
-      }
-      if (resolvedMembers.length === 1) {
-        // Verbose scope text alone is never sufficient -- valid evidence (already checked above)
-        // is required in addition to a non-vacuous scope statement, not instead of it.
-        if (isVacuousScopeStatement(candidate.scope_added_beyond_members, resolvedMembers[0])) {
-          groupDecisions.push({
-            group_ref: ref,
-            disposition: "demoted_to_standalone",
-            reason: "Single member with no real scope beyond that member; its work item becomes standalone."
-          });
-          continue;
-        }
-        claimedRefs.add(resolvedMembers[0].ref);
-        groupDecisions.push({
-          group_ref: ref,
-          disposition: isNew ? "added" : "kept",
-          reason: "explicit_outcome with one member: valid evidence and genuinely broader scope."
-        });
-        commitments.push({ ...candidate, member_refs: [resolvedMembers[0].ref], tasks: resolvedMembers });
-        continue;
-      }
-      // Zero members: a pure explicit accepted outcome grounded in its own evidence.
+    const commitCandidate = (finalMembers: WorkItem[], reason: string) => {
+      for (const member of finalMembers) claimedTaskRefs.add(member.ref);
+      for (const criterion of resolvedCriteria) claimedCriterionRefs.add(criterion.ref);
+      const owner =
+        candidate.owner ??
+        (() => {
+          if (finalMembers.length === 0) return null;
+          const counts = new Map<string, number>();
+          for (const member of finalMembers) {
+            const key = member.owner?.trim();
+            if (!key) continue;
+            counts.set(key, (counts.get(key) ?? 0) + 1);
+          }
+          const [top] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+          return top ? top[0] : null;
+        })();
+      const primaryOwnerReason = candidate.owner
+        ? "Declared accountable owner from grouping/verification."
+        : owner
+          ? `Inferred as the owner of the most member tasks (${owner}).`
+          : "No single accountable owner could be determined from member ownership.";
+      const sanitized = sanitizeNarrowDescription(candidate.description, [
+        ...finalMembers,
+        ...resolvedCriteria
+      ]);
       groupDecisions.push({
         group_ref: ref,
         disposition: isNew ? "added" : "kept",
-        reason: "explicit_outcome with zero members: valid explicit accepted-outcome evidence."
+        reason: sanitized.wasNarrow ? `${reason} Description was narrower than the title; cleared.` : reason
       });
-      commitments.push({ ...candidate, member_refs: [], tasks: [] });
+      commitments.push({
+        ...candidate,
+        owner,
+        description: sanitized.description,
+        member_refs: finalMembers.map((member) => member.ref),
+        acceptance_criteria_refs: resolvedCriteria.map((criterion) => criterion.ref),
+        tasks: finalMembers,
+        acceptance_criteria: resolvedCriteria,
+        primary_owner_reason: primaryOwnerReason
+      });
+    };
+
+    if (candidate.group_basis === "explicit_zero_task_outcome") {
+      if (resolvedMembers.length !== 0) {
+        groupDecisions.push({
+          group_ref: ref,
+          disposition: "removed",
+          reason: `explicit_zero_task_outcome must have zero members; had ${resolvedMembers.length} after claim resolution.`
+        });
+        continue;
+      }
+      if (!isValidOutcomeEvidence(candidate.explicit_outcome_evidence, validSegments)) {
+        groupDecisions.push({
+          group_ref: ref,
+          disposition: "removed",
+          reason: "explicit_zero_task_outcome has no valid explicit_outcome_evidence."
+        });
+        continue;
+      }
+      commitCandidate([], "Explicit accepted outcome with zero work items; valid evidence.");
+      continue;
+    }
+
+    if (candidate.group_basis === "explicit_deliverable" && resolvedMembers.length > 1) {
+      // Verification sometimes labels a group explicit_deliverable (there's a clear accepted
+      // outcome/deadline) while still legitimately resolving >=2 supporting members -- that's
+      // exactly what multi_item_shared_purpose means, not a reason to discard a group with real
+      // evidence and members. Deterministically relabel to match reality rather than demoting the
+      // whole group to standalone and losing it; no model call, no new category, just making the
+      // existing 3-way reconciliation tolerant of this benign label/cardinality mismatch.
+      candidate.group_basis = "multi_item_shared_purpose";
+      commitCandidate(
+        resolvedMembers,
+        `Reclassified from explicit_deliverable to multi_item_shared_purpose: ${resolvedMembers.length} members after claim resolution satisfy multi_item_shared_purpose's at-least-two rule, not explicit_deliverable's exactly-one rule.`
+      );
+      continue;
+    }
+
+    if (candidate.group_basis === "explicit_deliverable") {
+      if (resolvedMembers.length !== 1) {
+        groupDecisions.push({
+          group_ref: ref,
+          disposition: "removed",
+          reason: `explicit_deliverable requires exactly one member; had ${resolvedMembers.length} after claim resolution.`
+        });
+        continue;
+      }
+      if (!isValidOutcomeEvidence(candidate.explicit_outcome_evidence, validSegments)) {
+        groupDecisions.push({
+          group_ref: ref,
+          disposition: "removed",
+          reason: "explicit_deliverable has no valid explicit_outcome_evidence."
+        });
+        continue;
+      }
+      if (isRedundantSingleMemberOutcome(candidate, resolvedMembers[0])) {
+        groupDecisions.push({
+          group_ref: ref,
+          disposition: "demoted_to_standalone",
+          reason: "Deliverable's title and evidence just restate its one member with no added scope; its work item becomes standalone."
+        });
+        continue;
+      }
+      commitCandidate(resolvedMembers, "explicit_deliverable with one member: valid evidence and genuinely broader scope.");
       continue;
     }
 
@@ -212,17 +311,7 @@ export function assembleExecutionTree(input: {
       });
       continue;
     }
-    for (const member of resolvedMembers) claimedRefs.add(member.ref);
-    groupDecisions.push({
-      group_ref: ref,
-      disposition: "kept",
-      reason: "Verified as a broader outcome supported by its member work items."
-    });
-    commitments.push({
-      ...candidate,
-      member_refs: resolvedMembers.map((member) => member.ref),
-      tasks: resolvedMembers
-    });
+    commitCandidate(resolvedMembers, "Verified as a broader outcome supported by its member work items.");
   }
 
   for (const draft of input.draftGroups) {
@@ -238,12 +327,26 @@ export function assembleExecutionTree(input: {
   const workItemDecisions: WorkItemDecision[] = [];
   const standaloneTasks: WorkItem[] = [];
   for (const item of input.workItems) {
+    if (isEligibleAcceptanceCriterion(item)) {
+      const owningGroup = commitments.find((commitment) =>
+        commitment.acceptance_criteria_refs.includes(item.ref)
+      );
+      workItemDecisions.push({
+        work_item_ref: item.ref,
+        claimed_group_ref: owningGroup?.ref ?? null,
+        disposition: "acceptance_criterion",
+        reason: owningGroup
+          ? `Attached as acceptance criteria to "${owningGroup.title}".`
+          : "Current-scope acceptance criterion not attached to any commitment."
+      });
+      continue;
+    }
     if (!isExecutionEligible(item)) {
       workItemDecisions.push({
         work_item_ref: item.ref,
         claimed_group_ref: null,
         disposition: "excluded_ineligible",
-        reason: `Not eligible (execution_scope=${item.execution_scope}, acceptance_state=${item.acceptance_state}, status=${item.status}, classification=${item.classification}).`
+        reason: `Not eligible (execution_scope=${item.execution_scope}, acceptance_state=${item.acceptance_state}, scope_state=${item.scope_state}, status=${item.status}, classification=${item.classification}, work_item_role=${item.work_item_role}).`
       });
       continue;
     }
@@ -271,4 +374,55 @@ export function assembleExecutionTree(input: {
     groupDecisions,
     workItemDecisions
   };
+}
+
+/**
+ * Phase 6: the last, cheap, purely structural check before persistence. Everything it checks
+ * should already be guaranteed by construction (assembly's claim pools, consolidation only ever
+ * removing/merging within a pool); this exists to catch a corrupted result -- e.g. from a bug
+ * introduced by consolidation -- rather than to do assembly's job over again.
+ */
+export function validateFinalTree(tree: ExecutionTree): { ok: true } | { ok: false; errors: string[] } {
+  const errors: string[] = [];
+  const taskRefCounts = new Map<string, number>();
+  const countRef = (ref: string) => taskRefCounts.set(ref, (taskRefCounts.get(ref) ?? 0) + 1);
+
+  for (const commitment of tree.commitments) {
+    for (const task of commitment.tasks) {
+      countRef(task.ref);
+      if (!isExecutionEligible(task)) {
+        errors.push(`Commitment "${commitment.title}" contains ineligible task ${task.ref}.`);
+      }
+    }
+    for (const criterion of commitment.acceptance_criteria) {
+      if (!isEligibleAcceptanceCriterion(criterion)) {
+        errors.push(`Commitment "${commitment.title}" contains an invalid acceptance criterion ${criterion.ref}.`);
+      }
+    }
+    const expected =
+      commitment.group_basis === "explicit_deliverable"
+        ? 1
+        : commitment.group_basis === "explicit_zero_task_outcome"
+          ? 0
+          : 2;
+    const actual = commitment.tasks.length;
+    const cardinalityOk =
+      commitment.group_basis === "multi_item_shared_purpose" ? actual >= expected : actual === expected;
+    if (!cardinalityOk) {
+      errors.push(
+        `Commitment "${commitment.title}" has group_basis=${commitment.group_basis} but ${actual} tasks.`
+      );
+    }
+  }
+  for (const task of tree.standalone_tasks) {
+    countRef(task.ref);
+    if (!isExecutionEligible(task)) {
+      errors.push(`Standalone task ${task.ref} is not eligible.`);
+    }
+  }
+  for (const [ref, count] of taskRefCounts) {
+    if (count > 1) errors.push(`Task ${ref} appears ${count} times across the tree (child and/or standalone).`);
+  }
+
+  return errors.length > 0 ? { ok: false, errors } : { ok: true };
 }

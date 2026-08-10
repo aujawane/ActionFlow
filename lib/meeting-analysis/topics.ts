@@ -2,12 +2,12 @@ import {
   analyzeTranscriptWithOpenAI,
   buildCleanTranscript,
   buildInsightsPayload,
-  buildTranscriptWithSegmentIds,
   segmentMeetingTopicsWithOpenAI
 } from "@/lib/analysis";
 import type { ExecutionSourceContext } from "@/lib/execution-intelligence/stages";
 import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { buildCanonicalTranscriptWithSegmentIds, canonicalTranscriptOrder } from "@/lib/transcript-order";
 import type {
   ExtractedInsight,
   MeetingSpeakerAlias,
@@ -157,7 +157,7 @@ export async function prepareMeetingAnalysis(
       ];
 
   const safeSegments = applySpeakerAliases(
-    (segments ?? []) as TranscriptSegment[],
+    canonicalTranscriptOrder((segments ?? []) as TranscriptSegment[]),
     (aliases ?? []) as MeetingSpeakerAlias[]
   );
   const transcript = buildCleanTranscript(safeSegments);
@@ -165,7 +165,7 @@ export async function prepareMeetingAnalysis(
     throw new Error("No transcript available yet.");
   }
 
-  const segmentationTranscript = buildTranscriptWithSegmentIds(safeSegments);
+  const segmentationTranscript = buildCanonicalTranscriptWithSegmentIds(safeSegments);
   const meetingDate = meeting.created_at ?? new Date().toISOString();
   const buildResult = (
     topics: MeetingTopic[],
@@ -304,9 +304,11 @@ export async function prepareMeetingAnalysis(
   for (let index = 0; index < insertedTopics.length; index += 1) {
     const topic = insertedTopics[index] as MeetingTopic;
     const topicDefinition = segmentation.data.topics[index];
-    const topicSegments = topicDefinition.segment_ids
-      .map((segmentId) => segmentMap.get(segmentId))
-      .filter((segment): segment is NonNullable<typeof segment> => Boolean(segment));
+    const topicSegments = canonicalTranscriptOrder(
+      topicDefinition.segment_ids
+        .map((segmentId) => segmentMap.get(segmentId))
+        .filter((segment): segment is NonNullable<typeof segment> => Boolean(segment))
+    );
     if (topicSegments.length === 0) continue;
 
     const topicTranscript = buildCleanTranscript(topicSegments);
