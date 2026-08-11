@@ -103,22 +103,46 @@ export function SpeakerMappingPanel({
 
   if (speakers.length === 0) return null;
 
+  const unresolvedCount = speakers.filter((speaker) => !speaker.isResolved).length;
+
   return (
-    <section className="premium-card space-y-4 p-5">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
-          Speaker Resolution
-        </p>
-        <h2 className="mt-1 text-lg font-semibold text-slate-950">
-          Identify voices from this meeting
-        </h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">
+    <details className="group premium-card p-5">
+      {/* Compact by default: a callout summarizing whether anything needs attention, not the
+          full quote-by-quote resolution grid. The full interface (below) opens on demand. */}
+      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 marker:hidden [&::-webkit-details-marker]:hidden">
+        <div className="flex items-start gap-3">
+          <span
+            className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${unresolvedCount > 0 ? "bg-amber-500" : "bg-brand-500"}`}
+            aria-hidden="true"
+          />
+          <div>
+            <p className="text-sm font-semibold text-slate-900">
+              {unresolvedCount > 0
+                ? `${unresolvedCount} speaker${unresolvedCount === 1 ? "" : "s"} need identification`
+                : "All speakers identified"}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {unresolvedCount > 0
+                ? "Confirm speaker identities to improve ownership accuracy."
+                : "Review or update speaker names for this meeting."}
+            </p>
+          </div>
+        </div>
+        <span className="tertiary-button px-3 py-1.5 text-xs group-open:hidden">
+          Resolve speakers
+        </span>
+        <span className="tertiary-button hidden px-3 py-1.5 text-xs group-open:inline-flex">
+          Hide
+        </span>
+      </summary>
+
+      <div className="mt-5 space-y-4 border-t border-slate-100 pt-5">
+        <p className="text-sm leading-6 text-slate-600">
           Map anonymous or shared-device speaker labels to real names. Raw Recall
           participant and diarization data remains unchanged.
         </p>
-      </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {speakers.map((speaker) => (
           <label
             key={speaker.rawSpeakerLabel}
@@ -202,19 +226,20 @@ export function SpeakerMappingPanel({
             />
           </label>
         ))}
-      </div>
+        </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={saveMappings}
-          disabled={saving}
-          className="premium-button px-4 py-2 text-sm"
-        >
-          {saving ? "Saving..." : "Save Speaker Names"}
-        </button>
-        {message ? <p className="text-sm text-slate-600">{message}</p> : null}
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={saveMappings}
+            disabled={saving}
+            className="premium-button px-4 py-2 text-sm"
+          >
+            {saving ? "Saving..." : "Save Speaker Names"}
+          </button>
+          {message ? <p className="text-sm text-slate-600">{message}</p> : null}
+        </div>
       </div>
-    </section>
+    </details>
   );
 }

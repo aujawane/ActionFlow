@@ -16,22 +16,19 @@ export function IdeasRequirementsPanel({
   return (
     <section className="premium-card space-y-4 p-5">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Parking Lot
-        </p>
-        <h2 className="mt-1 text-lg font-semibold text-slate-950">
-          Ideas / Requirements
-        </h2>
+        <h2 className="text-lg font-semibold text-slate-950">Future Scope</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Discussed items that are not yet committed execution work. These do not
-          count toward action-item totals, owner workload, or follow-up emails.
+          Discussed items that are not currently committed execution work. These do
+          not count toward action-item totals, owner workload, or follow-up emails.
         </p>
       </div>
 
       {commitments.length > 0 ? (
         <div className="space-y-2">
+          {/* Deliberately not labeled "Commitments" -- these are explicitly NOT active
+              commitments (proposed/requirement/future_consideration classification only). */}
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Commitments
+            Potential outcomes
           </p>
           {commitments.map((commitment) => (
             <div

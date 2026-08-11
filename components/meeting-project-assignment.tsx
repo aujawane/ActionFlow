@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { Project } from "@/lib/types";
@@ -21,6 +23,13 @@ export function MeetingProjectAssignment({
   const [goal, setGoal] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Compact by default whenever a project is already assigned -- the picker/create form only
+  // takes over once the user asks to change it. Reopens automatically if assignment is cleared.
+  const [editing, setEditing] = useState(!currentProjectId);
+
+  useEffect(() => {
+    if (!projectId) setEditing(true);
+  }, [projectId]);
 
   async function assign(payload: Record<string, unknown>) {
     setSaving(true);
@@ -40,11 +49,39 @@ export function MeetingProjectAssignment({
     setCreating(false);
     setName("");
     setGoal("");
+    setEditing(!result.project_id);
     router.refresh();
   }
 
+  const assignedProject = projects.find((project) => project.id === projectId);
+
+  // Compact, single-line presentation once a project is assigned -- matches Phase 2's "visible
+  // but should not dominate the page" requirement. The full picker/create form (below) is the
+  // same form as before, just reached via "Change" instead of always being on screen.
+  if (!editing && assignedProject) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-slate-500">Project</span>
+        <Link
+          href={`/projects/${assignedProject.id}` as Route}
+          className="font-semibold text-slate-900 hover:text-brand-700"
+        >
+          {assignedProject.name}
+        </Link>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="tertiary-button px-2 py-1 text-xs"
+        >
+          Change
+        </button>
+        {error ? <p className="w-full text-sm text-rose-700">{error}</p> : null}
+      </div>
+    );
+  }
+
   return (
-    <section className="premium-card p-5">
+    <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
       <div className="flex flex-wrap items-end gap-3">
         <label className="min-w-64 flex-1 text-sm font-medium text-slate-700">
           Project / Initiative

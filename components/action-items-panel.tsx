@@ -89,6 +89,8 @@ function TaskCard({ task }: { task: MeetingTask }) {
 }
 
 export function ActionItemsPanel({ tasks }: { tasks: MeetingTask[] }) {
+  if (tasks.length === 0) return null;
+
   const commitments = tasks.filter((task) => task.task_type !== "unassigned_work");
   const unassignedWork = tasks.filter((task) => task.task_type === "unassigned_work");
 
@@ -101,39 +103,33 @@ export function ActionItemsPanel({ tasks }: { tasks: MeetingTask[] }) {
         </p>
       </div>
 
-      {tasks.length === 0 ? (
-        <div className="premium-empty-compact">
-          <p className="text-sm text-slate-600">No clear action items found for this topic.</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {commitments.length > 0 ? (
-            <section className="space-y-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Commitments
-              </h3>
-              <div className="space-y-3">
-                {commitments.map((task) => (
-                  <TaskCard key={task.id} task={task} />
-                ))}
-              </div>
-            </section>
-          ) : null}
+      <div className="space-y-4">
+        {commitments.length > 0 ? (
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Commitments
+            </h3>
+            <div className="space-y-3">
+              {commitments.map((task) => (
+                <TaskCard key={task.id} task={task} />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
-          {unassignedWork.length > 0 ? (
-            <section className="space-y-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Unassigned Work
-              </h3>
-              <div className="space-y-3">
-                {unassignedWork.map((task) => (
-                  <TaskCard key={task.id} task={task} />
-                ))}
-              </div>
-            </section>
-          ) : null}
-        </div>
-      )}
+        {unassignedWork.length > 0 ? (
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Unassigned Work
+            </h3>
+            <div className="space-y-3">
+              {unassignedWork.map((task) => (
+                <TaskCard key={task.id} task={task} />
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </div>
     </div>
   );
 }

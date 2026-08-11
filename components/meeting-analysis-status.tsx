@@ -109,6 +109,17 @@ export function MeetingAnalysisStatusPanel({
     return null;
   }
 
+  // Successful analysis shouldn't hold a permanent block on the page -- once it's caught up,
+  // collapse to one quiet line instead of the full status card.
+  if (status === "completed" && !error) {
+    return (
+      <div className="flex items-center gap-2 text-xs font-medium text-brand-800">
+        <span className="h-1.5 w-1.5 rounded-full bg-brand-500" aria-hidden="true" />
+        Analysis up to date
+      </div>
+    );
+  }
+
   return (
     <div className="premium-card space-y-3 p-4">
       <div>

@@ -4,8 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ActionItemsPanel } from "@/components/action-items-panel";
 import { InsightsPanel } from "@/components/insights-panel";
-import { PromptsPanel } from "@/components/prompts-panel";
-import type { ExtractedInsight, GeneratedPrompt, MeetingTask, MeetingTopic } from "@/lib/types";
+import type { ExtractedInsight, MeetingTask, MeetingTopic } from "@/lib/types";
 
 function formatConfidence(confidence: number | null) {
   if (confidence === null || Number.isNaN(confidence)) return "N/A";
@@ -15,12 +14,10 @@ function formatConfidence(confidence: number | null) {
 export function TopicResults({
   topics,
   insights,
-  prompts,
   tasks = []
 }: {
   topics: MeetingTopic[];
   insights: ExtractedInsight[];
-  prompts: GeneratedPrompt[];
   tasks?: MeetingTask[];
 }) {
   const sortedTopics = useMemo(() => {
@@ -63,9 +60,8 @@ export function TopicResults({
 
   if (topics.length === 0) {
     return (
-      <div className="premium-empty p-6 text-left">
-        <h2 className="text-sm font-semibold text-slate-900">Topics</h2>
-        <p className="mt-1 text-sm text-slate-600">
+      <div className="premium-empty-compact">
+        <p className="text-sm text-slate-600">
           No segmented topics yet. Run Analyze Meeting to create topic-level insights.
         </p>
       </div>
@@ -77,14 +73,13 @@ export function TopicResults({
       <div>
         <h2 className="text-sm font-semibold text-slate-900">Topics</h2>
         <p className="text-xs text-slate-500">
-          Topic-by-topic analysis and prompts, each grouped under its topic name.
+          Topic-by-topic analysis, each grouped under its topic name.
         </p>
       </div>
 
       <div className="space-y-4">
         {sortedTopics.map((topic) => {
           const topicInsights = insights.filter((item) => item.topic_id === topic.id);
-          const topicPrompts = prompts.filter((item) => item.topic_id === topic.id);
           const topicId = String(topic.id);
           const topicTasks = tasks.filter((item) => String(item.topic_id) === topicId);
           const isExpanded = expandedTopicIds.has(topic.id);
@@ -119,7 +114,7 @@ export function TopicResults({
                     </button>
                     <h3 className="text-base font-semibold text-slate-900">{topic.title}</h3>
                   </div>
-                  <span className="rounded-full border border-brand-100 bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-800">
+                  <span className="badge-internal">
                     Confidence: {formatConfidence(topic.confidence)}
                   </span>
                 </div>
@@ -137,7 +132,6 @@ export function TopicResults({
                 <>
                   <InsightsPanel insights={topicInsights} />
                   <ActionItemsPanel tasks={topicTasks} />
-                  <PromptsPanel prompts={topicPrompts} />
                 </>
               ) : null}
             </article>

@@ -8,12 +8,12 @@ import { LiveTranscript } from "@/components/live-transcript";
 import { MeetingActions } from "@/components/meeting-actions";
 import { MeetingAnalysisStatusPanel } from "@/components/meeting-analysis-status";
 import { MeetingProjectAssignment } from "@/components/meeting-project-assignment";
-import { PromptsPanel } from "@/components/prompts-panel";
 import { SpeakerMappingPanel } from "@/components/speaker-mapping-panel";
 import { StandaloneTasksPanel } from "@/components/standalone-tasks-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
 import { partitionExecutionGraph } from "@/lib/execution-display";
+import { formatReadableDate } from "@/lib/format-date";
 import { meetingPlatformLabel } from "@/lib/meeting-platform";
 import { getLatestMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
 import {
@@ -81,7 +81,7 @@ export default async function MeetingDetailPage({
   const [
     { data: segments, error: segmentsError },
     { data: insights, error: insightsError },
-    { data: prompts, error: promptsError },
+    { error: promptsError },
     { data: topics, error: topicsError },
     { data: tasks, error: tasksError },
     { data: commitments, error: commitmentsError },
@@ -202,18 +202,53 @@ export default async function MeetingDetailPage({
     currentGeneration: meeting.execution_graph_generation ?? null
   });
 
+  const meetingDateLabel = formatReadableDate(meeting.created_at);
+
   return (
     <section className="space-y-6">
+      {/* 1. Meeting header -- title, status, human date, participants, project, technical
+          details. Everything a normal user needs to orient themselves; nothing pipeline-
+          oriented lives here anymore (see Meeting Intelligence at the bottom of the page). */}
       <div className="premium-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Meeting Detail
-            </p>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
-              {meeting.title ?? "Untitled meeting"}
-            </h1>
-            <p className="badge-meta">{meetingPlatformLabel(meeting.platform)}</p>
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Meeting Detail
+              </p>
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
+                {meeting.title ?? "Untitled meeting"}
+              </h1>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+                <span className="badge-meta">{meetingPlatformLabel(meeting.platform)}</span>
+                {meetingDateLabel ? <span>{meetingDateLabel}</span> : null}
+              </div>
+            </div>
+
+            {participants.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Participants
+                </span>
+                {participants.map((participant) => (
+                  <span
+                    key={participant}
+                    className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+                  >
+                    {participant}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            <MeetingProjectAssignment
+              meetingId={meeting.id}
+              currentProjectId={
+                typeof meeting.project_id === "string" ? meeting.project_id : null
+              }
+              projects={(projects ?? []) as Project[]}
+            />
+
             {meeting.meeting_url || meeting.recall_bot_id ? (
               <details className="disclosure">
                 <summary>Technical details</summary>
@@ -228,17 +263,11 @@ export default async function MeetingDetailPage({
               </details>
             ) : null}
           </div>
+          {/* Meeting completion status only -- separate from commitment/task completion,
+              which the execution summary and commitment cards below report on their own. */}
           <LiveMeetingStatusBadge meetingId={meeting.id} initialStatus={meeting.status} />
         </div>
       </div>
-
-      <MeetingProjectAssignment
-        meetingId={meeting.id}
-        currentProjectId={
-          typeof meeting.project_id === "string" ? meeting.project_id : null
-        }
-        projects={(projects ?? []) as Project[]}
-      />
 
       {meeting.status === "failed" ? (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -265,14 +294,18 @@ export default async function MeetingDetailPage({
         </div>
       )}
 
-      <div className="premium-card grid grid-cols-2 divide-y divide-slate-100 sm:grid-cols-3 lg:grid-cols-6 lg:divide-y-0 lg:divide-x">
+      {/* Speaker resolution: a compact callout when identities are unresolved (affects
+          ownership accuracy), collapsed by default either way -- see SpeakerMappingPanel. */}
+      <SpeakerMappingPanel meetingId={meeting.id} initialSpeakers={speakerRoster} />
+
+      {/* 2. Compact execution summary -- execution-oriented counts only. Transcript/topic/
+          insight processing metrics moved to Meeting Intelligence below. */}
+      <div className="premium-card grid grid-cols-2 divide-y divide-slate-100 sm:grid-cols-4 sm:divide-y-0 sm:divide-x">
         {[
-          ["Transcript Segments", (segments ?? []).length],
-          ["Topics", typedTopics.length],
-          ["Insights", (insights ?? []).length],
           ["Active Commitments", partitioned.activeCommitments.length],
-          ["Execution Tasks", partitioned.executionTasks.length],
-          ["Ideas / Requirements", partitioned.ideaCommitments.length + partitioned.ideaTasks.length]
+          ["Linked Tasks", partitioned.linkedExecutionTasks.length],
+          ["Standalone Tasks", partitioned.standaloneTasks.length],
+          ["Future Scope", partitioned.ideaCommitments.length + partitioned.ideaTasks.length]
         ].map(([label, value]) => (
           <div key={label as string} className="p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
@@ -281,90 +314,85 @@ export default async function MeetingDetailPage({
         ))}
       </div>
 
-      <MeetingActions
-        meetingId={meeting.id}
-        showDevReimport={process.env.NODE_ENV === "development"}
-      />
-
-      <MeetingAnalysisStatusPanel
-        meetingId={meeting.id}
-        meetingStatus={meeting.status}
-        initialJob={latestAnalysisJob}
-        segmentCount={(segments ?? []).length}
-      />
-
-      <SpeakerMappingPanel
-        meetingId={meeting.id}
-        initialSpeakers={speakerRoster}
-      />
-
-      <section className="premium-card p-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
-          Participants
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {participants.map((participant) => (
-            <span
-              key={participant}
-              className="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700"
-            >
-              {participant}
-            </span>
-          ))}
-          {participants.length === 0 ? (
-            <p className="text-sm text-slate-500">No identified participants.</p>
-          ) : null}
-        </div>
-      </section>
-
+      {/* 3. Commitments -- the primary output of the meeting. */}
       <CommitmentsPanel
         commitments={partitioned.activeCommitments}
         tasks={partitioned.linkedExecutionTasks}
       />
 
+      {/* 4. Standalone tasks -- actionable, but not part of a larger commitment. */}
       <StandaloneTasksPanel tasks={partitioned.standaloneTasks} />
 
+      {/* 5. Future scope -- discussed, not committed. */}
       <IdeasRequirementsPanel
         commitments={partitioned.ideaCommitments}
         tasks={partitioned.ideaTasks}
       />
 
-      <details className="premium-card p-5">
-        <summary className="cursor-pointer font-semibold text-slate-950">
-          Topics and supporting analysis
-        </summary>
-        <div className="mt-5">
-          <TopicResults
-            topics={typedTopics}
-            insights={insights ?? []}
-            prompts={prompts ?? []}
-            tasks={[]}
-          />
-          {typedTopics.length === 0 ? (
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <InsightsPanel
-                insights={(insights ?? []).filter((item) => item.topic_id == null)}
-              />
-              <PromptsPanel
-                prompts={(prompts ?? []).filter((item) => item.topic_id == null)}
-              />
-            </div>
-          ) : null}
+      {/* 6. Meeting Intelligence / Evidence -- everything pipeline-oriented (processing
+          controls, analysis status, topic breakdown, transcript) lives here, after
+          execution results, via progressive disclosure. */}
+      <section className="space-y-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Meeting Intelligence
+          </p>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">Evidence &amp; Analysis</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Supporting analysis behind Parfait&apos;s interpretation of this meeting.
+          </p>
+          <p className="badge-internal mt-2">
+            {(segments ?? []).length} transcript segments · {typedTopics.length} topics ·{" "}
+            {(insights ?? []).length} insights
+          </p>
         </div>
-      </details>
 
-      <details className="premium-card p-5">
-        <summary className="cursor-pointer font-semibold text-slate-950">
-          Transcript
-        </summary>
-        <div className="mt-5">
-          <LiveTranscript
+        <div className="flex flex-wrap items-start gap-4">
+          <MeetingActions
             meetingId={meeting.id}
-            initialSegments={safeSegments}
-            initialStatus={meeting.status}
+            showDevReimport={process.env.NODE_ENV === "development"}
+          />
+          <MeetingAnalysisStatusPanel
+            meetingId={meeting.id}
+            meetingStatus={meeting.status}
+            initialJob={latestAnalysisJob}
+            segmentCount={(segments ?? []).length}
           />
         </div>
-      </details>
+
+        <details className="premium-card p-5">
+          <summary className="cursor-pointer font-semibold text-slate-950">
+            Topics and supporting analysis
+          </summary>
+          <div className="mt-5">
+            <TopicResults
+              topics={typedTopics}
+              insights={insights ?? []}
+              tasks={[]}
+            />
+            {typedTopics.length === 0 ? (
+              <div className="mt-4">
+                <InsightsPanel
+                  insights={(insights ?? []).filter((item) => item.topic_id == null)}
+                />
+              </div>
+            ) : null}
+          </div>
+        </details>
+
+        <details className="premium-card p-5">
+          <summary className="cursor-pointer font-semibold text-slate-950">
+            Transcript
+          </summary>
+          <div className="mt-5">
+            <LiveTranscript
+              meetingId={meeting.id}
+              initialSegments={safeSegments}
+              initialStatus={meeting.status}
+            />
+          </div>
+        </details>
+      </section>
     </section>
   );
 }
