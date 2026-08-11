@@ -448,10 +448,9 @@ export function TaskExecutionPanel({
             ))}
           </div>
         ) : (
-          <div className="premium-empty mt-5 p-6 text-left">
-            <p className="text-sm font-semibold text-slate-800">No deliverables yet.</p>
-            <p className="mt-1 text-sm text-slate-600">
-              Use the smart action button above to generate the first deliverable.
+          <div className="premium-empty-compact mt-5">
+            <p className="text-sm text-slate-600">
+              No deliverables yet. Use the smart action button above to generate the first one.
             </p>
           </div>
         )}

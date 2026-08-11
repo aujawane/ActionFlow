@@ -4,16 +4,13 @@ import type { Route } from "next";
 import { TaskCategoryBadge } from "@/components/task-category-badge";
 import { TaskClarifications } from "@/components/task-clarifications";
 import { isTaskExecutable } from "@/lib/execution-display";
+import { formatStatusLabel, statusBadgeClassName } from "@/lib/status-badge";
 import type { MeetingTask } from "@/lib/types";
 
 function formatTaskType(taskType: MeetingTask["task_type"]) {
   if (taskType === "implicit_commitment") return "Implicit Commitment";
   if (taskType === "unassigned_work") return "Unassigned Work";
   return "Commitment";
-}
-
-function formatStatus(status: MeetingTask["status"] | null | undefined) {
-  return (status || "pending").replace("_", " ");
 }
 
 function formatConfidence(confidence: number | null) {
@@ -47,24 +44,16 @@ function TaskCard({ task }: { task: MeetingTask }) {
             Owner: <span className="font-medium text-slate-700">{task.owner || "Unassigned"}</span>
           </p>
         </div>
-        {confidence ? (
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">
-            {confidence}
-          </span>
-        ) : null}
+        <span className={`badge-state ${statusBadgeClassName(task.status)}`}>
+          {formatStatusLabel(task.status)}
+        </span>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
         <TaskCategoryBadge task={task} />
-        <span className="rounded-full border border-brand-100 bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-800">
-          {formatTaskType(task.task_type)}
-        </span>
-        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium capitalize text-slate-700">
-          {task.priority} priority
-        </span>
-        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium capitalize text-slate-700">
-          {formatStatus(task.status)}
-        </span>
+        <span className="badge-meta">{formatTaskType(task.task_type)}</span>
+        <span className="badge-meta">{task.priority} priority</span>
+        {confidence ? <span className="badge-internal">{confidence}</span> : null}
       </div>
 
       {suggestedSteps.length > 0 ? (
@@ -113,10 +102,8 @@ export function ActionItemsPanel({ tasks }: { tasks: MeetingTask[] }) {
       </div>
 
       {tasks.length === 0 ? (
-        <div className="premium-empty p-6 text-left">
-          <p className="text-sm font-semibold text-slate-800">
-            No clear action items found for this topic.
-          </p>
+        <div className="premium-empty-compact">
+          <p className="text-sm text-slate-600">No clear action items found for this topic.</p>
         </div>
       ) : (
         <div className="space-y-4">

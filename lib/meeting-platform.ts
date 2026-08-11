@@ -1,3 +1,5 @@
+import type { Meeting } from "@/lib/types";
+
 export type MeetingPlatform = "google_meet" | "zoom" | "unknown";
 
 const googleMeetRegex = /^https:\/\/meet\.google\.com\/[a-z0-9-]+($|[/?#].*)/i;
@@ -23,4 +25,12 @@ export function isSupportedMeetingUrl(meetingUrl: string) {
 
 export function getSupportedMeetingUrlMessage() {
   return "Meeting URL must be a supported Google Meet or Zoom link.";
+}
+
+/** Human-readable label for a meeting's provider, preferred over showing the raw join URL in
+ * normal read-only UI (the URL/bot id remain available, just not the primary visual element). */
+export function meetingPlatformLabel(platform: Meeting["platform"]): string {
+  if (platform === "google_meet") return "Google Meet";
+  if (platform === "zoom") return "Zoom";
+  return "Meeting link";
 }

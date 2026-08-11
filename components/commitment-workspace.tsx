@@ -11,6 +11,8 @@ import {
   groupCommitmentTasksByOwner,
   selectNextBestTask
 } from "@/lib/project-execution";
+import { formatReadableDate } from "@/lib/format-date";
+import { statusBadgeClassName } from "@/lib/status-badge";
 import type {
   CommitmentComment,
   CommitmentParticipant,
@@ -505,14 +507,19 @@ export function CommitmentWorkspace({
                   const artifactCount = initialArtifacts.filter(
                     (artifact) => artifact.task_id === task.id
                   ).length;
+                  const dueLabel = formatReadableDate(task.due_date ?? null);
                   return (
                     <article
                       key={task.id}
                       className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-brand-200 hover:shadow-md"
                     >
+                      {/* 1. Completion checkbox, 2. title. Owner avatar removed here -- these
+                          cards already sit under the owner's own heading; repeating it on every
+                          card added no information. */}
                       <div className="flex items-start gap-2">
                         <input
                           type="checkbox"
+                          className="mt-0.5 accent-brand-600"
                           checked={selected.includes(task.id)}
                           onChange={(event) =>
                             setSelected((current) =>
@@ -529,58 +536,17 @@ export function CommitmentWorkspace({
                         >
                           {task.task}
                         </Link>
-                        <span
-                          className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-slate-100 text-[9px] font-bold text-slate-600"
-                          title={task.owner ?? "Unassigned"}
-                        >
-                          {task.owner
-                            ? task.owner
-                                .split(/\s+/)
-                                .slice(0, 2)
-                                .map((part) => part[0])
-                                .join("")
-                                .toUpperCase()
-                            : "?"}
-                        </span>
-                        {task.inferred ? (
-                          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                            Inferred
-                          </span>
-                        ) : null}
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-1.5 text-[10px]">
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 capitalize text-slate-600">
-                          {task.status.replaceAll("_", " ")}
-                        </span>
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 capitalize text-slate-600">
-                          {task.priority}
-                        </span>
-                        {task.due_date ? (
-                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">
-                            Due {task.due_date}
-                          </span>
-                        ) : null}
-                        {blocker ? (
-                          <span
-                            className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700"
-                            title={`Blocked by ${blocker.task}`}
-                          >
-                            Blocked
-                          </span>
-                        ) : null}
-                        {artifactCount > 0 ? (
-                          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">
-                            {artifactCount} deliverable{artifactCount === 1 ? "" : "s"}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-1.5">
+
+                      {/* 3. Status -- a real <select>, styled to read as a status pill rather
+                          than a form field, so it stays instantly scannable and still edits
+                          in place with the exact same change handler. */}
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <select
-                          className="rounded-lg border border-slate-200 px-2 py-1 text-[11px]"
+                          className={`badge-state cursor-pointer border ${statusBadgeClassName(task.status)}`}
                           value={task.status}
-                          onChange={(event) =>
-                            void updateTask(task.id, { status: event.target.value })
-                          }
+                          onChange={(event) => void updateTask(task.id, { status: event.target.value })}
+                          aria-label={`Status for ${task.task}`}
                         >
                           <option value="pending">Pending</option>
                           <option value="in_progress">In progress</option>
@@ -588,8 +554,30 @@ export function CommitmentWorkspace({
                           <option value="completed">Complete</option>
                           <option value="dismissed">Dismissed</option>
                         </select>
+                        {/* 4. Dependency/blocker -- only shown when relevant. */}
+                        {blocker ? (
+                          <span
+                            className="badge-state border-rose-200 bg-rose-50 text-rose-700"
+                            title={`Blocked by ${blocker.task}`}
+                          >
+                            Blocked by {blocker.task}
+                          </span>
+                        ) : null}
+                        {task.inferred ? <span className="badge-internal">Inferred</span> : null}
+                        {dueLabel ? <span className="badge-meta">Due {dueLabel}</span> : null}
+                        {artifactCount > 0 ? (
+                          <span className="badge-meta">
+                            {artifactCount} deliverable{artifactCount === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* 5. Owner (reassignment) + dependency picker -- present for every task
+                          (functionality preserved) but visually quiet, since it duplicates the
+                          owner-group heading in the common case. */}
+                      <div className="mt-2 grid grid-cols-2 gap-1 border-t border-slate-100 pt-2">
                         <input
-                          className="rounded-lg border border-slate-200 px-2 py-1 text-[11px]"
+                          className="inline-edit-field"
                           value={task.owner ?? ""}
                           placeholder="Unassigned"
                           onChange={(event) =>
@@ -601,17 +589,14 @@ export function CommitmentWorkspace({
                               )
                             )
                           }
-                          onBlur={() =>
-                            void updateTask(task.id, { owner: task.owner })
-                          }
+                          onBlur={() => void updateTask(task.id, { owner: task.owner })}
                           aria-label={`Owner for ${task.task}`}
                         />
                         <select
-                          className="col-span-2 rounded-lg border border-slate-200 px-2 py-1 text-[11px]"
+                          className="inline-edit-field"
                           value={dependency?.depends_on_task_id ?? ""}
-                          onChange={(event) =>
-                            void setDependency(task.id, event.target.value)
-                          }
+                          onChange={(event) => void setDependency(task.id, event.target.value)}
+                          aria-label={`Dependency for ${task.task}`}
                         >
                           <option value="">No dependency</option>
                           {tasks
@@ -623,24 +608,27 @@ export function CommitmentWorkspace({
                             ))}
                         </select>
                       </div>
-                      <div className="mt-2 flex justify-end gap-1">
+
+                      <div className="mt-1.5 flex justify-end gap-0.5">
                         <button
-                          className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+                          className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
                           type="button"
                           disabled={groupIndex === 0 || busy}
                           onClick={() => void moveTask(task.id, -1)}
-                          aria-label="Move task up"
+                          aria-label={`Move ${task.task} earlier`}
+                          title="Move earlier in this owner's order"
                         >
-                          ←
+                          ← Earlier
                         </button>
                         <button
-                          className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+                          className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
                           type="button"
                           disabled={groupIndex === group.tasks.length - 1 || busy}
                           onClick={() => void moveTask(task.id, 1)}
-                          aria-label="Move task down"
+                          aria-label={`Move ${task.task} later`}
+                          title="Move later in this owner's order"
                         >
-                          →
+                          Later →
                         </button>
                       </div>
                     </article>

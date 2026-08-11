@@ -22,17 +22,14 @@ export default function RootLayout({
 
           <div className="min-w-0 flex-1">
             <header className="sticky top-0 z-40 border-b border-white/70 bg-white/80 backdrop-blur-xl">
-              <div className="flex items-center justify-between px-4 py-3 sm:px-6">
+              <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
                 <Link
                   href="/"
                   className="text-base font-semibold text-slate-950 transition hover:text-brand-700 lg:hidden"
                 >
                   Parfait
                 </Link>
-                <div className="hidden rounded-full border border-brand-100 bg-brand-50/80 px-3 py-1 text-xs font-medium text-brand-800 sm:block">
-                  AI-powered meetings to engineering plans
-                </div>
-                <div className="flex items-center gap-2">
+                <div className="ml-auto flex items-center gap-2">
                   <Link
                     href="/meetings/new"
                     className="premium-button px-3 py-1.5 text-xs sm:text-sm"

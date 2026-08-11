@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { TaskCategoryBadge } from "@/components/task-category-badge";
 import { InferredTaskBadge } from "@/components/task-execution-badges";
 import { normalizeSuggestedSteps } from "@/lib/ai/task-chat-patch";
+import { formatReadableDate } from "@/lib/format-date";
 import { isInferredTask } from "@/lib/task-execution-display";
 import type { MeetingTask } from "@/lib/types";
 
@@ -136,7 +137,7 @@ export function TaskWorkspaceEditableDetails() {
               Due Date
             </dt>
             <dd className="mt-1 text-sm font-medium text-slate-900">
-              {task.due_date || "Not set"}
+              {formatReadableDate(task.due_date) || "Not set"}
             </dd>
           </div>
           <div>

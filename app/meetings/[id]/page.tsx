@@ -14,6 +14,7 @@ import { StandaloneTasksPanel } from "@/components/standalone-tasks-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
 import { partitionExecutionGraph } from "@/lib/execution-display";
+import { meetingPlatformLabel } from "@/lib/meeting-platform";
 import { getLatestMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
 import {
   applySpeakerAliases,
@@ -212,11 +213,19 @@ export default async function MeetingDetailPage({
             <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
               {meeting.title ?? "Untitled meeting"}
             </h1>
-            <p className="text-xs text-slate-500">{meeting.meeting_url}</p>
-            {meeting.recall_bot_id ? (
-              <p className="text-xs text-slate-500">
-                Recall Bot ID: <span className="font-mono">{meeting.recall_bot_id}</span>
-              </p>
+            <p className="badge-meta">{meetingPlatformLabel(meeting.platform)}</p>
+            {meeting.meeting_url || meeting.recall_bot_id ? (
+              <details className="disclosure">
+                <summary>Technical details</summary>
+                <div className="mt-1.5 space-y-0.5 text-xs text-slate-500">
+                  <p className="break-all">{meeting.meeting_url}</p>
+                  {meeting.recall_bot_id ? (
+                    <p>
+                      Recall Bot ID: <span className="font-mono">{meeting.recall_bot_id}</span>
+                    </p>
+                  ) : null}
+                </div>
+              </details>
             ) : null}
           </div>
           <LiveMeetingStatusBadge meetingId={meeting.id} initialStatus={meeting.status} />
@@ -256,55 +265,20 @@ export default async function MeetingDetailPage({
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        <div className="premium-card premium-card-hover p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Transcript Segments
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {(segments ?? []).length}
-          </p>
-        </div>
-        <div className="premium-card premium-card-hover p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Topics
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {typedTopics.length}
-          </p>
-        </div>
-        <div className="premium-card premium-card-hover p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Insights
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {(insights ?? []).length}
-          </p>
-        </div>
-        <div className="premium-card premium-card-hover p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Active Commitments
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {partitioned.activeCommitments.length}
-          </p>
-        </div>
-        <div className="premium-card premium-card-hover p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Execution Tasks
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {partitioned.executionTasks.length}
-          </p>
-        </div>
-        <div className="premium-card premium-card-hover p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Ideas / Requirements
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
-            {partitioned.ideaCommitments.length + partitioned.ideaTasks.length}
-          </p>
-        </div>
+      <div className="premium-card grid grid-cols-2 divide-y divide-slate-100 sm:grid-cols-3 lg:grid-cols-6 lg:divide-y-0 lg:divide-x">
+        {[
+          ["Transcript Segments", (segments ?? []).length],
+          ["Topics", typedTopics.length],
+          ["Insights", (insights ?? []).length],
+          ["Active Commitments", partitioned.activeCommitments.length],
+          ["Execution Tasks", partitioned.executionTasks.length],
+          ["Ideas / Requirements", partitioned.ideaCommitments.length + partitioned.ideaTasks.length]
+        ].map(([label, value]) => (
+          <div key={label as string} className="p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+            <p className="mt-1.5 text-xl font-semibold text-slate-900">{value}</p>
+          </div>
+        ))}
       </div>
 
       <MeetingActions

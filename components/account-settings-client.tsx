@@ -227,16 +227,16 @@ export function AccountSettingsClient({
           </section>
         </div>
 
-        <aside className="space-y-4">
+        <aside className="premium-card divide-y divide-slate-100 p-0">
           {[
             ["Profile Initials", initials],
             ["Authentication Provider", provider],
             ["Account Creation Date", createdAt],
             ["Last Login Date", lastLoginAt]
           ].map(([label, value]) => (
-            <div key={label} className="premium-card premium-card-hover p-5">
+            <div key={label} className="p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-              <p className="mt-2 break-words text-sm font-medium text-slate-900">{value}</p>
+              <p className="mt-1.5 break-words text-sm font-medium text-slate-900">{value}</p>
             </div>
           ))}
         </aside>

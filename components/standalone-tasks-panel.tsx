@@ -6,6 +6,7 @@ import type { Route } from "next";
 import { InferredTaskBadge } from "@/components/task-execution-badges";
 import { isTaskExecutable } from "@/lib/execution-display";
 import { isInferredTask } from "@/lib/task-execution-display";
+import { formatStatusLabel, statusBadgeClassName } from "@/lib/status-badge";
 import type { MeetingTask } from "@/lib/types";
 
 export function StandaloneTasksPanel({ tasks }: { tasks: MeetingTask[] }) {
@@ -30,7 +31,7 @@ export function StandaloneTasksPanel({ tasks }: { tasks: MeetingTask[] }) {
             key={task.id}
             className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
           >
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-medium text-slate-900">
                 {task.task}
                 {isInferredTask(task) ? (
@@ -39,14 +40,17 @@ export function StandaloneTasksPanel({ tasks }: { tasks: MeetingTask[] }) {
                   </span>
                 ) : null}
               </p>
-              <p className="text-xs text-slate-500">
-                {task.owner || "Unassigned"} · {task.status.replaceAll("_", " ")}
-              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span className={`badge-state ${statusBadgeClassName(task.status)}`}>
+                  {formatStatusLabel(task.status)}
+                </span>
+                <span className="text-xs text-slate-500">{task.owner || "Unassigned"}</span>
+              </div>
             </div>
             {isTaskExecutable(task) ? (
               <Link
                 href={`/tasks/${task.id}` as Route}
-                className="text-xs font-semibold text-brand-700 hover:underline"
+                className="tertiary-button px-2.5 py-1 text-xs text-brand-700"
               >
                 Execute Task
               </Link>

@@ -42,7 +42,7 @@ export function IdeasRequirementsPanel({
                 <p className="text-sm font-medium text-slate-900">
                   {commitment.title}
                 </p>
-                <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                <span className="badge-meta">
                   {formatClassificationLabel(
                     getExecutionClassification(commitment.execution_classification)
                   )}
@@ -68,7 +68,7 @@ export function IdeasRequirementsPanel({
             >
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-medium text-slate-900">{task.task}</p>
-                <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                <span className="badge-meta">
                   {formatClassificationLabel(
                     getExecutionClassification(task.execution_classification)
                   )}

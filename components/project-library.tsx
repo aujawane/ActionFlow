@@ -72,7 +72,7 @@ export function ProjectLibrary({
       </form>
 
       {projects.length === 0 ? (
-        <div className="premium-card p-8 text-center">
+        <div className="premium-empty-compact">
           <p className="text-sm text-slate-600">
             Create a project, then assign meetings as evidence for its milestones.
           </p>
@@ -80,23 +80,22 @@ export function ProjectLibrary({
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {projects.map((project) => (
-            <article key={project.id} className="premium-card premium-card-hover p-5">
+            <Link
+              key={project.id}
+              href={`/projects/${project.id}` as Route}
+              className="premium-card premium-card-hover group block p-5"
+            >
               <div className="flex items-start justify-between gap-3">
-                <h2 className="font-semibold text-slate-950">{project.name}</h2>
-                <span className="rounded-full bg-brand-50 px-2 py-1 text-xs font-semibold capitalize text-brand-800">
-                  {project.status.replace("_", " ")}
-                </span>
+                <h2 className="min-w-0 flex-1 font-semibold text-slate-950">{project.name}</h2>
+                <span className="badge-meta">{project.status.replace("_", " ")}</span>
               </div>
-              <p className="mt-3 min-h-10 text-sm leading-6 text-slate-600">
+              <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">
                 {project.goal || project.description || "No project goal set yet."}
               </p>
-              <Link
-                href={`/projects/${project.id}` as Route}
-                className="premium-button mt-5 w-full"
-              >
-                Continue Project
-              </Link>
-            </article>
+              <p className="mt-4 text-xs font-semibold text-brand-700 transition group-hover:translate-x-0.5">
+                Continue project →
+              </p>
+            </Link>
           ))}
         </div>
       )}

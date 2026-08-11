@@ -15,6 +15,14 @@ const navItems = [
 export function SidebarNav() {
   const pathname = usePathname();
 
+  // Only the single most specific matching route counts as active -- without this, "/account"
+  // and "/account/integrations" would both read as selected while on the Integrations page,
+  // since "/account" is a literal prefix of "/account/integrations".
+  const matchingHrefs = navItems
+    .filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))
+    .sort((a, b) => b.href.length - a.href.length);
+  const activeHref = matchingHrefs[0]?.href;
+
   return (
     <aside className="hidden w-64 shrink-0 border-r border-white/70 bg-white/80 backdrop-blur-xl lg:block">
       <div className="flex h-full flex-col p-5">
@@ -30,7 +38,7 @@ export function SidebarNav() {
 
         <nav className="space-y-1.5">
           {navItems.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = item.href === activeHref;
             return (
               <Link
                 key={item.href}
