@@ -178,6 +178,102 @@ test("Website gate: fails on an unsupported email migration task", () => {
   assert.ok(result.failures.some((f) => f.rule === "no_unsupported_email_migration"));
 });
 
+test("Website gate: fails on 'link domain and email to deployment' even with no literal 'migrate'", () => {
+  const tree = validTree();
+  tree.commitments.push({
+    ...tree.commitments[0],
+    ref: "c-domain-email",
+    title: "Link existing domain and email to new website deployment on Versa",
+    tasks: []
+  });
+  const result = gate(tree);
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some((f) => f.rule === "no_unsupported_email_migration"));
+});
+
+test("Website gate: fails when an 'Informational Website First Release' duplicate survives as a peer commitment", () => {
+  const tree = validTree();
+  tree.commitments.push({
+    ...tree.commitments[0],
+    ref: "c-duplicate",
+    title: "Deliver Informational Website First Release",
+    tasks: []
+  });
+  const result = gate(tree);
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some((f) => f.rule === "one_primary_commitment"));
+  assert.ok(result.failures.some((f) => f.rule === "no_peer_commitment_for_component"));
+});
+
+test("Website gate: fails when 'develop and market-test both product lines' survives as a peer commitment", () => {
+  const tree = validTree();
+  tree.commitments.push({
+    ...tree.commitments[0],
+    ref: "c-product-lines",
+    title: "Develop and market-test both protein product lines",
+    tasks: []
+  });
+  const result = gate(tree);
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some((f) => f.rule === "no_peer_commitment_for_component"));
+});
+
+test("Website gate: fails when the surviving commitment's description (not just title) implies e-commerce is part of the first release", () => {
+  const tree = validTree();
+  tree.commitments[0] = {
+    ...tree.commitments[0],
+    description: "Build the full e-commerce checkout and ordering flow for the first release."
+  };
+  const result = gate(tree);
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some((f) => f.rule === "future_scope_not_active"));
+});
+
+test("Website gate: the recommended description ('E-commerce remains later scope') does not itself trigger a false-positive future-scope failure", () => {
+  const tree = validTree();
+  tree.commitments[0] = {
+    ...tree.commitments[0],
+    description:
+      "Create and present the first informational website draft before August 1, using placeholders where final content is unavailable, incorporating Jamileh's supplied content/assets, and using the existing domain. E-commerce remains later scope."
+  };
+  const result = gate(tree);
+  assert.equal(result.ok, true);
+});
+
+test("Website gate: a child task correctly sequencing e-commerce as later work does not false-positive on 'future_scope_not_active' (real replay regression)", () => {
+  // Reproduces a real false positive found via the live website replay: a task's own title has
+  // an unrelated deferral cue ("...before August 1" on the commitment) while a DIFFERENT task
+  // correctly says "...before the full e-commerce functionality is completed" -- the e-commerce
+  // mention and its deferral cue are in the same clause and must be suppressed; an unrelated
+  // deferral cue elsewhere in the tree must never suppress a genuine leak.
+  const tree = validTree();
+  tree.commitments[0].tasks.push(
+    task({
+      ref: "t9",
+      title: "Build the normal website first",
+      description:
+        "The first release should be a normal informational website that can be shown before the full e-commerce functionality is completed."
+    })
+  );
+  const result = gate(tree);
+  assert.equal(result.ok, true);
+});
+
+test("Website gate: an unrelated deferral cue in the title (a due date) never suppresses a genuine future-scope leak in the description", () => {
+  const tree = validTree();
+  // Commitment title has "before August 1" (a due date, nothing to do with e-commerce); its
+  // description separately claims e-commerce as part of the deliverable with no deferral cue of
+  // its own -- the leak must still be caught.
+  tree.commitments[0] = {
+    ...tree.commitments[0],
+    description: "Build the full e-commerce checkout and ordering flow for the first release."
+  };
+  assert.match(tree.commitments[0].title, /before/i);
+  const result = gate(tree);
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some((f) => f.rule === "future_scope_not_active"));
+});
+
 test("Website gate: zero standalone tasks is valid and produces no failures or required notes", () => {
   const result = gate(validTree());
   assert.equal(result.ok, true);

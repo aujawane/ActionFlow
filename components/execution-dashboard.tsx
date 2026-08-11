@@ -11,6 +11,7 @@ import {
   CommitmentLinkBadge,
   InferredTaskBadge
 } from "@/components/task-execution-badges";
+import { isTaskExecutable } from "@/lib/execution-display";
 import {
   buildCommitmentTitleMap,
   getCommitmentTitleForTask,
@@ -336,9 +337,11 @@ function TaskCard({
             Owner: <span className="font-medium text-slate-700">{owner ?? "Unassigned"}</span>
           </p>
         </div>
-        <Link href={`/tasks/${task.id}` as Route} className="secondary-button px-3 py-1.5 text-xs">
-          Execute Task
-        </Link>
+        {isTaskExecutable(task) ? (
+          <Link href={`/tasks/${task.id}` as Route} className="secondary-button px-3 py-1.5 text-xs">
+            Execute Task
+          </Link>
+        ) : null}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">

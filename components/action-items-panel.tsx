@@ -3,6 +3,7 @@ import type { Route } from "next";
 
 import { TaskCategoryBadge } from "@/components/task-category-badge";
 import { TaskClarifications } from "@/components/task-clarifications";
+import { isTaskExecutable } from "@/lib/execution-display";
 import type { MeetingTask } from "@/lib/types";
 
 function formatTaskType(taskType: MeetingTask["task_type"]) {
@@ -87,11 +88,13 @@ function TaskCard({ task }: { task: MeetingTask }) {
 
       <TaskClarifications taskId={task.id} />
 
-      <div className="mt-4">
-        <Link href={`/tasks/${task.id}` as Route} className="secondary-button px-3 py-1.5 text-xs">
-          Execute Task
-        </Link>
-      </div>
+      {isTaskExecutable(task) ? (
+        <div className="mt-4">
+          <Link href={`/tasks/${task.id}` as Route} className="secondary-button px-3 py-1.5 text-xs">
+            Execute Task
+          </Link>
+        </div>
+      ) : null}
     </article>
   );
 }

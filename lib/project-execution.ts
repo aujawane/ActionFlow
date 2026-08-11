@@ -1,4 +1,5 @@
-import { isCommittedWork } from "@/lib/execution-display";
+import { isCommittedWork, isTaskCountedForProgress } from "@/lib/execution-display";
+import { isCommitmentCurrentGeneration, isTaskCurrentGeneration } from "@/lib/execution-generation";
 import type {
   CommitmentParticipant,
   Meeting,
@@ -54,7 +55,8 @@ export function computeCommitmentProgress(
   tasks: MeetingTask[]
 ): ExecutionProgress {
   const children = tasks.filter(
-    (task) => task.commitment_id === commitment.id && isCommittedWork(task)
+    (task) =>
+      task.commitment_id === commitment.id && isCommittedWork(task) && isTaskCountedForProgress(task)
   );
   if (children.length === 0) {
     const completed = commitment.status === "completed" ? 1 : 0;
@@ -83,7 +85,8 @@ export function computeProjectProgress(input: {
     const children = input.tasks.filter(
       (task) =>
         task.commitment_id === commitment.id &&
-        isCommittedWork(task)
+        isCommittedWork(task) &&
+        isTaskCountedForProgress(task)
     );
     if (children.length === 0) {
       total += 1;
@@ -101,7 +104,8 @@ export function computeProjectProgress(input: {
     if (
       !linkedTaskIds.has(task.id) &&
       !task.commitment_id &&
-      isCommittedWork(task)
+      isCommittedWork(task) &&
+      isTaskCountedForProgress(task)
     ) {
       total += 1;
       completed += Number(task.status === "completed");
@@ -281,7 +285,7 @@ export function buildCommitmentWorkspaceModel(input: {
   currentUserName?: string | null;
 }): CommitmentWorkspaceModel {
   const tasks = input.tasks
-    .filter((task) => task.commitment_id === input.commitment.id)
+    .filter((task) => task.commitment_id === input.commitment.id && isTaskCountedForProgress(task))
     .sort(
       (left, right) =>
         (left.position ?? 0) - (right.position ?? 0) ||
@@ -343,10 +347,27 @@ export function buildProjectExecutionModel(input: {
   dependencies?: TaskDependency[];
   currentUserName?: string | null;
 }): ProjectExecutionModel {
-  const commitments = input.commitments.filter(
-    (commitment) => !commitment.converted_to_task_id && isCommittedWork(commitment)
+  // A project aggregates commitments/tasks from multiple meetings, each with its own current
+  // generation -- look each row's generation currency up against its own meeting so a stale
+  // generation from one meeting can't leak into the project view alongside a newer one.
+  const currentGenerationByMeetingId = new Map(
+    input.meetings.map((meeting) => [meeting.id, meeting.execution_graph_generation ?? null])
   );
-  const tasks = input.tasks.filter(isCommittedWork);
+  const commitments = input.commitments.filter(
+    (commitment) =>
+      !commitment.converted_to_task_id &&
+      isCommittedWork(commitment) &&
+      isCommitmentCurrentGeneration(
+        commitment,
+        currentGenerationByMeetingId.get(commitment.meeting_id) ?? null
+      )
+  );
+  const tasks = input.tasks.filter(
+    (task) =>
+      isCommittedWork(task) &&
+      isTaskCountedForProgress(task) &&
+      isTaskCurrentGeneration(task, currentGenerationByMeetingId.get(task.meeting_id) ?? null)
+  );
   return {
     project: input.project,
     meetings: input.meetings,

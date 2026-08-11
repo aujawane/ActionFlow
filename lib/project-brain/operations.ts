@@ -106,6 +106,68 @@ export function normalizeOperationsForApply(
   });
 }
 
+export type ProposalTargetValidation =
+  | { ok: true }
+  | { ok: false; reason: "stale_execution_target" | "outside_project"; message: string };
+
+/**
+ * Every operation that targets an existing milestone/task must reference a row that is actually
+ * in the caller's current-generation context (ProjectBrainContext.milestones/tasks -- see
+ * lib/project-brain/context.ts). A target id missing from that context is either (a) a row that
+ * belongs to a superseded analysis generation -- context.ts excludes it deliberately and tracks it
+ * in staleMilestoneIds/staleTaskIds precisely so this check can name it -- or (b) genuinely outside
+ * the project. Never silently retarget a stale proposal to a different row; reject with a
+ * diagnostic the caller can act on instead.
+ */
+export function validateProposalTargets(
+  operations: unknown[],
+  context: {
+    milestones: Array<Record<string, unknown>>;
+    tasks: Array<Record<string, unknown>>;
+    staleMilestoneIds: Set<string>;
+    staleTaskIds: Set<string>;
+  }
+): ProposalTargetValidation {
+  const milestoneIds = new Set(context.milestones.map((item) => String(item.id)));
+  const taskIds = new Set(context.tasks.map((item) => String(item.id)));
+  for (const operation of operations) {
+    const candidate = operation as Record<string, unknown>;
+    for (const key of ["milestoneId", "targetMilestoneId"]) {
+      const value = candidate[key];
+      if (typeof value !== "string" || milestoneIds.has(value)) continue;
+      if (context.staleMilestoneIds.has(value)) {
+        return {
+          ok: false,
+          reason: "stale_execution_target",
+          message: "This proposal references a milestone from a superseded analysis generation."
+        };
+      }
+      return {
+        ok: false,
+        reason: "outside_project",
+        message: "Proposal references a milestone outside this project."
+      };
+    }
+    for (const key of ["taskId", "dependsOnTaskId", "survivorTaskId"]) {
+      const value = candidate[key];
+      if (typeof value !== "string" || taskIds.has(value)) continue;
+      if (context.staleTaskIds.has(value)) {
+        return {
+          ok: false,
+          reason: "stale_execution_target",
+          message: "This proposal references a task from a superseded analysis generation."
+        };
+      }
+      return {
+        ok: false,
+        reason: "outside_project",
+        message: "Proposal references a task outside this project."
+      };
+    }
+  }
+  return { ok: true };
+}
+
 export function validateOperationsIndividually(values: unknown[]) {
   const operations: ProjectChangeOperation[] = [];
   const rejected: Array<{ index: number; type: string | null; reason: string }> =

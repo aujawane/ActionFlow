@@ -67,11 +67,14 @@ export function CommitmentsPanel({
       <div className="mt-5 space-y-3">
         {activeCommitments.map((commitment) => {
           const progress = commitmentProgress(commitment, tasks);
-          const owners = textArray(commitment.owners);
-          const ownerLabel =
-            owners.length > 0
-              ? owners.join(", ")
-              : commitment.owner || "Unassigned";
+          // The primary owner is the person accountable for the outcome (see
+          // final-reconciliation.ts's ownership repair) -- distinct from `owners`, which is every
+          // contributor with a child task. Showing the union as "Owner:" would misrepresent
+          // supporting contributors as co-owners of the deliverable.
+          const ownerLabel = commitment.owner || "Unassigned";
+          const supportingOwners = textArray(commitment.owners).filter(
+            (owner) => owner !== commitment.owner
+          );
           const classification = getExecutionClassification(
             commitment.execution_classification
           );
@@ -99,6 +102,12 @@ export function CommitmentsPanel({
                   </div>
                   <p className="mt-1 text-xs text-slate-600">
                     Owner: <span className="font-semibold">{ownerLabel}</span>
+                    {supportingOwners.length > 0 ? (
+                      <>
+                        {" · Supporting: "}
+                        <span className="font-semibold">{supportingOwners.join(", ")}</span>
+                      </>
+                    ) : null}
                     {commitment.due_date || commitment.due_date_text ? (
                       <>
                         {" · Due: "}

@@ -14,14 +14,21 @@ import {
   isFutureScopeItem,
   validateFinalTree,
   type GroupDecision,
+  type RecoveryDecision,
   type WorkItemDecision
 } from "./execution-tree";
 import { treeToExecutionGraph } from "./execution-graph-v4";
 import { mergeTopicWorkItems, type TopicWorkItemExtraction } from "./work-item-merge";
 import {
   consolidateExecutionTree,
+  type CompletionSignature,
   type ConsolidationDecision
 } from "./task-consolidation";
+import {
+  reconcileFinalGraph,
+  type CommitmentReconciliationDecision,
+  type StandaloneReconciliationDecision
+} from "./final-reconciliation";
 import { normalizeTranscriptSafely, type NormalizationResult } from "./transcript-normalization";
 import {
   extractTopicWorkItems,
@@ -126,10 +133,15 @@ export type V4ExecutionTrace = {
   verified_groups: VerifiedGroup[];
   group_decisions: GroupDecision[];
   work_item_decisions: WorkItemDecision[];
+  recovery_decisions: RecoveryDecision[];
   pre_consolidation_tree: ExecutionTree;
   consolidation_decisions: ConsolidationDecision[];
   consolidation_suggestions: ConsolidationDecision[];
   consolidation_provenance: Record<string, TaskMergeProvenance>;
+  completion_signatures: Record<string, CompletionSignature>;
+  pre_reconciliation_tree: ExecutionTree;
+  commitment_reconciliation_decisions: CommitmentReconciliationDecision[];
+  standalone_reconciliation_decisions: StandaloneReconciliationDecision[];
   final_validation: { ok: boolean; errors: string[] };
   commitments_debug: Array<ExecutionTree["commitments"][number] & { decision: GroupDecision | null }>;
   work_items_debug: Array<WorkItem & { decision: WorkItemDecision | null }>;
@@ -154,10 +166,15 @@ export type V4ExecutionState = {
   verifiedGroups: VerifiedGroup[];
   groupDecisions: GroupDecision[];
   workItemDecisions: WorkItemDecision[];
+  recoveryDecisions: RecoveryDecision[];
   preConsolidationTree: ExecutionTree;
   consolidationDecisions: ConsolidationDecision[];
   consolidationSuggestions: ConsolidationDecision[];
   consolidationProvenance: Record<string, TaskMergeProvenance>;
+  completionSignatures: Record<string, CompletionSignature>;
+  preReconciliationTree: ExecutionTree;
+  commitmentReconciliationDecisions: CommitmentReconciliationDecision[];
+  standaloneReconciliationDecisions: StandaloneReconciliationDecision[];
   finalValidation: { ok: boolean; errors: string[] };
   tree: ExecutionTree;
   graph: ExecutionGraph;
@@ -231,10 +248,15 @@ export async function runV4WorkItemExtraction(input: {
     verifiedGroups: [],
     groupDecisions: [],
     workItemDecisions: [],
+    recoveryDecisions: [],
     preConsolidationTree: EMPTY_TREE,
     consolidationDecisions: [],
     consolidationSuggestions: [],
     consolidationProvenance: {},
+    completionSignatures: {},
+    preReconciliationTree: EMPTY_TREE,
+    commitmentReconciliationDecisions: [],
+    standaloneReconciliationDecisions: [],
     finalValidation: { ok: true, errors: [] },
     tree: EMPTY_TREE,
     graph: { commitments: [], tasks: [] }
@@ -332,15 +354,19 @@ export async function runV4TreeAssembly(state: V4ExecutionState): Promise<V4Exec
     draftGroups: state.draftGroups,
     verifiedGroups: state.verifiedGroups
   });
+  const recovered = assembled.recoveryDecisions.filter((d) => d.disposition === "recovered");
   logExecutionStage(state.metrics, "v4_tree_assembled", {
     commitments: assembled.tree.commitments.length,
     linked_tasks: assembled.tree.commitments.reduce((sum, c) => sum + c.tasks.length, 0),
-    standalone_tasks: assembled.tree.standalone_tasks.length
+    standalone_tasks: assembled.tree.standalone_tasks.length,
+    explicit_deliverables_recovered: recovered.length,
+    recovered_refs: recovered.map((d) => d.created_commitment_ref)
   });
   return {
     ...state,
     groupDecisions: assembled.groupDecisions,
     workItemDecisions: assembled.workItemDecisions,
+    recoveryDecisions: assembled.recoveryDecisions,
     preConsolidationTree: assembled.tree,
     tree: assembled.tree,
     graph: treeToExecutionGraph(assembled.tree)
@@ -374,13 +400,38 @@ export async function runV4TaskConsolidation(state: V4ExecutionState): Promise<V
     graph: treeToExecutionGraph(result.tree, consolidationProvenance),
     consolidationDecisions: result.decisions,
     consolidationSuggestions: result.suggestions,
-    consolidationProvenance
+    consolidationProvenance,
+    completionSignatures: result.completionSignatures
+  };
+}
+
+/** Phase 5.5: deterministic final graph reconciliation. No model call -- see
+ * final-reconciliation.ts for exactly what this can and can't safely catch. Runs on the
+ * post-consolidation tree, before the final integrity check, so a reconciliation bug is itself
+ * caught by validateFinalTree's fallback rather than ever reaching persistence. */
+export async function runV4FinalReconciliation(state: V4ExecutionState): Promise<V4ExecutionState> {
+  const result = reconcileFinalGraph({ tree: state.tree });
+  logExecutionStage(state.metrics, "v4_final_reconciliation", {
+    commitments_before: state.tree.commitments.length,
+    commitments_after: result.tree.commitments.length,
+    standalone_before: state.tree.standalone_tasks.length,
+    standalone_after: result.tree.standalone_tasks.length,
+    descriptions_stripped: result.commitmentDecisions.filter((d) => d.disposition === "description_stripped").length,
+    standalone_absorbed: result.standaloneDecisions.filter((d) => d.disposition !== "keep_standalone").length
+  });
+  return {
+    ...state,
+    preReconciliationTree: state.tree,
+    tree: result.tree,
+    graph: treeToExecutionGraph(result.tree, state.consolidationProvenance),
+    commitmentReconciliationDecisions: result.commitmentDecisions,
+    standaloneReconciliationDecisions: result.standaloneDecisions
   };
 }
 
 /** Phase 6: final deterministic integrity check + trace finalization. No model call. If
- * consolidation produced a corrupted tree, falls back to the pre-consolidation tree rather than
- * ever persisting a partial/corrupted graph. */
+ * consolidation or reconciliation produced a corrupted tree, falls back to the pre-consolidation
+ * tree rather than ever persisting a partial/corrupted graph. */
 export async function finalizeV4Execution(state: V4ExecutionState): Promise<V4ExecutionState> {
   const validation = validateFinalTree(state.tree);
   let tree = state.tree;
@@ -429,10 +480,15 @@ export async function finalizeV4Execution(state: V4ExecutionState): Promise<V4Ex
     verified_groups: finalState.verifiedGroups,
     group_decisions: finalState.groupDecisions,
     work_item_decisions: finalState.workItemDecisions,
+    recovery_decisions: finalState.recoveryDecisions,
     pre_consolidation_tree: finalState.preConsolidationTree,
     consolidation_decisions: finalState.consolidationDecisions,
     consolidation_suggestions: finalState.consolidationSuggestions,
     consolidation_provenance: finalState.consolidationProvenance,
+    completion_signatures: finalState.completionSignatures,
+    pre_reconciliation_tree: finalState.preReconciliationTree,
+    commitment_reconciliation_decisions: finalState.commitmentReconciliationDecisions,
+    standalone_reconciliation_decisions: finalState.standaloneReconciliationDecisions,
     final_validation: finalState.finalValidation,
     commitments_debug: finalState.tree.commitments.map((commitment) => ({
       ...commitment,
@@ -505,6 +561,7 @@ export async function runV4ExecutionIntelligence(input: {
   state = await runV4GroupingVerification(state);
   state = await runV4TreeAssembly(state);
   state = await runV4TaskConsolidation(state);
+  state = await runV4FinalReconciliation(state);
   state = await finalizeV4Execution(state);
 
   const persistGraph = input.persistGraph ?? persistExecutionGraph;

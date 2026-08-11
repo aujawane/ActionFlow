@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 
 import { InferredTaskBadge } from "@/components/task-execution-badges";
+import { isTaskExecutable } from "@/lib/execution-display";
 import { isInferredTask } from "@/lib/task-execution-display";
 import type { MeetingTask } from "@/lib/types";
 
@@ -42,12 +43,14 @@ export function StandaloneTasksPanel({ tasks }: { tasks: MeetingTask[] }) {
                 {task.owner || "Unassigned"} · {task.status.replaceAll("_", " ")}
               </p>
             </div>
-            <Link
-              href={`/tasks/${task.id}` as Route}
-              className="text-xs font-semibold text-brand-700 hover:underline"
-            >
-              Execute Task
-            </Link>
+            {isTaskExecutable(task) ? (
+              <Link
+                href={`/tasks/${task.id}` as Route}
+                className="text-xs font-semibold text-brand-700 hover:underline"
+              >
+                Execute Task
+              </Link>
+            ) : null}
           </li>
         ))}
       </ul>

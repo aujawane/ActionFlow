@@ -18,6 +18,116 @@ function normalizeText(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
+// ============================================================
+// Normalized completion signature (stability, not a new model call)
+// ============================================================
+
+/** A small, generic, domain-agnostic taxonomy of execution phases -- not tuned to any one
+ * benchmark title. Verb-based, since a phase is what the task DOES, which is far more stable
+ * across paraphrases of the same underlying transcript statement than the exact nouns used. */
+export const COMPLETION_PHASES = [
+  "setup_initiate",
+  "test_evaluate",
+  "feedback_adjust",
+  "communicate_share",
+  "deliver_release",
+  "research_investigate",
+  "contact_request"
+] as const;
+export type CompletionPhase = (typeof COMPLETION_PHASES)[number];
+
+const PHASE_PATTERNS: Record<CompletionPhase, RegExp> = {
+  setup_initiate:
+    /\b(start(?:ed|ing|s)?|begin(?:ning|s)?|initial(?:ly|ize[sd]?)?|initiat(?:e|es|ed|ing)|set ?up|creat(?:e|es|ed|ing)|mak(?:e|es|ing)|establish(?:es|ed|ing)?|kick(?:ed|s)? off|manual(?:ly)?)\b/i,
+  test_evaluate:
+    /\b(test(?:s|ed|ing)?|evaluat(?:e|es|ed|ing)|verif(?:y|ies|ied|ying)|validat(?:e|es|ed|ing)|check(?:s|ed|ing)?|assess(?:es|ed|ing)?|observ(?:e|es|ed|ing)|inspect(?:s|ed|ing)?)\b/i,
+  feedback_adjust:
+    /\b(feedback|adjust(?:s|ed|ing)?|revis(?:e|es|ed|ing)|iterat(?:e|es|ed|ing)|refin(?:e|es|ed|ing)|improv(?:e|es|ed|ing))\b/i,
+  communicate_share:
+    /\b(open(?:s|ed|ing)?|shar(?:e|es|ed|ing)|notif(?:y|ies|ied|ying)|messag(?:e|es|ed|ing)|announc(?:e|es|ed|ing))\b/i,
+  deliver_release:
+    /\b(present(?:s|ed|ing)?|deliver(?:s|ed|ing)?|publish(?:es|ed|ing)?|releas(?:e|es|ed|ing)|launch(?:es|ed|ing)?|deploy(?:s|ed|ing)?|ship(?:s|ped|ping)?)\b/i,
+  research_investigate:
+    /\b(research(?:es|ed|ing)?|investigat(?:e|es|ed|ing)|explor(?:e|es|ed|ing)|look(?:s|ed|ing)? into|find(?:s)? out)\b/i,
+  contact_request:
+    /\b(contact(?:s|ed|ing)?|reach(?:es|ed|ing)? out|ask(?:s|ed|ing)?|request(?:s|ed|ing)?|follow(?:s|ed|ing)? up)\b/i
+};
+
+/** Confident classification requires exactly one bucket to match. A title matching zero or
+ * several buckets (e.g. "...after testing is ready" hitting both test_evaluate and
+ * feedback_adjust, or a proper noun like a product name incidentally containing a phase verb) is
+ * deliberately left unclassified rather than guessed -- the phase gate below only ever blocks a
+ * pair it is actually sure names two different execution phases; an ambiguous title never
+ * triggers a false block, it just falls through to the existing lexical thresholds unaffected. */
+function classifyPhase(item: WorkItem): CompletionPhase | null {
+  const text = item.description ? `${item.title} ${item.description}` : item.title;
+  const matches = COMPLETION_PHASES.filter((phase) => PHASE_PATTERNS[phase].test(text));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+const SIGNATURE_STOPWORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "to",
+  "of",
+  "for",
+  "on",
+  "in",
+  "with",
+  "is",
+  "are",
+  "be",
+  "using",
+  "use",
+  "used",
+  "provide",
+  "providing",
+  "supplied",
+  "supply"
+]);
+
+function signatureTokens(text: string): string[] {
+  return Array.from(
+    new Set(
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(" ")
+        .filter((token) => token.length > 2 && !SIGNATURE_STOPWORDS.has(token))
+    )
+  ).sort();
+}
+
+export type CompletionSignature = {
+  ref: string;
+  owner_key: string | null;
+  phase: CompletionPhase | null;
+  content_tokens: string[];
+  segment_ids: string[];
+};
+
+/**
+ * The one deterministic, reusable summary of "what this task is actually about" that both
+ * candidate shortlisting (relateTasks/buildClusters below) and the eval/debug trace read from --
+ * never recomputed ad hoc in more than one place. Built entirely from fields already extracted
+ * upstream; no model call, no new field on WorkItem itself.
+ */
+export function deriveCompletionSignature(item: WorkItem): CompletionSignature {
+  const text = item.description ? `${item.title} ${item.description}` : item.title;
+  return {
+    ref: item.ref,
+    owner_key: item.owner?.trim().toLowerCase() || null,
+    phase: classifyPhase(item),
+    content_tokens: signatureTokens(text),
+    segment_ids: [...item.source_segment_ids]
+  };
+}
+
 /** Full set equality -- the same evidence, not merely overlapping evidence. */
 function sameIdSetExact(left: string[], right: string[]) {
   if (left.length !== right.length) return false;
@@ -36,6 +146,20 @@ type ClusterRelation = "exact" | "candidate" | null;
 
 /** Deterministic prefilter only. Semantic judgment (is this really the same completion event) is
  * always left to the model -- this only shortlists and only auto-decides byte-identical evidence. */
+function tokenSetOverlap(a: string[], b: string[]): number {
+  if (a.length === 0 || b.length === 0) return 0;
+  const setB = new Set(b);
+  let intersection = 0;
+  for (const token of a) if (setB.has(token)) intersection += 1;
+  return intersection / Math.max(a.length, b.length);
+}
+
+/** Deterministic prefilter only. Semantic judgment (is this really the same completion event) is
+ * always left to the model -- this only shortlists and only auto-decides byte-identical evidence.
+ * Uses each task's normalized completion signature (deriveCompletionSignature above) rather than
+ * raw title text alone -- signature comparison is deliberately less sensitive to which exact words
+ * an upstream extraction/paraphrase run happened to use, which is what made candidate formation
+ * (and therefore final task counts) vary run to run for otherwise-identical transcript content. */
 function relateTasks(a: WorkItem, b: WorkItem): ClusterRelation {
   // Conflicts are checked first and always win -- identical evidence can never paper over a
   // genuine status/owner/date conflict (e.g. a duplicate extraction that also flipped one copy to
@@ -51,9 +175,38 @@ function relateTasks(a: WorkItem, b: WorkItem): ClusterRelation {
   const sameQuote = normalizeText(a.source_quote) === normalizeText(b.source_quote);
   if (sameSegments && sameQuote) return "exact";
 
+  const sigA = deriveCompletionSignature(a);
+  const sigB = deriveCompletionSignature(b);
+
+  // A confident, different phase classification on both sides is a hard block -- setup can never
+  // shortlist against test/evaluate, evaluate against feedback, or either against communicate/
+  // share, no matter how much surface vocabulary two titles happen to share. An unclassified side
+  // (zero or multiple phase matches) never triggers this -- see classifyPhase.
+  if (sigA.phase && sigB.phase && sigA.phase !== sigB.phase) return null;
+  const samePhase = Boolean(sigA.phase && sigA.phase === sigB.phase);
+
   const similarity = semanticTokenSimilarity(a.title, b.title);
   const sharesEvidence = sharesAnySegment(a.source_segment_ids, b.source_segment_ids);
   if (similarity >= 0.55 || (sharesEvidence && similarity >= 0.35)) return "candidate";
+
+  // Title-only overlap misses real duplicates whose titles are genuinely different paraphrases of
+  // the same completion event ("make a Chatter session from the transcript" vs "manually start a
+  // Chatter workflow" -- both about starting the same pilot, near-zero shared title vocabulary).
+  // The normalized signature's stopword-filtered content tokens (title+description, generic
+  // scaffolding words removed) carry a cleaner signal than raw combined text. This only widens the
+  // SHORTLIST -- the model still makes the actual completion-equivalence call and may return more
+  // than one proposal to correctly split a cluster back into distinct phases (see
+  // TASK_CONSOLIDATION_PROMPT) -- so a wider net costs a little model attention, never a wrong
+  // merge.
+  const signatureOverlap = tokenSetOverlap(sigA.content_tokens, sigB.content_tokens);
+  if (signatureOverlap >= 0.15) return "candidate";
+
+  // Agreeing on a confidently-classified phase is itself a stable, wording-independent signal --
+  // when both sides land in the same bucket, a smaller amount of remaining content overlap is
+  // enough to justify a look, since the phase match already rules out the most common source of a
+  // false shortlist (two tasks that just happen to share a few words but describe different work).
+  if (samePhase && signatureOverlap > 0) return "candidate";
+
   return null;
 }
 
@@ -504,6 +657,10 @@ export type TreeConsolidationResult = {
   suggestions: ConsolidationDecision[];
   modelLatencyMs: number;
   modelUsage: TokenUsage | null;
+  /** Every input task's normalized completion signature (see deriveCompletionSignature), keyed by
+   * ref, computed once up front -- diagnosable run-to-run variance (Part 10): pair this with
+   * `decisions`/`suggestions` to see exactly why two tasks did or didn't shortlist together. */
+  completionSignatures: Record<string, CompletionSignature>;
 };
 
 /**
@@ -601,12 +758,18 @@ export async function consolidateExecutionTree(
           { input_tokens: 0, output_tokens: 0, total_tokens: 0 }
         );
 
+  const completionSignatures: Record<string, CompletionSignature> = {};
+  for (const task of [...input.tree.commitments.flatMap((c) => c.tasks), ...input.tree.standalone_tasks]) {
+    completionSignatures[task.ref] = deriveCompletionSignature(task);
+  }
+
   return {
     tree: { commitments: finalCommitments, standalone_tasks: finalStandalone },
     provenanceByRef: allProvenance,
     decisions: allDecisions,
     suggestions: allSuggestions,
     modelLatencyMs: totalModelLatencyMs,
-    modelUsage
+    modelUsage,
+    completionSignatures
   };
 }

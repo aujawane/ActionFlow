@@ -1,3 +1,4 @@
+import { isCommitmentCurrentGeneration, isTaskCurrentGeneration } from "@/lib/execution-generation";
 import { getOwnedProject } from "@/lib/project-access";
 import { computeProjectProgress } from "@/lib/project-execution";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -20,6 +21,12 @@ export type ProjectBrainContext = {
   meetings: Array<Record<string, unknown>>;
   recentChanges: Array<Record<string, unknown>>;
   progress: { completed: number; total: number; percent: number };
+  /** Commitment/task ids that exist in this project but were excluded from `milestones`/`tasks`
+   * specifically because they belong to an older, superseded analysis generation -- never sent to
+   * the model, only used by the proposal-apply route to tell "references a stale generated row"
+   * (stale_execution_target) apart from "references something outside this project entirely." */
+  staleMilestoneIds: Set<string>;
+  staleTaskIds: Set<string>;
 };
 
 export async function buildProjectBrainContext(
@@ -75,7 +82,7 @@ export async function buildProjectBrainContext(
     supabaseAdmin
       .from("meeting_commitments")
       .select(
-        "id,title,description,owner,owners,due_date,priority,status,completion_state,manual_override_fields,preserve_on_reanalysis,meeting_id,created_at"
+        "id,title,description,owner,owners,due_date,priority,status,completion_state,manual_override_fields,preserve_on_reanalysis,meeting_id,metadata,created_at"
       )
       .eq("project_id", projectId)
       .is("converted_to_task_id", null)
@@ -85,7 +92,7 @@ export async function buildProjectBrainContext(
     supabaseAdmin
       .from("meeting_tasks")
       .select(
-        "id,commitment_id,task,workspace_summary,owner,owners,due_date,priority,status,position,inferred,manual_override_fields,preserve_on_reanalysis,meeting_id,created_at"
+        "id,commitment_id,task,workspace_summary,owner,owners,due_date,priority,status,position,inferred,manual_override_fields,preserve_on_reanalysis,meeting_id,extraction_metadata,created_at"
       )
       .eq("project_id", projectId)
       .neq("status", "dismissed")
@@ -93,7 +100,7 @@ export async function buildProjectBrainContext(
       .limit(200),
     supabaseAdmin
       .from("meetings")
-      .select("id,title,created_at,status")
+      .select("id,title,created_at,status,execution_graph_generation")
       .eq("project_id", projectId)
       .eq("user_id", userId)
       .is("deleted_at", null)
@@ -127,8 +134,26 @@ export async function buildProjectBrainContext(
     }
   }
 
-  const safeCommitments = (commitments ?? []) as MeetingCommitment[];
-  const safeTasks = (tasks ?? []) as MeetingTask[];
+  // Project Brain must reason over (and only be allowed to mutate -- see proposal-apply's
+  // stale_execution_target guard) the meeting's current execution-graph generation, exactly like
+  // the meeting UI (lib/execution-display.ts's partitionExecutionGraph) and project execution
+  // aggregation (lib/project-execution.ts's buildProjectExecutionModel). Each commitment/task
+  // belongs to a specific meeting, and each meeting has its own current generation, so the
+  // comparison is per-row against its own meeting -- not a single project-wide number. Unstamped
+  // rows (no analysis_generation at all -- manual records, or a prior Project Brain
+  // create_milestone) are legacy/compatible and stay visible, per isCommitmentCurrentGeneration's
+  // existing semantics.
+  const currentGenerationByMeetingId = new Map(
+    safeMeetings.map((meeting) => [meeting.id, meeting.execution_graph_generation ?? null])
+  );
+  const allCommitments = (commitments ?? []) as MeetingCommitment[];
+  const allTasks = (tasks ?? []) as MeetingTask[];
+  const safeCommitments = allCommitments.filter((commitment) =>
+    isCommitmentCurrentGeneration(commitment, currentGenerationByMeetingId.get(commitment.meeting_id) ?? null)
+  );
+  const safeTasks = allTasks.filter((task) =>
+    isTaskCurrentGeneration(task, currentGenerationByMeetingId.get(task.meeting_id) ?? null)
+  );
   const people = new Map<string, string>();
   for (const item of [...safeCommitments, ...safeTasks]) {
     for (const owner of [
@@ -154,8 +179,18 @@ export async function buildProjectBrainContext(
         source_type: "execution_owner"
       }))
     ],
-    milestones: (commitments ?? []) as Array<Record<string, unknown>>,
-    tasks: (tasks ?? []) as Array<Record<string, unknown>>,
+    // metadata/extraction_metadata were only fetched to compute generation currency above --
+    // strip them back out so the raw internal JSONB blob never enters the model's context.
+    milestones: safeCommitments.map((commitment) => {
+      const { metadata, ...rest } = commitment;
+      void metadata;
+      return rest;
+    }) as Array<Record<string, unknown>>,
+    tasks: safeTasks.map((task) => {
+      const { extraction_metadata, ...rest } = task;
+      void extraction_metadata;
+      return rest;
+    }) as Array<Record<string, unknown>>,
     meetings: safeMeetings.map((meeting) => ({
       id: meeting.id,
       title: meeting.title,
@@ -167,7 +202,17 @@ export async function buildProjectBrainContext(
     progress: computeProjectProgress({
       commitments: safeCommitments,
       tasks: safeTasks
-    })
+    }),
+    staleMilestoneIds: new Set(
+      allCommitments
+        .filter((commitment) => !safeCommitments.some((current) => current.id === commitment.id))
+        .map((commitment) => commitment.id)
+    ),
+    staleTaskIds: new Set(
+      allTasks
+        .filter((task) => !safeTasks.some((current) => current.id === task.id))
+        .map((task) => task.id)
+    )
   };
 }
 

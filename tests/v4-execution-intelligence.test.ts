@@ -345,6 +345,155 @@ test("Fix 2: a strategic experiment DOES become a commitment once explicitly acc
   assert.equal(result.tree.commitments[0].tasks[0].ref, "wi_1");
 });
 
+// ============================================================
+// FINAL RECONCILIATION STABILIZATION PATCH -- standalone final verification (completed-in-meeting,
+// communication-process) and owner-evidence repair. These test the deterministic eligibility gate
+// against WorkItems shaped exactly as the strengthened GLOBAL_WORK_ITEM_CORRECTION_PROMPT should
+// now produce for these patterns -- the classification itself is a live-model judgment (verified
+// via the non-persisting website replay), but once classified correctly, the deterministic gate
+// must reliably keep these out of (or into) the active tree.
+// ============================================================
+
+test("Standalone verification 9: contact information exchanged during the meeting is completed, not a pending standalone task", () => {
+  const sharedContact = workItem({
+    ref: "wi_1",
+    title: "Share contact information for project communication",
+    classification: "completed_work",
+    status: "completed",
+    acceptance_state: "none",
+    execution_scope: "informational"
+  });
+  assert.equal(isExecutionEligible(sharedContact), false);
+  const result = assemble({ workItems: [sharedContact] });
+  assert.equal(result.tree.standalone_tasks.length, 0);
+});
+
+test("Standalone verification 10: a phone number shared during the meeting is completed, not a pending standalone task", () => {
+  const sharedPhone = workItem({
+    ref: "wi_1",
+    title: "Share Jamileh's phone number with Aditya",
+    classification: "completed_work",
+    status: "completed",
+    acceptance_state: "none",
+    execution_scope: "informational"
+  });
+  assert.equal(isExecutionEligible(sharedPhone), false);
+  const result = assemble({ workItems: [sharedPhone] });
+  assert.equal(result.tree.standalone_tasks.length, 0);
+});
+
+test("Standalone verification 11: a communication-preference/process statement does not create a pending task", () => {
+  const communicationProcess = workItem({
+    ref: "wi_1",
+    title: "Text Jamileh with project questions",
+    work_item_role: "status_update",
+    classification: "in_progress",
+    status: "non_execution",
+    acceptance_state: "none",
+    execution_scope: "informational"
+  });
+  assert.equal(isExecutionEligible(communicationProcess), false);
+  const result = assemble({ workItems: [communicationProcess] });
+  assert.equal(result.tree.standalone_tasks.length, 0);
+});
+
+test("Standalone verification 12: a concrete, accepted future communication action can still become a task", () => {
+  const concreteMessage = workItem({
+    ref: "wi_1",
+    title: "Send Jamileh the generated FAQ questions",
+    owner: "Aditya Ujawane",
+    work_item_role: "action",
+    classification: "open_task",
+    status: "open",
+    acceptance_state: "accepted",
+    execution_scope: "project_work",
+    scope_state: "current_scope"
+  });
+  assert.equal(isExecutionEligible(concreteMessage), true);
+  const result = assemble({ workItems: [concreteMessage] });
+  assert.equal(result.tree.standalone_tasks.length, 1);
+  assert.equal(result.tree.standalone_tasks[0].ref, "wi_1");
+});
+
+test("Owner repair 16/18: Jamileh's founder-story promise resolves to Jamileh as owner, end to end", () => {
+  const jamilehDrafts = workItem({
+    ref: "wi_1",
+    title: "Draft the founder story",
+    owner: "Jamileh Hamideh",
+    owners: ["Jamileh Hamideh"],
+    work_item_role: "input_dependency",
+    source_quote: "yeah the founder story"
+  });
+  const draft = [draftGroup("group_g1", "Deliver the first website draft", ["wi_1"], "explicit_deliverable")];
+  const verified = [
+    verifiedGroup({
+      ref: "group_g1",
+      title: "Deliver the first website draft",
+      member_refs: ["wi_1"],
+      group_basis: "explicit_deliverable",
+      owner: "Aditya Ujawane",
+      owners: ["Aditya Ujawane", "Jamileh Hamideh"],
+      explicit_outcome_evidence: { source_quote: jamilehDrafts.source_quote, source_segment_ids: jamilehDrafts.source_segment_ids }
+    })
+  ];
+  const result = assemble({ workItems: [jamilehDrafts], draftGroups: draft, verifiedGroups: verified });
+  const task = result.tree.commitments[0].tasks.find((t) => t.ref === "wi_1");
+  assert.equal(task?.owner, "Jamileh Hamideh");
+});
+
+test("Owner repair 17: Aditya's founder-story-section implementation remains a distinct task owned by Aditya, alongside Jamileh's drafting task", () => {
+  const jamilehDrafts = workItem({
+    ref: "wi_1",
+    title: "Draft the founder story",
+    owner: "Jamileh Hamideh",
+    owners: ["Jamileh Hamideh"],
+    work_item_role: "input_dependency"
+  });
+  const aditiyaBuildsSection = workItem({
+    ref: "wi_2",
+    title: "Add the founder-story section and incorporate Jamileh's supplied text",
+    owner: "Aditya Ujawane",
+    owners: ["Aditya Ujawane"],
+    work_item_role: "action"
+  });
+  const draft = [draftGroup("group_g1", "Deliver the first website draft", ["wi_1", "wi_2"])];
+  const verified = [
+    verifiedGroup({
+      ref: "group_g1",
+      title: "Deliver the first website draft",
+      member_refs: ["wi_1", "wi_2"],
+      group_basis: "multi_item_shared_purpose",
+      owner: "Aditya Ujawane",
+      owners: ["Aditya Ujawane", "Jamileh Hamideh"]
+    })
+  ];
+  const result = assemble({ workItems: [jamilehDrafts, aditiyaBuildsSection], draftGroups: draft, verifiedGroups: verified });
+  const commitment = result.tree.commitments[0];
+  assert.equal(commitment.tasks.length, 2);
+  assert.equal(commitment.tasks.find((t) => t.ref === "wi_1")?.owner, "Jamileh Hamideh");
+  assert.equal(commitment.tasks.find((t) => t.ref === "wi_2")?.owner, "Aditya Ujawane");
+});
+
+test("Owner repair 19: a task left with an ambiguous (null) owner by upstream reconciliation is never confidently overwritten with the wrong person", () => {
+  const ambiguousOwner = workItem({ ref: "wi_1", title: "Coordinate the follow-up", owner: null, owners: [] });
+  const clearOwner = workItem({ ref: "wi_2", title: "Create initial site structure", owner: "Aditya Ujawane" });
+  const draft = [draftGroup("group_g1", "Deliver the first website draft", ["wi_1", "wi_2"])];
+  const verified = [
+    verifiedGroup({
+      ref: "group_g1",
+      title: "Deliver the first website draft",
+      member_refs: ["wi_1", "wi_2"],
+      group_basis: "multi_item_shared_purpose",
+      owner: "Aditya Ujawane"
+    })
+  ];
+  const result = assemble({ workItems: [ambiguousOwner, clearOwner], draftGroups: draft, verifiedGroups: verified });
+  const task = result.tree.commitments[0].tasks.find((t) => t.ref === "wi_1");
+  // The commitment-level owner may be confidently set (Aditya, declared by verification), but the
+  // individual task's own ambiguous ownership is never silently rewritten to match it.
+  assert.equal(task?.owner, null);
+});
+
 test("8/9. transcript normalization preserves raw text; low-confidence corrections do not auto-apply", () => {
   const raw = `[${segment}] Craig: are you going to get a version this week of parfait running on versa`;
   const corrections: TranscriptCorrection[] = [
@@ -486,6 +635,265 @@ test("Ordering-fix regression: a group verified as explicit_deliverable with >1 
   assert.equal(result.tree.standalone_tasks.length, 0);
   const validation = validateFinalTree(result.tree);
   assert.equal(validation.ok, true);
+});
+
+// ============================================================
+// CONTAINMENT STABILIZATION PATCH -- website staging output produced 4 peer commitments where
+// only 1 was correct: a domain/email-setup group, a narrower "informational first release"
+// duplicate, the correct broadly-scoped draft commitment, and a "both product lines" group that
+// should have been an acceptance criterion. These tests reproduce that exact real scenario and
+// prove the deterministic assembly layer correctly collapses it to one commitment when
+// verification does its job (verified via prompts strengthened in work-item-prompts.ts, and
+// end-to-end via the non-persisting website replay).
+// ============================================================
+
+function websiteContainmentWorkItems() {
+  return {
+    domainTask: workItem({
+      ref: "wi_1",
+      title: "Connect the existing NavivaFoods.com domain to the deployment",
+      owner: "Aditya Ujawane"
+    }),
+    founderStoryTask: workItem({
+      ref: "wi_2",
+      title: "Draft the founder story",
+      owner: "Jamileh Hamideh",
+      work_item_role: "input_dependency"
+    }),
+    structureTask: workItem({
+      ref: "wi_3",
+      title: "Create the initial structured website with placeholders",
+      owner: "Aditya Ujawane"
+    }),
+    faqTask: workItem({
+      ref: "wi_4",
+      title: "Generate FAQ questions and send them to Jamileh",
+      owner: "Aditya Ujawane"
+    }),
+    imagesTask: workItem({
+      ref: "wi_5",
+      title: "Provide product images, ingredients, and packaging information",
+      owner: "Jamileh Hamideh",
+      work_item_role: "input_dependency"
+    }),
+    presentTask: workItem({
+      ref: "wi_6",
+      title: "Present the first website draft before August 1",
+      owner: "Aditya Ujawane"
+    }),
+    productLinesCriterion: workItem({
+      ref: "wi_7",
+      title: "Offer both protein bars and protein powder",
+      work_item_role: "acceptance_criterion",
+      owner: null
+    }),
+    colorCriterion: workItem({
+      ref: "wi_8",
+      title: "Use pastel green and violet as the product colors",
+      work_item_role: "acceptance_criterion",
+      owner: null
+    })
+  };
+}
+
+test("Containment 1/2/3/9: domain-linking, informational-first-release duplicate, and both-product-lines are all absorbed into one surviving commitment", () => {
+  const items = websiteContainmentWorkItems();
+  const all = Object.values(items);
+  // The "before" state grouping actually proposed: 3 separate action-eligible groups (domain,
+  // narrower "first release", broader "draft on the domain") plus the two acceptance criteria
+  // left unattached -- exactly the shape of the real staging bug.
+  const draft = [
+    draftGroup(
+      "group_g1",
+      "Link existing domain and email to new website deployment on Versa",
+      [items.domainTask.ref],
+      "explicit_deliverable"
+    ),
+    draftGroup(
+      "group_g2",
+      "Deliver Informational Website First Release",
+      [items.structureTask.ref, items.faqTask.ref]
+    ),
+    draftGroup(
+      "group_g3",
+      "Deliver the initial website draft on the existing Naviva Foods domain",
+      [items.founderStoryTask.ref, items.imagesTask.ref, items.presentTask.ref]
+    )
+  ];
+  // The "after" state: verification (per the strengthened containment prompt) collapses all
+  // three into the one strongest anchor -- the explicit first-draft deliverable -- absorbing
+  // every eligible member and both acceptance criteria, and omits group_g1/group_g2 entirely.
+  const verified = [
+    verifiedGroup({
+      ref: "group_g3",
+      title: "Deliver the initial website draft on the existing Naviva Foods domain before August 1",
+      description:
+        "Create and present the first informational website draft before August 1, using placeholders where final content is unavailable, incorporating Jamileh's supplied content/assets, and using the existing domain. E-commerce remains later scope.",
+      member_refs: all.filter((i) => i.work_item_role !== "acceptance_criterion").map((i) => i.ref),
+      acceptance_criteria_refs: [items.productLinesCriterion.ref, items.colorCriterion.ref],
+      group_basis: "multi_item_shared_purpose",
+      owner: "Aditya Ujawane",
+      owners: ["Aditya Ujawane", "Jamileh Hamideh"],
+      due_date_text: "before August 1"
+    })
+  ];
+  const result = assemble({ workItems: all, draftGroups: draft, verifiedGroups: verified });
+
+  assert.equal(result.tree.commitments.length, 1, "exactly one active commitment must survive");
+  const commitment = result.tree.commitments[0];
+  assert.equal(commitment.ref, "group_g3");
+  assert.deepEqual(
+    commitment.member_refs.sort(),
+    ["wi_1", "wi_2", "wi_3", "wi_4", "wi_5", "wi_6"].sort()
+  );
+  assert.deepEqual(commitment.acceptance_criteria_refs.sort(), ["wi_7", "wi_8"]);
+  assert.equal(result.tree.standalone_tasks.length, 0);
+
+  // The subordinate draft groups must never resurrect as peers.
+  const g1Decision = result.groupDecisions.find((d) => d.group_ref === "group_g1");
+  const g2Decision = result.groupDecisions.find((d) => d.group_ref === "group_g2");
+  assert.equal(g1Decision?.disposition, "removed");
+  assert.equal(g2Decision?.disposition, "removed");
+});
+
+test("Containment 4: main website commitment owner resolves to Aditya, not Team, even though Jamileh owns child tasks", () => {
+  const items = websiteContainmentWorkItems();
+  const all = Object.values(items);
+  const draft = [draftGroup("group_g1", "Deliver the first website draft", all.map((i) => i.ref))];
+  const verified = [
+    verifiedGroup({
+      ref: "group_g1",
+      title: "Deliver the initial website draft on the existing Naviva Foods domain before August 1",
+      member_refs: all.filter((i) => i.work_item_role !== "acceptance_criterion").map((i) => i.ref),
+      acceptance_criteria_refs: [items.productLinesCriterion.ref, items.colorCriterion.ref],
+      group_basis: "multi_item_shared_purpose",
+      owner: "Aditya Ujawane",
+      owners: ["Aditya Ujawane", "Jamileh Hamideh"]
+    })
+  ];
+  const result = assemble({ workItems: all, draftGroups: draft, verifiedGroups: verified });
+  const commitment = result.tree.commitments[0];
+  assert.equal(commitment.owner, "Aditya Ujawane");
+  assert.notEqual(commitment.owner, "Team");
+});
+
+test("Containment 5: Jamileh's child-task ownership is preserved after absorption", () => {
+  const items = websiteContainmentWorkItems();
+  const all = Object.values(items);
+  const draft = [draftGroup("group_g1", "Deliver the first website draft", all.map((i) => i.ref))];
+  const verified = [
+    verifiedGroup({
+      ref: "group_g1",
+      title: "Deliver the initial website draft on the existing Naviva Foods domain before August 1",
+      member_refs: all.filter((i) => i.work_item_role !== "acceptance_criterion").map((i) => i.ref),
+      acceptance_criteria_refs: [items.productLinesCriterion.ref, items.colorCriterion.ref],
+      group_basis: "multi_item_shared_purpose",
+      owner: "Aditya Ujawane",
+      owners: ["Aditya Ujawane", "Jamileh Hamideh"]
+    })
+  ];
+  const result = assemble({ workItems: all, draftGroups: draft, verifiedGroups: verified });
+  const commitment = result.tree.commitments[0];
+  const founderStory = commitment.tasks.find((t) => t.ref === "wi_2");
+  const images = commitment.tasks.find((t) => t.ref === "wi_5");
+  assert.equal(founderStory?.owner, "Jamileh Hamideh");
+  assert.equal(images?.owner, "Jamileh Hamideh");
+});
+
+test("Containment 6: a work item that hallucinates unsupported email-service scope as a group member is rejected outright by assembly", () => {
+  // Defense in depth at the deterministic layer: even if grouping/verification somehow proposed
+  // an "email service setup" group, it can only survive if it references real eligible items --
+  // there is no such real accepted email-infrastructure item in this meeting, so any group
+  // claiming one is a hallucinated/ineligible reference and assembly rejects it outright.
+  const items = websiteContainmentWorkItems();
+  const draft = [
+    draftGroup(
+      "group_email",
+      "Set up email hosting service for the new domain",
+      ["wi_does_not_exist"],
+      "explicit_deliverable"
+    )
+  ];
+  const verified = [
+    verifiedGroup({
+      ref: "group_email",
+      title: "Set up email hosting service for the new domain",
+      member_refs: ["wi_does_not_exist"],
+      group_basis: "explicit_deliverable",
+      explicit_outcome_evidence: { source_quote: "x", source_segment_ids: [segment] }
+    })
+  ];
+  const result = assemble({ workItems: Object.values(items), draftGroups: draft, verifiedGroups: verified });
+  assert.equal(result.tree.commitments.length, 0);
+  const decision = result.groupDecisions.find((d) => d.group_ref === "group_email");
+  assert.equal(decision?.disposition, "removed");
+  assert.match(decision!.reason, /unknown or ineligible/i);
+});
+
+test("Containment 7: e-commerce remains excluded from the active commitment (future-scope items are never eligible members)", () => {
+  const items = websiteContainmentWorkItems();
+  const ecommerceFeature = workItem({
+    ref: "wi_ecommerce",
+    title: "Build the website as an e-commerce site",
+    work_item_role: "future_feature",
+    scope_state: "future_scope",
+    acceptance_state: "accepted"
+  });
+  const all = [...Object.values(items), ecommerceFeature];
+  const draft = [
+    draftGroup("group_g1", "Deliver the first website draft", [
+      ...Object.values(items)
+        .filter((i) => i.work_item_role !== "acceptance_criterion")
+        .map((i) => i.ref),
+      ecommerceFeature.ref
+    ])
+  ];
+  const verified = [
+    verifiedGroup({
+      ref: "group_g1",
+      title: "Deliver the initial website draft on the existing Naviva Foods domain before August 1",
+      member_refs: [
+        ...Object.values(items)
+          .filter((i) => i.work_item_role !== "acceptance_criterion")
+          .map((i) => i.ref),
+        ecommerceFeature.ref
+      ],
+      acceptance_criteria_refs: [items.productLinesCriterion.ref, items.colorCriterion.ref],
+      group_basis: "multi_item_shared_purpose",
+      owner: "Aditya Ujawane"
+    })
+  ];
+  const result = assemble({ workItems: all, draftGroups: draft, verifiedGroups: verified });
+  // future_feature/future_scope is never isExecutionEligible -- referencing it makes the whole
+  // group's member list ineligible, so the model including it would reject the entire group. This
+  // proves the deterministic gate, not the prompt, is the final backstop against e-commerce
+  // leaking into the active commitment.
+  assert.equal(result.tree.commitments.length, 0);
+  const decision = result.groupDecisions.find((d) => d.group_ref === "group_g1");
+  assert.equal(decision?.disposition, "removed");
+});
+
+test("Containment 8: surviving commitment description covers the full first-draft deliverable, not just one narrow member", () => {
+  const items = websiteContainmentWorkItems();
+  const all = Object.values(items);
+  const draft = [draftGroup("group_g1", "Deliver Informational Website First Release", all.map((i) => i.ref))];
+  const verified = [
+    verifiedGroup({
+      ref: "group_g1",
+      title: "Deliver Informational Website First Release",
+      // Narrow: this description just restates one member (the domain task) verbatim, despite
+      // the group's broad title and 6-member scope -- sanitizeNarrowDescription must strip it
+      // rather than let a misleadingly narrow description survive on a broad commitment.
+      description: items.domainTask.title,
+      member_refs: all.filter((i) => i.work_item_role !== "acceptance_criterion").map((i) => i.ref),
+      acceptance_criteria_refs: [items.productLinesCriterion.ref, items.colorCriterion.ref],
+      group_basis: "multi_item_shared_purpose",
+      owner: "Aditya Ujawane"
+    })
+  ];
+  const result = assemble({ workItems: all, draftGroups: draft, verifiedGroups: verified });
+  const commitment = result.tree.commitments[0];
+  assert.equal(commitment.description, null, "an over-narrow description must be cleared, not left misleading");
 });
 
 test("14. future features never support an active group -- referencing one rejects the group", () => {

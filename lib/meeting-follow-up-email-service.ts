@@ -4,7 +4,7 @@ import {
   groupTasksByAssignee,
   toFollowUpTasks
 } from "@/lib/meeting-follow-up-emails";
-import { isCommittedWork } from "@/lib/execution-display";
+import { isCommittedWork, isTaskExecutable } from "@/lib/execution-display";
 import { applySpeakerAliasesToTasks } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadResolvedMeetingTranscriptSegments } from "@/lib/transcript-segments";
@@ -228,7 +228,7 @@ export async function generateMeetingFollowUpEmails(input: {
 }) {
   const contextResult = await loadGenerationContext(input.meetingId, input.userId);
   if (!contextResult.ok) return contextResult;
-  if (contextResult.tasks.filter(isCommittedWork).length === 0) {
+  if (contextResult.tasks.filter((task) => isCommittedWork(task) && isTaskExecutable(task)).length === 0) {
     return {
       ok: false as const,
       status: 400,
@@ -255,7 +255,7 @@ export async function generateMeetingFollowUpEmails(input: {
     allArtifacts.filter((artifact) => artifact.status !== "failed")
   );
   const followUpTasks = toFollowUpTasks(
-    contextResult.tasks.filter(isCommittedWork)
+    contextResult.tasks.filter((task) => isCommittedWork(task) && isTaskExecutable(task))
   );
   if (followUpTasks.length === 0) {
     return {

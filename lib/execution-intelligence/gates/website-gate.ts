@@ -9,7 +9,14 @@ const PEER_COMPONENT_PATTERNS = [
   /founder'?s? story/i,
   /\bimages?\b/i,
   /\bplaceholders?\b/i,
-  /ingredients?|packaging/i
+  /ingredients?|packaging/i,
+  // A narrower or broader restatement of the same "first release/first draft" deliverable is a
+  // duplicate, not a distinct peer commitment (see work-item-prompts.ts's "ONE DELIVERABLE, ONE
+  // ANCHOR" rule).
+  /informational.*(first release|release)|first release/i,
+  // "Which product variants to offer" / "market-test" is scope/acceptance-criteria territory,
+  // never its own commitment, unless a genuinely separate accepted deliverable exists.
+  /(develop|market-test|market test).*product lines?|product lines?.*(develop|market-test|market test)/i
 ];
 
 const FUTURE_SCOPE_TOPIC_PATTERNS = [
@@ -24,17 +31,52 @@ const FUTURE_SCOPE_TOPIC_PATTERNS = [
   /full e-?commerce|e-?commerce checkout/i
 ];
 
-const UNSUPPORTED_EMAIL_MIGRATION_PATTERNS = [/email/i, /migrat/i];
+// A future-scope word appearing alongside a deferral cue ("before the e-commerce piece is done",
+// "e-commerce remains later scope") is the CORRECT way to describe the "informational site first,
+// e-commerce later" sequencing -- not a leak. Only flag when the topic is mentioned with no such
+// cue in the SAME sentence/clause -- an unrelated deferral cue elsewhere in the text (e.g. a due
+// date like "before August 1") must not blanket-suppress a genuine leak in a different sentence.
+const DEFERRAL_CUE_PATTERN = /\b(before|until|later|remain|future scope|not yet|afterward|after)\b/i;
+
+function clauses(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+|\n+/).filter((clause) => clause.trim().length > 0);
+}
+
+function hasUnsuppressedFutureScopeMatch(text: string, pattern: RegExp): boolean {
+  return clauses(text).some((clause) => pattern.test(clause) && !DEFERRAL_CUE_PATTERN.test(clause));
+}
+
+// Requires "email" plus a service/infrastructure signal -- broad enough to catch "link existing
+// domain and email to the deployment" (no literal "migrat[e|ion]") without flagging a legitimate
+// communication action like "email Jamileh the FAQ answers".
+const UNSUPPORTED_EMAIL_MIGRATION_PATTERNS = [/email/i, /domain|deploy|migrat|hosting|host\b|service|setup/i];
 const EXACT_FORBIDDEN_TASK_TITLES = [/^use an ?e-?commerce website\.?$/i];
 
 function allActiveItems(tree: ExecutionTree) {
-  const items: Array<{ ref: string; title: string; owner: string | null }> = [];
+  const items: Array<{ ref: string; title: string; description: string | null; owner: string | null }> = [];
   for (const commitment of tree.commitments) {
-    items.push({ ref: commitment.ref, title: commitment.title, owner: commitment.owner });
-    for (const task of commitment.tasks) items.push({ ref: task.ref, title: task.title, owner: task.owner });
+    items.push({
+      ref: commitment.ref,
+      title: commitment.title,
+      description: commitment.description,
+      owner: commitment.owner
+    });
+    for (const task of commitment.tasks) {
+      items.push({ ref: task.ref, title: task.title, description: task.description, owner: task.owner });
+    }
   }
-  for (const task of tree.standalone_tasks) items.push({ ref: task.ref, title: task.title, owner: task.owner });
+  for (const task of tree.standalone_tasks) {
+    items.push({ ref: task.ref, title: task.title, description: task.description, owner: task.owner });
+  }
   return items;
+}
+
+function itemText(item: { title: string; description: string | null }) {
+  // Joined with ". " (not a bare space) so title and description are always distinct clauses for
+  // hasUnsuppressedFutureScopeMatch's sentence-level check, regardless of whether either already
+  // ends in punctuation -- an unrelated deferral cue in the title (e.g. a due date) must never
+  // suppress a genuine future-scope leak stated in the description, or vice versa.
+  return item.description ? `${item.title}. ${item.description}` : item.title;
 }
 
 /**
@@ -114,11 +156,12 @@ export function evaluateWebsiteGate(input: {
 
   const activeItems = allActiveItems(tree);
   for (const item of activeItems) {
+    const text = itemText(item);
     for (const pattern of FUTURE_SCOPE_TOPIC_PATTERNS) {
-      if (pattern.test(item.title)) {
+      if (hasUnsuppressedFutureScopeMatch(text, pattern)) {
         failures.push({
           rule: "future_scope_not_active",
-          detail: `"${item.title}" (${item.ref}) is a future-scope feature (e-commerce/accounts/subscriptions/chatbot/Instagram) but appears in the active tree.`
+          detail: `"${item.title}" (${item.ref}) is a future-scope feature (e-commerce/accounts/subscriptions/chatbot/Instagram) but appears in the active tree (title or description) with no deferral language.`
         });
         break;
       }
@@ -129,17 +172,17 @@ export function evaluateWebsiteGate(input: {
         detail: `"${item.title}" (${item.ref}) is exactly the forbidden manufactured task title.`
       });
     }
-    if (UNSUPPORTED_EMAIL_MIGRATION_PATTERNS.every((pattern) => pattern.test(item.title))) {
+    if (UNSUPPORTED_EMAIL_MIGRATION_PATTERNS.every((pattern) => pattern.test(text))) {
       failures.push({
         rule: "no_unsupported_email_migration",
-        detail: `"${item.title}" (${item.ref}) proposes an email migration with no support for it in scope.`
+        detail: `"${item.title}" (${item.ref}) proposes email hosting/service/migration work with no support for it in scope.`
       });
     }
   }
 
   const dismissedHistoricalPattern = /full e-?commerce|checkout|subscription/i;
   for (const item of activeItems) {
-    if (dismissedHistoricalPattern.test(item.title)) {
+    if (dismissedHistoricalPattern.test(itemText(item))) {
       notes.push(`"${item.title}" (${item.ref}) mentions historically-dismissed e-commerce scope; verify it is legitimately in-scope, not a stale artifact.`);
     }
   }

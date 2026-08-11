@@ -35,13 +35,17 @@ export function treeToExecutionGraph(
       source_segment_ids: evidenceSegmentIds,
       evidence_source: "transcript",
       conversation_event_ids: [],
-      type: commitment.owners.length > 1 ? "team" : "personal",
+      type: commitment.owner ? "personal" : "unassigned",
       completion_state: "open",
       execution_classification: "committed",
       consolidated_from_refs: [],
       supporting_action_refs: commitment.member_refs,
       commitment_reason: commitment.purpose_reason,
       scope_added_beyond_actions: null,
+      // A resolved single accountable owner (see final-reconciliation.ts's ownership repair pass)
+      // makes this a "personal" commitment regardless of how many contributors have child tasks --
+      // having supporting contributors is never itself evidence of shared/team accountability.
+      // "team" is reserved for a commitment with no resolvable single owner at all.
       acceptance_criteria: commitment.acceptance_criteria.map((criterion) => ({
         ref: criterion.ref,
         title: criterion.title,

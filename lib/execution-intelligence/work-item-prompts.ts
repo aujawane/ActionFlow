@@ -163,6 +163,42 @@ Common correction patterns, illustrative, not exhaustive:
   inherently forbidden -- apply this evidence-and-accountability test to whatever the transcript
   actually contains.
 
+COMPLETED-IN-MEETING RULE: if the transcript shows the exchange itself happening during the meeting
+-- a phone number read aloud and written down, contact information stated and acknowledged, a
+document shared and confirmed received, a question asked and directly answered on the call -- that
+item is completed_work/completed, acceptance_state=none, not an open future task. It already
+happened; the meeting was the delivery. Never leave it as accepted/open merely because a request
+phrase ("can you share...") appears somewhere nearby -- check whether the transcript shows the
+requested thing being provided in the same exchange. Correct topic-scoped extraction's mistake when
+you see this pattern, and add the item as completed if extraction missed it, so it is visibly
+excluded rather than silently absent.
+
+COMMUNICATION-PROCESS RULE: a statement that establishes how future communication will happen ("if
+I have questions I'll text you", "let's just email back and forth", "I'll message the group when
+it's ready") is execution_scope=informational, work_item_role=status_update -- it describes a
+channel/mechanism, not a deliverable. It becomes role=action only when the transcript also contains
+an actual current question, message, or piece of content that someone accepted responsibility to
+send through that channel. Do not manufacture a generic task like "text so-and-so with questions"
+from a sentence that is only establishing that texting is now an option.
+
+OWNER-EVIDENCE REPAIR RULE: set owner to the person the transcript directly shows accepting or
+performing that specific piece of work -- the speaker of the first-person acceptance ("I'll draft
+the founder story" said by Jamileh means owner=Jamileh), not whoever is coordinating around it, not
+whoever will later insert/use the result, and not a co-participant merely because they are present or
+discussed the topic. When a deliverable has one person producing raw content and a different person
+integrating it (e.g. Jamileh drafts the founder story; Aditya builds the section and places her text
+into it), these are two distinct work items with two distinct owners, not one item awarded to
+whoever is more central to the overall deliverable. If two owners are both plausible from the
+transcript but the evidence does not clearly resolve which one accepted, prefer leaving owner
+unclear (correct it to null with reconciliation_reason explaining the ambiguity) over confidently
+assigning the wrong person -- a missing owner is recoverable, a wrong one is not.
+
+UNSUPPORTED-SCOPE RULE: never add or imply implementation scope beyond what the transcript directly
+states. A person's email address being mentioned is not evidence of any email-infrastructure work
+(hosting, migration, mailbox creation, DNS/MX changes, provider setup) -- do not add such an item and
+correct one back to non-execution/informational if topic-scoped extraction invented it. Only correct
+or add scope that traces to an actual quote.
+
 For every correction and every addition, state classification_reason precisely (what shows
 acceptance vs its absence, project relevance vs its absence) and reconciliation_reason specifically
 for any scope_state/work_item_role change (what later statement, if any, controls the scope
@@ -187,10 +223,24 @@ Reason in this order:
    a deliverable anchor; it only qualifies once the transcript shows a concrete future outcome or
    experiment, an owner who accepted accountability for it, and a recognizable completion condition.
    General interest or discussion, however detailed, is not evidence of a commitment.
+   ONE DELIVERABLE, ONE ANCHOR: if two or more candidate anchors would really describe the same
+   underlying outcome -- one phrased narrowly (e.g. naming one piece of content or one release
+   label), one phrased broadly (e.g. "first release" or "first draft"), or one that is really just
+   an implementation step (e.g. connecting a domain, setting up a platform) toward the other -- they
+   are the SAME anchor, not two. Pick the single formulation with the strongest direct
+   accepted-deliverable evidence (a concrete handoff/release/presentation outcome and, when present,
+   an explicit deadline) and build one anchor from it; do not also emit the narrower or component
+   formulation as its own anchor.
 2. For each anchor, determine which eligible actions/input-dependencies materially advance it --
-   including client/input dependencies the anchor cannot be completed without.
+   including client/input dependencies the anchor cannot be completed without. An eligible item that
+   just restates the anchor's own outcome in different words (e.g. the anchor is "deliver the first
+   draft" and another item says "present the draft as soon as possible") is the SAME completion
+   event as the anchor, not a separate contribution -- claim it as a member so it is represented once
+   inside the anchor, rather than leaving it unclaimed to resurface as a duplicate standalone task.
 3. Attach current-scope acceptance criteria that describe what the anchor must satisfy, in
-   acceptance_criteria_refs -- these are requirements, never member_refs, never their own group.
+   acceptance_criteria_refs -- these are requirements, never member_refs, never their own group. A
+   product-scope decision (e.g. which product variants/lines to include) is an acceptance criterion
+   on the anchor, never its own group.
 4. Only after anchors are built, consider whether any remaining eligible items support another
    genuinely distinct outcome -- not a component of an anchor you already built.
 5. Leave every remaining eligible item unclaimed; deterministic assembly makes it standalone.
@@ -225,12 +275,14 @@ work items, invent requirements, reference a ref you were not given, use future-
 current evidence, rewrite a work item's evidence, or create a new theme-based outcome not grounded
 in the actual shared purpose of real member items.
 
-For every proposed group, explicitly evaluate all twelve:
+For every proposed group, explicitly evaluate all fourteen:
 1. Is this an accepted future outcome, not just a discussed idea?
 2. Is it broader than each member action, or is it one action wearing a bigger title?
 3. Does it represent a meaningful deliverable worth tracking on its own?
 4. Does its title and description summarize the full member set (and attached acceptance criteria),
-   not just one of them?
+   not just one of them? A description of a first draft/first release must say so -- it must not
+   read as if a narrower, later, or different-scope piece (e.g. only a policy page, or full
+   e-commerce) is the whole deliverable.
 5. Is it actually a component, requirement, dependency, or implementation step needed to complete a
    DIFFERENT proposed group? (Containment check -- see below.)
 6. Is its owner the person accountable for the outcome, not merely one child-task owner promoted by
@@ -240,21 +292,63 @@ For every proposed group, explicitly evaluate all twelve:
 7. Are other people correctly represented as owners of their own member tasks, not the group?
 8. Does it contain only current-scope eligible work -- no future-scope, no proposal, no idea?
 9. Are requirements attached via acceptance_criteria_refs rather than smuggled into member_refs?
+   Each acceptance criterion must describe what THIS deliverable itself must satisfy -- not a
+   prerequisite, input, or capability that belongs to a DIFFERENT system this deliverable merely
+   depends on or consumes. E.g. if the deliverable is a tool that consumes structured meeting
+   context another system produces, "that other system correctly identifies speakers/task owners"
+   is a prerequisite of the other system, not an acceptance criterion of this one -- drop it from
+   this group's acceptance_criteria_refs (it may still be a legitimate acceptance criterion on
+   whatever group covers that other system's own deliverable, if one exists).
 10. Are future features correctly absent from every group entirely?
-11. Does the description invent scope no member or acceptance criterion actually supports?
+11. Does the description invent scope no member or acceptance criterion actually supports? In
+    particular: never state or imply email hosting/migration/service setup unless a member or
+    criterion is itself explicitly about that (an email address being mentioned is not evidence);
+    never state or imply that e-commerce/checkout/accounts/subscriptions are part of this
+    deliverable when they are future-scope.
 12. Does the description represent only one narrow child despite a broad title?
 13. If this group's theme is strategic or exploratory (a pattern, technique, or skill to explore or
     develop), does the transcript show a concrete accepted future outcome or experiment, an
     accountable owner, and a recognizable completion condition -- not merely general interest,
     enthusiasm, or detailed discussion? Reject the group (or leave its members as informational/idea
     items) if the only evidence is discussion, no matter how technical or work-adjacent it reads.
+14. Does the transcript explicitly make more than one person jointly accountable for THIS group's
+    outcome? If not, its owner must be one person (or null), never every participant.
 
-CONTAINMENT CHECK: for every pair of proposed groups, ask "is one outcome actually a component,
-requirement, dependency, or implementation step needed to complete the other?" If yes, absorb the
-subordinate group's eligible members and acceptance criteria into the broader group, preserve all
-evidence, and remove the subordinate group entirely -- it must not survive as a peer commitment.
-Example: a group about connecting a domain, or preparing one specific piece of content, that exists
-only to serve a larger deliverable is not a peer of that deliverable -- it is a member of it.
+CONTAINMENT CHECK -- run this before anything else, exhaustively, for every pair of proposed
+groups, not just the ones that look obviously related: "if this group were completed, would that
+normally be considered only one component, requirement, dependency, or implementation step toward
+the other group?" If yes, the two are not peers -- absorb the subordinate group's eligible members
+and acceptance criteria into the surviving group, preserve all evidence/provenance, and remove the
+subordinate group entirely. It must never survive as a peer commitment. This includes the case where
+two groups are really the SAME underlying deliverable described at different levels of generality
+(e.g. one titled after a broad "first release" and one titled after the same release but scoped to
+one specific domain/platform detail) -- these are duplicates, not two commitments; merge them into
+one rather than keeping both.
+
+When two overlapping groups must be reduced to one, the SURVIVING group is decided by, in order:
+1. strongest direct accepted-deliverable evidence (a concrete handoff/release/presentation outcome);
+2. clearest single accountable owner;
+3. clearest handoff/release/presentation outcome named in its own evidence;
+4. an explicit deadline, when one group has it and the other doesn't;
+5. the broadest genuine support from eligible child work, without becoming a vague theme.
+Never let a narrower implementation action (e.g. one about connecting a domain or setting up one
+platform) win over a group that states the actual deliverable -- the deliverable always outranks one
+of its own implementation steps, no matter which was proposed first or which currently has a more
+complete description.
+
+Concrete examples of subordinate groups that must never survive as peers of the deliverable they
+serve:
+- Connecting an existing domain, or setting up hosting/deployment/email for it, to a deliverable --
+  fold into the deliverable as a child task. Never invent a peer group about "email service setup"
+  or infer any email-hosting/migration work merely because an email address was mentioned in
+  passing; that is not evidence of accepted email-infrastructure work.
+- Preparing one specific piece of content (a founder story, an FAQ, a policy page, product
+  images/ingredients) for a deliverable -- fold in as a child task or acceptance criterion of the
+  deliverable, never its own group.
+- A product-scope decision such as which product variants/lines to include, or how they compare in
+  a market -- this is an acceptance criterion or scope note on the deliverable, never its own group,
+  unless the transcript states a separate, concretely accepted deliverable (its own owner, its own
+  completion condition) to build or run something distinct.
 
 You may, for any group: keep it as proposed; correct its title, description, owner, due date,
 purpose_reason, group_basis, member_refs, acceptance_criteria_refs, or explicit_outcome_evidence;
@@ -276,8 +370,10 @@ export const TASK_CONSOLIDATION_PROMPT = `
 You are given one commitment's shortlisted, plausibly-duplicate task clusters -- never the whole
 task list, never other commitments' tasks -- along with each task's title, description, owner,
 status, due date, source quote, and segment IDs. Each cluster was shortlisted by deterministic
-matching (shared parent, compatible owner/status/date, overlapping evidence, or similar title); your
-job is the semantic judgment a deterministic rule cannot make.
+matching (shared parent, compatible owner/status/date, overlapping evidence, similar title, or
+similar combined title+description text); the shortlist is deliberately wide -- it can bundle
+several genuinely distinct phases into one cluster on overlapping vocabulary alone -- so your job is
+the semantic judgment a deterministic rule cannot make, including splitting a cluster back apart.
 
 The only question that matters: "If this task were completed, would the other task also reasonably
 be considered completed?" If yes, they may represent the same completion event and can merge. If no
@@ -286,7 +382,14 @@ communication, approval, deployment, content delivery are common distinct phases
 remain separate, even if they share a commitment, owner, topic, product, or occurred near each other
 in the meeting. Sharing any of those alone is never sufficient reason to merge.
 
-For each cluster, return exactly one proposal:
+A single cluster may contain more than one genuine completion event. Partition it: return as many
+proposals as there are distinct completion events among its tasks, each covering only the task_refs
+that truly belong together. Every task_ref in the cluster must appear in exactly one of your
+proposals for that cluster -- never omitted, never duplicated across proposals. A cluster where every
+task is actually distinct still needs one keep_separate proposal per task (or one proposal listing
+them all with disposition="keep_separate" if that is clearer) so every ref is accounted for.
+
+For each resulting group of tasks, return one proposal:
 - disposition="merge": the tasks are the same completion event. Provide canonical_title and
   canonical_description that honestly represent the merged scope (never broader than the union of
   what was merged, never inventing new work), and completion_equivalence explaining precisely why

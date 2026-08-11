@@ -12,6 +12,7 @@ import {
   finalizeV4Execution,
   persistV4ExecutionGraph,
   runV4ConversationEventExtraction,
+  runV4FinalReconciliation,
   runV4GlobalCorrection,
   runV4Grouping,
   runV4GroupingVerification,
@@ -215,7 +216,8 @@ export async function runMeetingAnalysisStage(input: {
 
     if (input.stage === "synthesis") {
       if (engine === "v4") {
-        const v4State = await finalizeV4Execution(checkpoint.v4State!);
+        const reconciled = await runV4FinalReconciliation(checkpoint.v4State!);
+        const v4State = await finalizeV4Execution(reconciled);
         await saveAnalysisJobCheckpoint({
           jobId: input.jobId,
           checkpoint: { prepared: checkpoint.prepared, engine, v4State }

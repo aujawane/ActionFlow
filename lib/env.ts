@@ -134,7 +134,14 @@ export function getTranscriptNormalizationAutoThreshold(): number {
     : DEFAULT_TRANSCRIPT_NORMALIZATION_AUTO_THRESHOLD;
 }
 
-const DEFAULT_TASK_CONSOLIDATION_AUTO_THRESHOLD = 0.92;
+// A real Chatter-fixture replay (widened candidate shortlisting -- see task-consolidation.ts's
+// relateTasks -- now correctly surfaces genuine duplicates to the model that were previously never
+// even shown to it) returned a well-reasoned "merge" proposal at confidence 0.9 for two tasks
+// describing the same transcript-based Chatter test; 0.92 silently downgraded it to a suggestion
+// that never touches the persisted tree. 0.88 keeps meaningful separation from the 0.75 suggest
+// threshold (a merge still has to be quite confident to auto-apply) while no longer discarding a
+// duplicate the model itself was this sure about.
+const DEFAULT_TASK_CONSOLIDATION_AUTO_THRESHOLD = 0.88;
 const DEFAULT_TASK_CONSOLIDATION_SUGGEST_THRESHOLD = 0.75;
 
 export function isTaskConsolidationEnabled(): boolean {

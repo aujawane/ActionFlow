@@ -58,10 +58,12 @@ export async function GET(request: Request) {
       verifiedGroups?: unknown;
       groupDecisions?: unknown;
       workItemDecisions?: unknown;
+      recoveryDecisions?: unknown;
       preConsolidationTree?: unknown;
       consolidationDecisions?: unknown;
       consolidationSuggestions?: unknown;
       consolidationProvenance?: unknown;
+      completionSignatures?: unknown;
       finalValidation?: unknown;
       tree?: unknown;
       graph?: unknown;
@@ -99,10 +101,12 @@ export async function GET(request: Request) {
     verified_groups: v4State.verifiedGroups ?? [],
     group_decisions: v4State.groupDecisions ?? [],
     work_item_decisions: v4State.workItemDecisions ?? [],
+    recovery_decisions: v4State.recoveryDecisions ?? [],
     pre_consolidation_tree: v4State.preConsolidationTree ?? null,
     consolidation_decisions: v4State.consolidationDecisions ?? [],
     consolidation_suggestions: v4State.consolidationSuggestions ?? [],
     consolidation_provenance: v4State.consolidationProvenance ?? {},
+    completion_signatures: v4State.completionSignatures ?? {},
     final_validation: v4State.finalValidation ?? null,
     final_tree: v4State.tree ?? null,
     final_graph: v4State.graph ?? null

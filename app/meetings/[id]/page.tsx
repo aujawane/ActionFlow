@@ -197,7 +197,8 @@ export default async function MeetingDetailPage({
 
   const partitioned = partitionExecutionGraph({
     commitments: activeCommitments,
-    tasks: safeTasks
+    tasks: safeTasks,
+    currentGeneration: meeting.execution_graph_generation ?? null
   });
 
   return (

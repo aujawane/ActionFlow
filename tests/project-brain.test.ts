@@ -86,6 +86,8 @@ function context(overrides: Partial<ProjectBrainContext> = {}): ProjectBrainCont
     ],
     recentChanges: [],
     progress: { completed: 0, total: 3, percent: 0 },
+    staleMilestoneIds: new Set(),
+    staleTaskIds: new Set(),
     ...overrides
   };
 }

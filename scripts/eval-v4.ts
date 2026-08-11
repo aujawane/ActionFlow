@@ -28,6 +28,7 @@ import { semanticTokenSimilarity } from "../lib/execution-intelligence/graph";
 import type { ExecutionSourceContext } from "../lib/execution-intelligence/stages";
 import {
   finalizeV4Execution,
+  runV4FinalReconciliation,
   runV4GlobalCorrection,
   runV4Grouping,
   runV4GroupingVerification,
@@ -265,8 +266,10 @@ async function main() {
     saveStage(stage, state);
   }
 
-  // Phase 6 (final validation + trace) is deterministic -- always safe to run, never gated.
-  state = await finalizeV4Execution(state as V4ExecutionState);
+  // Phase 5.5/6 (final reconciliation + validation + trace) are deterministic -- always safe to
+  // run, never gated behind --allow-model-calls.
+  state = await runV4FinalReconciliation(state as V4ExecutionState);
+  state = await finalizeV4Execution(state);
   writeFileSync(path.join(outputDir, "trace.json"), JSON.stringify(state.debugTrace, null, 2));
 
   const usageReport = {

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { buildProjectBrainContext } from "@/lib/project-brain/context";
-import { normalizeOperationsForApply } from "@/lib/project-brain/operations";
+import { normalizeOperationsForApply, validateProposalTargets } from "@/lib/project-brain/operations";
 import { projectProposalReviewSchema } from "@/lib/project-brain/schemas";
 import { getOwnedProject } from "@/lib/project-access";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -64,34 +64,12 @@ export async function POST(
     operations: parsed.data.operations.map((operation) => operation.type)
   });
 
-  const milestoneIds = new Set(
-    brainContext.milestones.map((item) => String(item.id))
-  );
-  const taskIds = new Set(brainContext.tasks.map((item) => String(item.id)));
-  for (const operation of parsed.data.operations) {
-    const candidate = operation as unknown as Record<string, unknown>;
-    for (const key of ["milestoneId", "targetMilestoneId"]) {
-      if (
-        typeof candidate[key] === "string" &&
-        !milestoneIds.has(String(candidate[key]))
-      ) {
-        return NextResponse.json(
-          { error: "Proposal references a milestone outside this project." },
-          { status: 400 }
-        );
-      }
-    }
-    for (const key of ["taskId", "dependsOnTaskId", "survivorTaskId"]) {
-      if (
-        typeof candidate[key] === "string" &&
-        !taskIds.has(String(candidate[key]))
-      ) {
-        return NextResponse.json(
-          { error: "Proposal references a task outside this project." },
-          { status: 400 }
-        );
-      }
-    }
+  const targetValidation = validateProposalTargets(parsed.data.operations, brainContext);
+  if (!targetValidation.ok) {
+    return NextResponse.json(
+      { error: targetValidation.message, reason: targetValidation.reason },
+      { status: targetValidation.reason === "stale_execution_target" ? 409 : 400 }
+    );
   }
 
   const operationsForApply = normalizeOperationsForApply(
