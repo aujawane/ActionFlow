@@ -1,3 +1,9 @@
+"use client";
+
+import { useState } from "react";
+
+import { CommitmentCorrectionMenu } from "@/components/commitment-correction-menu";
+import { TaskCorrectionMenu } from "@/components/task-correction-menu";
 import {
   formatClassificationLabel,
   getExecutionClassification
@@ -5,12 +11,35 @@ import {
 import type { MeetingCommitment, MeetingTask } from "@/lib/types";
 
 export function IdeasRequirementsPanel({
-  commitments,
-  tasks
+  commitments: initialCommitments,
+  tasks: initialTasks
 }: {
   commitments: MeetingCommitment[];
   tasks: MeetingTask[];
 }) {
+  const [commitments, setCommitments] = useState(initialCommitments);
+  const [tasks, setTasks] = useState(initialTasks);
+
+  function handleCommitmentUpdated(updated: MeetingCommitment) {
+    // Promoted commitments are active work now -- they belong on Meeting Detail's Commitments
+    // panel, not here.
+    if (updated.execution_classification === "committed") {
+      setCommitments((current) => current.filter((commitment) => commitment.id !== updated.id));
+      return;
+    }
+    setCommitments((current) =>
+      current.map((commitment) => (commitment.id === updated.id ? updated : commitment))
+    );
+  }
+
+  function handleTaskUpdated(updated: MeetingTask) {
+    if (updated.execution_classification === "committed") {
+      setTasks((current) => current.filter((task) => task.id !== updated.id));
+      return;
+    }
+    setTasks((current) => current.map((task) => (task.id === updated.id ? updated : task)));
+  }
+
   if (commitments.length === 0 && tasks.length === 0) return null;
 
   return (
@@ -35,15 +64,21 @@ export function IdeasRequirementsPanel({
               key={commitment.id}
               className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"
             >
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-medium text-slate-900">
-                  {commitment.title}
-                </p>
-                <span className="badge-meta">
-                  {formatClassificationLabel(
-                    getExecutionClassification(commitment.execution_classification)
-                  )}
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-slate-900">
+                    {commitment.title}
+                  </p>
+                  <span className="badge-meta">
+                    {formatClassificationLabel(
+                      getExecutionClassification(commitment.execution_classification)
+                    )}
+                  </span>
+                </div>
+                <CommitmentCorrectionMenu
+                  commitment={commitment}
+                  onCommitmentUpdated={handleCommitmentUpdated}
+                />
               </div>
               {commitment.description ? (
                 <p className="mt-1 text-xs text-slate-600">{commitment.description}</p>
@@ -63,13 +98,16 @@ export function IdeasRequirementsPanel({
               key={task.id}
               className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"
             >
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-medium text-slate-900">{task.task}</p>
-                <span className="badge-meta">
-                  {formatClassificationLabel(
-                    getExecutionClassification(task.execution_classification)
-                  )}
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-slate-900">{task.task}</p>
+                  <span className="badge-meta">
+                    {formatClassificationLabel(
+                      getExecutionClassification(task.execution_classification)
+                    )}
+                  </span>
+                </div>
+                <TaskCorrectionMenu task={task} onTaskUpdated={handleTaskUpdated} />
               </div>
             </div>
           ))}

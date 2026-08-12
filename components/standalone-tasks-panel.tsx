@@ -2,14 +2,28 @@
 
 import Link from "next/link";
 import type { Route } from "next";
+import { useState } from "react";
 
 import { InferredTaskBadge } from "@/components/task-execution-badges";
+import { TaskCorrectionMenu } from "@/components/task-correction-menu";
 import { isTaskExecutable } from "@/lib/execution-display";
 import { isInferredTask } from "@/lib/task-execution-display";
 import { formatStatusLabel, statusBadgeClassName } from "@/lib/status-badge";
 import type { MeetingTask } from "@/lib/types";
 
-export function StandaloneTasksPanel({ tasks }: { tasks: MeetingTask[] }) {
+export function StandaloneTasksPanel({ tasks: initialTasks }: { tasks: MeetingTask[] }) {
+  const [tasks, setTasks] = useState(initialTasks);
+
+  function handleTaskUpdated(updated: MeetingTask) {
+    // A task that moved into a commitment or over to Future Scope is no longer standalone/active
+    // -- drop it from this list immediately rather than leaving a stale row.
+    if (updated.commitment_id || updated.execution_classification !== "committed") {
+      setTasks((current) => current.filter((task) => task.id !== updated.id));
+      return;
+    }
+    setTasks((current) => current.map((task) => (task.id === updated.id ? updated : task)));
+  }
+
   if (tasks.length === 0) return null;
 
   return (
@@ -47,14 +61,17 @@ export function StandaloneTasksPanel({ tasks }: { tasks: MeetingTask[] }) {
                 <span className="text-xs text-slate-500">{task.owner || "Unassigned"}</span>
               </div>
             </div>
-            {isTaskExecutable(task) ? (
-              <Link
-                href={`/tasks/${task.id}` as Route}
-                className="tertiary-button px-2.5 py-1 text-xs text-brand-700"
-              >
-                Execute Task
-              </Link>
-            ) : null}
+            <div className="flex items-center gap-1">
+              {isTaskExecutable(task) ? (
+                <Link
+                  href={`/tasks/${task.id}` as Route}
+                  className="tertiary-button px-2.5 py-1 text-xs text-brand-700"
+                >
+                  Execute Task
+                </Link>
+              ) : null}
+              <TaskCorrectionMenu task={task} onTaskUpdated={handleTaskUpdated} />
+            </div>
           </li>
         ))}
       </ul>

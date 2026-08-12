@@ -228,8 +228,25 @@ export function TaskClarifications({
       ) : null}
 
       {comments?.map((comment) => {
-        const isUser = comment.role === "user";
         const time = formatCommentTime(comment.created_at);
+
+        // System entries (e.g. "Report incorrect extraction") are notes about the task, not a
+        // turn in the conversation -- rendered as a centered note rather than a chat bubble so
+        // they're never mistaken for something the user typed or something Parfait said.
+        if (comment.role === "system") {
+          return (
+            <div key={comment.id} className="flex justify-center">
+              <p className="max-w-[90%] rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs leading-5 text-slate-500">
+                <span className="font-semibold uppercase tracking-wide text-slate-400">
+                  System{time ? ` · ${time}` : ""}:{" "}
+                </span>
+                {comment.message}
+              </p>
+            </div>
+          );
+        }
+
+        const isUser = comment.role === "user";
         return (
           <div
             key={comment.id}
@@ -241,7 +258,7 @@ export function TaskClarifications({
                   isUser ? "text-brand-700" : "text-slate-400"
                 }`}
               >
-                {isUser ? "You" : comment.role === "system" ? "System" : "Parfait"}
+                {isUser ? "You" : "Parfait"}
                 {time ? ` · ${time}` : ""}
               </p>
               <div

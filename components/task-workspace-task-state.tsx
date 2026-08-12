@@ -13,6 +13,7 @@ import type { ReactNode } from "react";
 
 import { TaskCategoryBadge } from "@/components/task-category-badge";
 import { InferredTaskBadge } from "@/components/task-execution-badges";
+import { TaskCorrectionMenu } from "@/components/task-correction-menu";
 import { normalizeSuggestedSteps } from "@/lib/ai/task-chat-patch";
 import { formatReadableDate } from "@/lib/format-date";
 import { formatStatusLabel, statusBadgeClassName } from "@/lib/status-badge";
@@ -75,33 +76,53 @@ export function TaskWorkspaceHeader({
 }: {
   parentCommitment?: TaskWorkspaceParentCommitment | null;
 }) {
-  const { task } = useTaskWorkspaceState();
+  const { task, setTask } = useTaskWorkspaceState();
   const dueLabel = formatReadableDate(task.due_date ?? null);
+
+  async function saveOwner(owner: string) {
+    const response = await fetch(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ owner: owner.trim() || null })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (response.ok && result.task) setTask(result.task);
+  }
 
   return (
     <div className="premium-card p-6">
       <div className="space-y-4">
-        <div className="space-y-1.5">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Task Workspace
-          </p>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
-            {task.task}
-          </h1>
-          {task.workspace_summary ? (
-            <p className="max-w-3xl text-sm leading-6 text-slate-600">
-              {task.workspace_summary}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Task Workspace
             </p>
-          ) : null}
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
+              {task.task}
+            </h1>
+            {task.workspace_summary ? (
+              <p className="max-w-3xl text-sm leading-6 text-slate-600">
+                {task.workspace_summary}
+              </p>
+            ) : null}
+          </div>
+          <TaskCorrectionMenu task={task} onTaskUpdated={setTask} />
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
           <span className={`badge-state ${statusBadgeClassName(task.status)}`}>
             {formatStatusLabel(task.status)}
           </span>
-          <span className="text-slate-600">
-            <span className="text-slate-500">Owner </span>
-            <span className="font-semibold text-slate-800">{task.owner || "Unassigned"}</span>
+          <span className="flex items-center text-slate-600">
+            <span className="text-slate-500">Owner&nbsp;</span>
+            <input
+              className="inline-edit-field font-semibold text-slate-800"
+              value={task.owner ?? ""}
+              placeholder="Unassigned"
+              aria-label="Task owner"
+              onChange={(event) => setTask({ ...task, owner: event.target.value || null })}
+              onBlur={(event) => void saveOwner(event.target.value)}
+            />
           </span>
           <span className="text-slate-600">
             <span className="text-slate-500">Due </span>

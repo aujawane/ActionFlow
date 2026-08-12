@@ -5,6 +5,11 @@ import type { Route } from "next";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { CommitmentCorrectionMenu } from "@/components/commitment-correction-menu";
+import { Modal, ModalActions } from "@/components/modal";
+import { TaskCorrectionMenu } from "@/components/task-correction-menu";
+import { isCommittedWork } from "@/lib/execution-display";
+import { getActiveChildTasks } from "@/lib/execution-corrections";
 import {
   computeCommitmentProgress,
   deriveCommitmentPeople,
@@ -21,6 +26,13 @@ import type {
   TaskArtifact,
   TaskDependency
 } from "@/lib/types";
+
+function mergedFragmentCount(task: MeetingTask): number {
+  const metadata = task.extraction_metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return 0;
+  const merged = (metadata as Record<string, unknown>).manually_merged_task_ids;
+  return Array.isArray(merged) ? merged.length : 0;
+}
 
 export function CommitmentWorkspace({
   initialCommitment,
@@ -53,6 +65,9 @@ export function CommitmentWorkspace({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingMerge, setConfirmingMerge] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+  const [mergeBusy, setMergeBusy] = useState(false);
 
   const progress = useMemo(
     () => computeCommitmentProgress(commitment, tasks),
@@ -124,6 +139,57 @@ export function CommitmentWorkspace({
       );
       router.refresh();
     }
+  }
+
+  function handleTaskUpdated(updatedTask: MeetingTask) {
+    // A task that moved to another commitment, went standalone, or moved to Future Scope no
+    // longer belongs in this workspace's active list -- drop it immediately rather than leaving
+    // a stale/misleading row behind (see Phase 6 UI-synchronization requirement).
+    if (updatedTask.commitment_id !== commitment.id || !isCommittedWork(updatedTask)) {
+      setTasks((current) => current.filter((task) => task.id !== updatedTask.id));
+      return;
+    }
+    setTasks((current) =>
+      current.map((task) => (task.id === updatedTask.id ? updatedTask : task))
+    );
+  }
+
+  async function confirmMerge() {
+    if (selected.length < 2) return;
+    const [survivor, ...merged] = selected;
+    setMergeBusy(true);
+    setMergeError(null);
+    const result = await request(`/api/commitments/${commitment.id}/tasks/merge`, {
+      method: "POST",
+      body: JSON.stringify({
+        survivor_task_id: survivor,
+        merged_task_ids: merged
+      })
+    });
+    setMergeBusy(false);
+    if (!result) {
+      setMergeError(error || "Failed to merge tasks.");
+      return;
+    }
+    setTasks((current) => current.filter((task) => !merged.includes(task.id)));
+    setDependencies((current) =>
+      current
+        .filter(
+          (dependency) =>
+            !merged.includes(dependency.task_id) &&
+            !merged.includes(dependency.depends_on_task_id)
+        )
+        .map((dependency) => ({
+          ...dependency,
+          task_id: merged.includes(dependency.task_id) ? survivor : dependency.task_id,
+          depends_on_task_id: merged.includes(dependency.depends_on_task_id)
+            ? survivor
+            : dependency.depends_on_task_id
+        }))
+    );
+    setSelected([]);
+    setConfirmingMerge(false);
+    router.refresh();
   }
 
   async function createTask(event: React.FormEvent) {
@@ -203,43 +269,6 @@ export function CommitmentWorkspace({
     }
   }
 
-  async function mergeSelected() {
-    if (selected.length < 2) return;
-    const [survivor, ...merged] = selected;
-    const result = await request(
-      `/api/commitments/${commitment.id}/tasks/merge`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          survivor_task_id: survivor,
-          merged_task_ids: merged
-        })
-      }
-    );
-    if (result) {
-      setTasks((current) => current.filter((task) => !merged.includes(task.id)));
-      setDependencies((current) =>
-        current
-          .filter(
-            (dependency) =>
-              !merged.includes(dependency.task_id) &&
-              !merged.includes(dependency.depends_on_task_id)
-          )
-          .map((dependency) => ({
-            ...dependency,
-            task_id: merged.includes(dependency.task_id)
-              ? survivor
-              : dependency.task_id,
-            depends_on_task_id: merged.includes(dependency.depends_on_task_id)
-              ? survivor
-              : dependency.depends_on_task_id
-          }))
-      );
-      setSelected([]);
-      router.refresh();
-    }
-  }
-
   async function setDependency(taskId: string, dependsOnTaskId: string) {
     const result = await request(`/api/tasks/${taskId}/dependencies`, {
       method: "PUT",
@@ -305,29 +334,36 @@ export function CommitmentWorkspace({
               }
             />
           </div>
-          <select
-            className="premium-input w-44"
-            value={commitment.status}
-            onChange={(event) =>
-              void updateCommitment({
-                status: event.target.value,
-                completion_state:
-                  event.target.value === "completed"
-                    ? "completed"
-                    : event.target.value === "blocked"
-                      ? "blocked"
-                      : event.target.value === "in_progress"
-                        ? "in_progress"
-                        : "open"
-              })
-            }
-          >
-            <option value="pending">Pending</option>
-            <option value="in_progress">In progress</option>
-            <option value="blocked">Blocked</option>
-            <option value="completed">Completed</option>
-            <option value="dismissed">Dismissed</option>
-          </select>
+          <div className="flex items-start gap-1.5">
+            <select
+              className="premium-input w-44"
+              value={commitment.status}
+              onChange={(event) =>
+                void updateCommitment({
+                  status: event.target.value,
+                  completion_state:
+                    event.target.value === "completed"
+                      ? "completed"
+                      : event.target.value === "blocked"
+                        ? "blocked"
+                        : event.target.value === "in_progress"
+                          ? "in_progress"
+                          : "open"
+                })
+              }
+            >
+              <option value="pending">Pending</option>
+              <option value="in_progress">In progress</option>
+              <option value="blocked">Blocked</option>
+              <option value="completed">Completed</option>
+              <option value="dismissed">Dismissed</option>
+            </select>
+            <CommitmentCorrectionMenu
+              commitment={commitment}
+              hasActiveChildren={getActiveChildTasks(commitment, tasks).length > 0}
+              onCommitmentUpdated={setCommitment}
+            />
+          </div>
         </div>
         <div className="mt-5 grid gap-3 md:grid-cols-3">
           <input
@@ -471,9 +507,9 @@ export function CommitmentWorkspace({
             type="button"
             className="secondary-button"
             disabled={selected.length < 2 || busy}
-            onClick={() => void mergeSelected()}
+            onClick={() => setConfirmingMerge(true)}
           >
-            Merge Selected into First
+            Merge tasks
           </button>
         </div>
         <form onSubmit={createTask} className="mt-4 flex gap-2">
@@ -522,14 +558,15 @@ export function CommitmentWorkspace({
                     (artifact) => artifact.task_id === task.id
                   ).length;
                   const dueLabel = formatReadableDate(task.due_date ?? null);
+                  const mergedCount = mergedFragmentCount(task);
                   return (
                     <article
                       key={task.id}
                       className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-brand-200 hover:shadow-md"
                     >
-                      {/* 1. Completion checkbox, 2. title. Owner avatar removed here -- these
-                          cards already sit under the owner's own heading; repeating it on every
-                          card added no information. */}
+                      {/* 1. Completion checkbox, 2. title, 3. overflow menu. Owner avatar removed
+                          here -- these cards already sit under the owner's own heading; repeating
+                          it on every card added no information. */}
                       <div className="flex items-start gap-2">
                         <input
                           type="checkbox"
@@ -550,7 +587,13 @@ export function CommitmentWorkspace({
                         >
                           {task.task}
                         </Link>
+                        <TaskCorrectionMenu task={task} onTaskUpdated={handleTaskUpdated} />
                       </div>
+                      {mergedCount > 0 ? (
+                        <p className="mt-1 pl-6 text-xs text-slate-400">
+                          Combined from {mergedCount + 1} extracted actions
+                        </p>
+                      ) : null}
 
                       {/* 3. Status -- a real <select>, styled to read as a status pill rather
                           than a form field, so it stays instantly scannable and still edits
@@ -655,21 +698,99 @@ export function CommitmentWorkspace({
         </div>
       </section>
 
+      <Modal
+        open={confirmingMerge}
+        title="Merge tasks"
+        onClose={() => {
+          setConfirmingMerge(false);
+          setMergeError(null);
+        }}
+      >
+        <h2 className="text-base font-semibold text-slate-950">Merge tasks</h2>
+        {selected.length >= 2 ? (
+          <>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              These {selected.length} tasks will be combined. Comments, deliverables, and
+              dependencies from the others move onto the kept task.
+            </p>
+            <div className="mt-3 space-y-2">
+              <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">
+                  Kept
+                </p>
+                <p className="text-sm font-medium text-brand-900">
+                  {tasks.find((task) => task.id === selected[0])?.task ?? "Selected task"}
+                </p>
+              </div>
+              {selected.slice(1).map((taskId) => (
+                <div key={taskId} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Combined in
+                  </p>
+                  <p className="text-sm text-slate-700">
+                    {tasks.find((task) => task.id === taskId)?.task ?? "Selected task"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
+        {mergeError ? <p className="mt-3 text-sm text-rose-700">{mergeError}</p> : null}
+        <ModalActions>
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmingMerge(false);
+              setMergeError(null);
+            }}
+            className="tertiary-button px-4 py-2 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void confirmMerge()}
+            disabled={mergeBusy}
+            className="premium-button px-4 py-2 text-sm"
+          >
+            {mergeBusy ? "Merging…" : "Merge tasks"}
+          </button>
+        </ModalActions>
+      </Modal>
+
       <section className="premium-card p-5">
         <h2 className="text-lg font-semibold text-slate-950">Ask Parfait</h2>
         <div className="mt-4 max-h-72 space-y-3 overflow-y-auto">
-          {comments.map((comment) => (
-            <div
-              key={comment.id}
-              className={`rounded-xl p-3 text-sm ${
-                comment.role === "user"
-                  ? "ml-8 bg-brand-50 text-brand-950"
-                  : "mr-8 bg-slate-50 text-slate-700"
-              }`}
-            >
-              {comment.message}
-            </div>
-          ))}
+          {comments.map((comment) => {
+            // System entries (e.g. "Report incorrect extraction") are notes about the
+            // commitment, not a conversational turn -- kept visually distinct from both the
+            // user's own messages and Parfait's replies (see Ask Parfait comment-role audit).
+            if (comment.role === "system") {
+              return (
+                <p
+                  key={comment.id}
+                  className="mx-auto max-w-[90%] rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs leading-5 text-slate-500"
+                >
+                  <span className="font-semibold uppercase tracking-wide text-slate-400">
+                    System:{" "}
+                  </span>
+                  {comment.message}
+                </p>
+              );
+            }
+            return (
+              <div
+                key={comment.id}
+                className={`rounded-xl p-3 text-sm ${
+                  comment.role === "user"
+                    ? "ml-8 bg-brand-50 text-brand-950"
+                    : "mr-8 bg-slate-50 text-slate-700"
+                }`}
+              >
+                {comment.message}
+              </div>
+            );
+          })}
         </div>
         <form onSubmit={sendMessage} className="mt-4 flex gap-2">
           <textarea

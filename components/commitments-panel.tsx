@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { CommitmentCorrectionMenu } from "@/components/commitment-correction-menu";
 import { commitmentProgress, isCommittedWork } from "@/lib/execution-display";
+import { getActiveChildTasks } from "@/lib/execution-corrections";
 import { formatReadableDate } from "@/lib/format-date";
 import { formatStatusLabel, statusBadgeClassName } from "@/lib/status-badge";
 import type { MeetingCommitment, MeetingTask } from "@/lib/types";
@@ -29,16 +31,23 @@ function acceptanceCriteria(commitment: MeetingCommitment): AcceptanceCriterion[
 }
 
 export function CommitmentsPanel({
-  commitments,
+  commitments: initialCommitments,
   tasks
 }: {
   commitments: MeetingCommitment[];
   tasks: MeetingTask[];
 }) {
+  const [commitments, setCommitments] = useState(initialCommitments);
   const activeCommitments = useMemo(
     () => commitments.filter(isCommittedWork),
     [commitments]
   );
+
+  function handleCommitmentUpdated(updated: MeetingCommitment) {
+    setCommitments((current) =>
+      current.map((commitment) => (commitment.id === updated.id ? updated : commitment))
+    );
+  }
 
   if (activeCommitments.length === 0) {
     return null;
@@ -70,15 +79,23 @@ export function CommitmentsPanel({
           );
           const dueLabel = formatReadableDate(commitment.due_date) ?? commitment.due_date_text;
           const criteria = acceptanceCriteria(commitment);
+          const hasActiveChildren = getActiveChildTasks(commitment, tasks).length > 0;
 
           return (
             <article key={commitment.id} className="rounded-2xl border border-slate-200 bg-white p-4">
               {/* 1. Title + 2. status -- the two things that must be identifiable at a glance. */}
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <h3 className="min-w-0 flex-1 font-semibold text-slate-950">{commitment.title}</h3>
-                <span className={`badge-state ${statusBadgeClassName(commitment.status)}`}>
-                  {formatStatusLabel(commitment.status)}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`badge-state ${statusBadgeClassName(commitment.status)}`}>
+                    {formatStatusLabel(commitment.status)}
+                  </span>
+                  <CommitmentCorrectionMenu
+                    commitment={commitment}
+                    hasActiveChildren={hasActiveChildren}
+                    onCommitmentUpdated={handleCommitmentUpdated}
+                  />
+                </div>
               </div>
 
               {/* 3. Owner + 4. due date -- scannable, one line. Type is quiet product metadata. */}
