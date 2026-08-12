@@ -192,7 +192,11 @@ export async function POST(
   });
 
   let proposal: Record<string, unknown> | null = null;
-  if (result.responseType === "proposal" && result.proposal) {
+  if (
+    result.responseType === "proposal" &&
+    result.proposal &&
+    result.proposal.operations.length > 0
+  ) {
     console.info("[ProjectBrain] persisting proposal operations", {
       project_id: id,
       user_id: auth.user.id,

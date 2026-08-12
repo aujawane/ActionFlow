@@ -8,13 +8,15 @@ import { useRouter } from "next/navigation";
 import { CommitmentCorrectionMenu } from "@/components/commitment-correction-menu";
 import { Modal, ModalActions } from "@/components/modal";
 import { TaskCorrectionMenu } from "@/components/task-correction-menu";
+import { TaskOwnerSelect } from "@/components/task-owner-select";
 import { isCommittedWork } from "@/lib/execution-display";
 import { getActiveChildTasks } from "@/lib/execution-corrections";
 import {
   computeCommitmentProgress,
   deriveCommitmentPeople,
   groupCommitmentTasksByOwner,
-  selectNextBestTask
+  selectNextBestTask,
+  shouldPromptForCommitmentCompletion
 } from "@/lib/project-execution";
 import { formatReadableDate } from "@/lib/format-date";
 import {
@@ -61,7 +63,8 @@ export function CommitmentWorkspace({
   initialParticipants,
   initialArtifacts,
   sourceMeeting,
-  currentUserName
+  currentUserName,
+  meetingParticipantOptions
 }: {
   initialCommitment: MeetingCommitment;
   initialTasks: MeetingTask[];
@@ -71,6 +74,9 @@ export function CommitmentWorkspace({
   initialArtifacts: TaskArtifact[];
   sourceMeeting: { id: string; title: string | null };
   currentUserName?: string | null;
+  /** Resolved participant names from this commitment's source meeting -- see
+   * lib/meeting-participants.ts. Powers the per-task owner-assignment dropdown below. */
+  meetingParticipantOptions: string[];
 }) {
   const router = useRouter();
   const [commitment, setCommitment] = useState(initialCommitment);
@@ -89,9 +95,15 @@ export function CommitmentWorkspace({
   const [confirmingMerge, setConfirmingMerge] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [mergeBusy, setMergeBusy] = useState(false);
+  const [completionModalOpen, setCompletionModalOpen] = useState(false);
+  const [completionPromptDismissed, setCompletionPromptDismissed] = useState(false);
 
   const progress = useMemo(
     () => computeCommitmentProgress(commitment, tasks),
+    [commitment, tasks]
+  );
+  const completionPromptEligible = useMemo(
+    () => shouldPromptForCommitmentCompletion(commitment, tasks),
     [commitment, tasks]
   );
   const next = useMemo(
@@ -150,7 +162,12 @@ export function CommitmentWorkspace({
       method: "PATCH",
       body: JSON.stringify(patch)
     });
-    if (result?.commitment) setCommitment(result.commitment as MeetingCommitment);
+    if (result?.commitment) {
+      setCommitment(result.commitment as MeetingCommitment);
+      router.refresh();
+      return result.commitment as MeetingCommitment;
+    }
+    return null;
   }
 
   async function updateTask(taskId: string, patch: Record<string, unknown>) {
@@ -163,12 +180,37 @@ export function CommitmentWorkspace({
       // useMemo below), so updating it here is what makes the progress bar move immediately.
       // router.refresh() also runs so any other consumer of this page's server props (e.g. a
       // back-navigation into this route) picks up the persisted change too.
-      setTasks((current) =>
-        current.map((task) =>
-          task.id === taskId ? (result.task as MeetingTask) : task
-        )
+      const updatedTask = result.task as MeetingTask;
+      const previousProgress = computeCommitmentProgress(commitment, tasks);
+      const nextTasks = tasks.map((task) =>
+        task.id === taskId ? updatedTask : task
       );
+      setTasks(nextTasks);
+      if (
+        updatedTask.status === "completed" &&
+        previousProgress.percent < 100 &&
+        shouldPromptForCommitmentCompletion(commitment, nextTasks)
+      ) {
+        setCompletionPromptDismissed(false);
+        setCompletionModalOpen(true);
+      }
       router.refresh();
+    }
+  }
+
+  function dismissCompletionPrompt() {
+    setCompletionModalOpen(false);
+    setCompletionPromptDismissed(true);
+  }
+
+  async function markCommitmentComplete() {
+    const updated = await updateCommitment({
+      status: "completed",
+      completion_state: "completed"
+    });
+    if (updated) {
+      setCompletionModalOpen(false);
+      setCompletionPromptDismissed(true);
     }
   }
 
@@ -320,6 +362,13 @@ export function CommitmentWorkspace({
     if (!element) return;
     element.scrollTop = element.scrollHeight;
   }, [comments, sending]);
+
+  useEffect(() => {
+    if (!completionPromptEligible) {
+      setCompletionPromptDismissed(false);
+      setCompletionModalOpen(false);
+    }
+  }, [completionPromptEligible]);
 
   async function submitMessage(value: string) {
     const trimmed = value.trim();
@@ -551,6 +600,22 @@ export function CommitmentWorkspace({
             />
           </div>
         </div>
+        {completionPromptEligible && !completionPromptDismissed && !completionModalOpen ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+            <div>
+              <p className="text-sm font-semibold text-emerald-950">All tasks are complete</p>
+              <p className="mt-1 text-sm text-emerald-800">Ready to close this commitment?</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="secondary-button" onClick={dismissCompletionPrompt}>
+                Not yet
+              </button>
+              <button type="button" className="premium-button" disabled={busy} onClick={() => void markCommitmentComplete()}>
+                Mark complete
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {next ? (
@@ -701,21 +766,12 @@ export function CommitmentWorkspace({
                           (functionality preserved) but visually quiet, since it duplicates the
                           owner-group heading in the common case. */}
                       <div className="mt-2 grid grid-cols-2 gap-1 border-t border-slate-100 pt-2">
-                        <input
-                          className="inline-edit-field"
-                          value={task.owner ?? ""}
-                          placeholder="Unassigned"
-                          onChange={(event) =>
-                            setTasks((current) =>
-                              current.map((item) =>
-                                item.id === task.id
-                                  ? { ...item, owner: event.target.value || null }
-                                  : item
-                              )
-                            )
-                          }
-                          onBlur={() => void updateTask(task.id, { owner: task.owner })}
-                          aria-label={`Owner for ${task.task}`}
+                        <TaskOwnerSelect
+                          ownerValue={task.owner}
+                          options={meetingParticipantOptions}
+                          ariaLabel={`Owner for ${task.task}`}
+                          disabled={busy}
+                          onCommit={(ownerValue) => void updateTask(task.id, { owner: ownerValue })}
                         />
                         <select
                           className="inline-edit-field"
@@ -805,6 +861,25 @@ export function CommitmentWorkspace({
           </div>
         </section>
       ) : null}
+
+      <Modal
+        open={completionModalOpen}
+        title="All tasks are complete"
+        onClose={dismissCompletionPrompt}
+      >
+        <h2 className="text-base font-semibold text-slate-950">All tasks are complete</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Is this commitment complete?
+        </p>
+        <ModalActions>
+          <button type="button" className="secondary-button" onClick={dismissCompletionPrompt}>
+            Not yet
+          </button>
+          <button type="button" className="premium-button" disabled={busy} onClick={() => void markCommitmentComplete()}>
+            Mark commitment complete
+          </button>
+        </ModalActions>
+      </Modal>
 
       <Modal
         open={confirmingMerge}

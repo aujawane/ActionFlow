@@ -14,6 +14,7 @@ import type { ReactNode } from "react";
 import { TaskCategoryBadge } from "@/components/task-category-badge";
 import { InferredTaskBadge } from "@/components/task-execution-badges";
 import { TaskCorrectionMenu } from "@/components/task-correction-menu";
+import { TaskOwnerSelect } from "@/components/task-owner-select";
 import { normalizeSuggestedSteps } from "@/lib/ai/task-chat-patch";
 import { formatReadableDate } from "@/lib/format-date";
 import { formatStatusLabel, statusBadgeClassName } from "@/lib/status-badge";
@@ -72,18 +73,22 @@ export type TaskWorkspaceParentCommitment = {
  * through Ask Parfait (see TaskClarifications) -- there has never been a direct edit form on
  * this page, so this stays presentation-only rather than inventing a new form. */
 export function TaskWorkspaceHeader({
-  parentCommitment
+  parentCommitment,
+  meetingParticipantOptions
 }: {
   parentCommitment?: TaskWorkspaceParentCommitment | null;
+  /** Resolved participant names from this task's source meeting -- see
+   * lib/meeting-participants.ts. Powers the owner-assignment dropdown below. */
+  meetingParticipantOptions: string[];
 }) {
   const { task, setTask } = useTaskWorkspaceState();
   const dueLabel = formatReadableDate(task.due_date ?? null);
 
-  async function saveOwner(owner: string) {
+  async function saveOwner(owner: string | null) {
     const response = await fetch(`/api/tasks/${task.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ owner: owner.trim() || null })
+      body: JSON.stringify({ owner })
     });
     const result = await response.json().catch(() => ({}));
     if (response.ok && result.task) setTask(result.task);
@@ -115,13 +120,15 @@ export function TaskWorkspaceHeader({
           </span>
           <span className="flex items-center text-slate-600">
             <span className="text-slate-500">Owner&nbsp;</span>
-            <input
+            <TaskOwnerSelect
+              ownerValue={task.owner}
+              options={meetingParticipantOptions}
+              ariaLabel="Task owner"
               className="inline-edit-field font-semibold text-slate-800"
-              value={task.owner ?? ""}
-              placeholder="Unassigned"
-              aria-label="Task owner"
-              onChange={(event) => setTask({ ...task, owner: event.target.value || null })}
-              onBlur={(event) => void saveOwner(event.target.value)}
+              onCommit={(owner) => {
+                setTask({ ...task, owner });
+                void saveOwner(owner);
+              }}
             />
           </span>
           <span className="text-slate-600">

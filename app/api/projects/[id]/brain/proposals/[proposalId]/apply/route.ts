@@ -3,7 +3,12 @@ import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { buildProjectBrainContext } from "@/lib/project-brain/context";
-import { normalizeOperationsForApply, validateProposalTargets } from "@/lib/project-brain/operations";
+import {
+  normalizeOperationsForApply,
+  validateAndCanonicalizeOperationOwners,
+  validateAndCanonicalizePersonCorrection,
+  validateProposalTargets
+} from "@/lib/project-brain/operations";
 import { projectProposalReviewSchema } from "@/lib/project-brain/schemas";
 import { getOwnedProject } from "@/lib/project-access";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -72,9 +77,39 @@ export async function POST(
     );
   }
 
-  const operationsForApply = normalizeOperationsForApply(
-    parsed.data.operations
+  const ownerValidation = validateAndCanonicalizeOperationOwners(
+    parsed.data.operations,
+    brainContext
   );
+  if (!ownerValidation.ok) {
+    return NextResponse.json(
+      { error: ownerValidation.message, reason: "invalid_owner" },
+      { status: 400 }
+    );
+  }
+
+  const identityOperations = ownerValidation.operations.filter(
+    (operation) => operation.type === "correct_project_person"
+  );
+  if (identityOperations.length > 0 && ownerValidation.operations.length !== 1) {
+    return NextResponse.json(
+      { error: "Person identity corrections must be reviewed and applied on their own." },
+      { status: 400 }
+    );
+  }
+  const identityValidation = identityOperations[0]?.type === "correct_project_person"
+    ? validateAndCanonicalizePersonCorrection(identityOperations[0], brainContext)
+    : null;
+  if (identityValidation && !identityValidation.ok) {
+    return NextResponse.json(
+      { error: identityValidation.message, reason: "invalid_person_correction" },
+      { status: 409 }
+    );
+  }
+
+  const operationsForApply = identityValidation?.ok
+    ? [identityValidation.operation]
+    : normalizeOperationsForApply(ownerValidation.operations);
   console.info("[ProjectBrain] operations passed to apply RPC", {
     project_id: id,
     proposal_id: proposalId,
@@ -85,14 +120,17 @@ export async function POST(
     )
   });
 
-  const { data, error } = await supabaseAdmin.rpc(
-    "apply_project_change_proposal",
-    {
-      p_proposal_id: proposalId,
-      p_actor_id: auth.user.id,
-      p_operations: operationsForApply
-    }
-  );
+  const { data, error } = identityValidation?.ok
+    ? await supabaseAdmin.rpc("apply_project_person_correction", {
+        p_proposal_id: proposalId,
+        p_actor_id: auth.user.id,
+        p_operation: identityValidation.operation
+      })
+    : await supabaseAdmin.rpc("apply_project_change_proposal", {
+        p_proposal_id: proposalId,
+        p_actor_id: auth.user.id,
+        p_operations: operationsForApply
+      });
   if (error) {
     await supabaseAdmin
       .from("project_change_proposals")
@@ -116,6 +154,41 @@ export async function POST(
   }
 
   revalidatePath(`/projects/${id}`);
+  revalidatePath("/projects");
+  revalidatePath("/dashboard");
+  const taskById = new Map(
+    brainContext.tasks.map((task) => [String(task.id), task])
+  );
+  const commitmentById = new Map(
+    brainContext.milestones.map((commitment) => [String(commitment.id), commitment])
+  );
+  for (const operation of ownerValidation.operations) {
+    if (operation.type === "correct_project_person") {
+      for (const reference of operation.affectedReferences) {
+        if (reference.type === "task") revalidatePath(`/tasks/${reference.id}`);
+        if (reference.type === "commitment") {
+          revalidatePath(`/commitments/${reference.id}`);
+        }
+      }
+    }
+    if ("taskId" in operation) {
+      revalidatePath(`/tasks/${operation.taskId}`);
+      const task = taskById.get(operation.taskId);
+      if (typeof task?.commitment_id === "string") {
+        revalidatePath(`/commitments/${task.commitment_id}`);
+      }
+      if (typeof task?.meeting_id === "string") {
+        revalidatePath(`/meetings/${task.meeting_id}`);
+      }
+    }
+    if ("milestoneId" in operation) {
+      revalidatePath(`/commitments/${operation.milestoneId}`);
+      const commitment = commitmentById.get(operation.milestoneId);
+      if (typeof commitment?.meeting_id === "string") {
+        revalidatePath(`/meetings/${commitment.meeting_id}`);
+      }
+    }
+  }
   console.info("[ProjectBrain] proposal operations applied", {
     project_id: id,
     proposal_id: proposalId,

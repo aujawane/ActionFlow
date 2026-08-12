@@ -6,12 +6,21 @@ import { useState } from "react";
 
 import { InferredTaskBadge } from "@/components/task-execution-badges";
 import { TaskCorrectionMenu } from "@/components/task-correction-menu";
+import { TaskOwnerSelect } from "@/components/task-owner-select";
 import { isTaskExecutable } from "@/lib/execution-display";
 import { isInferredTask } from "@/lib/task-execution-display";
 import { formatStatusLabel, statusBadgeClassName } from "@/lib/status-badge";
 import type { MeetingTask } from "@/lib/types";
 
-export function StandaloneTasksPanel({ tasks: initialTasks }: { tasks: MeetingTask[] }) {
+export function StandaloneTasksPanel({
+  tasks: initialTasks,
+  meetingParticipantOptions
+}: {
+  tasks: MeetingTask[];
+  /** Resolved participant names from this meeting -- see lib/meeting-participants.ts. One shared
+   * list for every task card's owner dropdown, loaded once by the caller (no per-task query). */
+  meetingParticipantOptions: string[];
+}) {
   const [tasks, setTasks] = useState(initialTasks);
 
   function handleTaskUpdated(updated: MeetingTask) {
@@ -22,6 +31,20 @@ export function StandaloneTasksPanel({ tasks: initialTasks }: { tasks: MeetingTa
       return;
     }
     setTasks((current) => current.map((task) => (task.id === updated.id ? updated : task)));
+  }
+
+  async function updateOwner(taskId: string, owner: string | null) {
+    // Same canonical PATCH /api/tasks/[id] pathway used by Commitment Workspace and Task
+    // Workspace -- same authorization, manual_override_fields/preserve_on_reanalysis handling.
+    // Only `owner` is patched, so classification/commitment_id (and therefore standalone
+    // membership) never changes here.
+    const response = await fetch(`/api/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ owner })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (response.ok && result.task) handleTaskUpdated(result.task as MeetingTask);
   }
 
   if (tasks.length === 0) return null;
@@ -58,7 +81,16 @@ export function StandaloneTasksPanel({ tasks: initialTasks }: { tasks: MeetingTa
                 <span className={`badge-state ${statusBadgeClassName(task.status)}`}>
                   {formatStatusLabel(task.status)}
                 </span>
-                <span className="text-xs text-slate-500">{task.owner || "Unassigned"}</span>
+                <span className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <span>Owner</span>
+                  <TaskOwnerSelect
+                    ownerValue={task.owner}
+                    options={meetingParticipantOptions}
+                    ariaLabel={`Owner for ${task.task}`}
+                    className="inline-edit-field py-0.5 text-xs"
+                    onCommit={(owner) => void updateOwner(task.id, owner)}
+                  />
+                </span>
               </div>
             </div>
             <div className="flex items-center gap-1">

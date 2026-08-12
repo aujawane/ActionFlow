@@ -16,6 +16,7 @@ import { partitionExecutionGraph } from "@/lib/execution-display";
 import { formatReadableDate } from "@/lib/format-date";
 import { meetingPlatformLabel } from "@/lib/meeting-platform";
 import { getLatestMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
+import { buildMeetingParticipantOptions } from "@/lib/meeting-participants";
 import {
   applySpeakerAliases,
   applySpeakerAliasesToTasks,
@@ -152,6 +153,13 @@ export default async function MeetingDetailPage({
     segments: rawSegments,
     aliases: safeAliases,
     tasks: rawTasks
+  });
+  // Reuses this page's own already-loaded aliases/tasks/commitments -- no additional query, and
+  // one shared option list for every owner dropdown on the page (see StandaloneTasksPanel below).
+  const meetingParticipantOptions = buildMeetingParticipantOptions({
+    aliases: safeAliases,
+    tasks: rawTasks,
+    commitments: safeCommitments
   });
   const participants = Array.from(
     new Set(
@@ -317,7 +325,10 @@ export default async function MeetingDetailPage({
       />
 
       {/* 4. Standalone tasks -- actionable, but not part of a larger commitment. */}
-      <StandaloneTasksPanel tasks={partitioned.standaloneTasks} />
+      <StandaloneTasksPanel
+        tasks={partitioned.standaloneTasks}
+        meetingParticipantOptions={meetingParticipantOptions}
+      />
 
       {/* 5. Future scope -- discussed, not committed. */}
       <IdeasRequirementsPanel

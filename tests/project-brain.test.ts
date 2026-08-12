@@ -11,9 +11,14 @@ import {
   type ProjectBrainContext
 } from "../lib/project-brain/context";
 import {
+  canonicalProjectPeople,
+  collectProjectPersonReferences,
   normalizeOperationsForApply,
   proposalCompletenessWarnings,
+  resolveProjectPerson,
   requiresMilestonePlanning,
+  validateAndCanonicalizeOperationOwners,
+  validateAndCanonicalizePersonCorrection,
   validateOperationsIndividually
 } from "../lib/project-brain/operations";
 import {
@@ -26,6 +31,7 @@ const milestoneId = "20000000-0000-4000-8000-000000000001";
 const taskId = "30000000-0000-4000-8000-000000000001";
 const authTaskId = "30000000-0000-4000-8000-000000000002";
 const stackTaskId = "30000000-0000-4000-8000-000000000003";
+const participantId = "80000000-0000-4000-8000-000000000001";
 
 function context(overrides: Partial<ProjectBrainContext> = {}): ProjectBrainContext {
   return {
@@ -168,6 +174,165 @@ test("completed-work statements propose completion for one strong task match", (
   });
 });
 
+test("task owner correction produces one canonical, reviewable operation", () => {
+  const result = interpretProjectBrainMessageDeterministically({
+    context: context({
+      participants: [
+        { participant_name: "Didier" },
+        { participant_name: "Aditya Ujawane" }
+      ],
+      tasks: [{
+        ...context().tasks[0],
+        task: "Clarify the enterprise Codex account and subscription approach",
+        owner: "Didier"
+      }]
+    }),
+    message: "Change the owner of task Clarify the enterprise Codex account from Didier to Aditya Ujawane."
+  });
+  assert.equal(result?.responseType, "proposal");
+  assert.equal(result?.proposal?.operations.length, 1);
+  assert.deepEqual(result?.proposal?.operations[0], {
+    type: "assign_task_owner",
+    taskId,
+    ownerName: "Aditya Ujawane",
+    explanation: "Apply the user's explicit owner correction.",
+    evidence: [{
+      type: "task",
+      id: taskId,
+      label: "Clarify the enterprise Codex account and subscription approach"
+    }],
+    warning: null
+  });
+});
+
+test("same-person language produces one project identity correction without requiring a task target", () => {
+  const sourceTask = {
+    ...context().tasks[0],
+    task: "Clarify the enterprise Codex account and subscription approach",
+    owner: "Didier",
+    owners: ["Didier"]
+  };
+  const projectParticipants = [{
+    id: participantId,
+    participant_name: "Aditya Ujawane"
+  }];
+  const personReferences = collectProjectPersonReferences({
+    tasks: [sourceTask],
+    commitments: context().milestones,
+    projectParticipants
+  });
+  const identityContext = context({
+    tasks: [sourceTask],
+    participants: [
+      { participant_name: "Didier", source_type: "execution_owner" },
+      ...projectParticipants
+    ],
+    personReferences
+  });
+  const result = interpretProjectBrainMessageDeterministically({
+    context: identityContext,
+    message: "In People, Didier is the same as Aditya Ujawane."
+  });
+  assert.equal(result?.responseType, "proposal");
+  assert.equal(result?.proposal?.operations.length, 1);
+  const operation = result?.proposal?.operations[0];
+  assert.equal(operation?.type, "correct_project_person");
+  if (operation?.type !== "correct_project_person") return;
+  assert.equal(operation.sourceName, "Didier");
+  assert.equal(operation.destinationName, "Aditya Ujawane");
+  assert.equal(operation.affectedReferences.length, 1);
+  assert.deepEqual(operation.affectedReferences[0], {
+    type: "task",
+    id: taskId,
+    label: "Clarify the enterprise Codex account and subscription approach",
+    personName: "Didier",
+    fields: ["owner", "owners"]
+  });
+  const validation = validateAndCanonicalizePersonCorrection(operation, identityContext);
+  assert.equal(validation.ok, true);
+});
+
+test("identity correction asks for clarification when source or destination is ambiguous", () => {
+  const ambiguousSource = interpretProjectBrainMessageDeterministically({
+    context: context({
+      participants: [
+        { participant_name: "Chris Lauer" },
+        { participant_name: "Chris Smith" },
+        { participant_name: "Aditya Ujawane" }
+      ]
+    }),
+    message: "Chris is the same as Aditya Ujawane."
+  });
+  assert.equal(ambiguousSource?.responseType, "clarification");
+  assert.match(ambiguousSource?.message ?? "", /source person/i);
+
+  const ambiguousDestination = interpretProjectBrainMessageDeterministically({
+    context: context({
+      participants: [
+        { participant_name: "Didier" },
+        { participant_name: "Aditya Ujawane" },
+        { participant_name: "Aditya Rao" }
+      ]
+    }),
+    message: "Didier is the same as Aditya."
+  });
+  assert.equal(ambiguousDestination?.responseType, "clarification");
+  assert.match(ambiguousDestination?.message ?? "", /destination person/i);
+});
+
+test("identity correction refuses a reference set larger than one review operation", () => {
+  const personReferences = Array.from({ length: 301 }, (_, index) => ({
+    type: "task" as const,
+    id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    label: `Task ${index + 1}`,
+    personName: "Didier",
+    fields: ["owner" as const]
+  }));
+  const result = interpretProjectBrainMessageDeterministically({
+    context: context({
+      participants: [
+        { participant_name: "Didier" },
+        { participant_name: "Aditya Ujawane" }
+      ],
+      personReferences
+    }),
+    message: "Didier is the same as Aditya Ujawane."
+  });
+  assert.equal(result?.responseType, "clarification");
+  assert.match(result?.message ?? "", /more references than can be reviewed safely/i);
+});
+
+test("owner resolution rejects unknown and ambiguous destination people", () => {
+  const ownerContext = context({
+    participants: [
+      { participant_name: "Aditya Ujawane" },
+      { participant_name: "Aditya Rao" }
+    ]
+  });
+  assert.equal(resolveProjectPerson("Aditya", ownerContext).ok, false);
+  assert.equal(resolveProjectPerson("Unknown Person", ownerContext).ok, false);
+  const invalid = validateAndCanonicalizeOperationOwners([{
+    type: "assign_task_owner",
+    taskId,
+    ownerName: "Unknown Person",
+    explanation: "Change owner.",
+    evidence: [],
+    warning: null
+  }], ownerContext);
+  assert.equal(invalid.ok, false);
+});
+
+test("person resolution prefers canonical individuals over a combined extraction label", () => {
+  const people = canonicalProjectPeople(context({
+    participants: [
+      { participant_name: "Craig Lauer" },
+      { participant_name: "Laura Wetherhold" },
+      { participant_name: "Craig Lauer and Laura Wetherhold" }
+    ]
+  }));
+  assert.deepEqual(people, ["Craig Lauer", "Laura Wetherhold"]);
+});
+
 test("generic project questions do not deterministically create proposals", () => {
   assert.equal(
     interpretProjectBrainMessageDeterministically({
@@ -199,7 +364,7 @@ test("major scope changes require outcome-level milestone planning", () => {
         }
       ]
     }),
-    ["Scope changed substantially, but no milestone operations were generated."]
+    ["Scope changed substantially, but no commitment operations were generated."]
   );
   assert.deepEqual(
     proposalCompletenessWarnings({
@@ -305,6 +470,7 @@ test("response schema requires a proposal only for proposal responses", () => {
     }).success,
     false
   );
+  assert.equal(projectProposalReviewSchema.safeParse({ operations: [] }).success, false);
 });
 
 test("approved memory exposes bounded re-analysis context and keeps future scope separate", () => {
@@ -350,6 +516,8 @@ test("Project Brain prompt forbids direct mutation and protects future scope", (
   assert.match(PROJECT_BRAIN_SYSTEM_PROMPT, /Never mutate data/i);
   assert.match(PROJECT_BRAIN_SYSTEM_PROMPT, /future scope are not active tasks/i);
   assert.match(PROJECT_BRAIN_SYSTEM_PROMPT, /manual field/i);
+  assert.doesNotMatch(PROJECT_BRAIN_SYSTEM_PROMPT, /milestone hierarchy/i);
+  assert.match(PROJECT_BRAIN_SYSTEM_PROMPT, /commitment hierarchy/i);
 });
 
 test("migration defines durable storage, RLS, versioning, atomic apply, and audit", async () => {
@@ -403,6 +571,31 @@ test("migration defines durable storage, RLS, versioning, atomic apply, and audi
   assert.match(sql, /status = 'superseded'/);
 });
 
+test("person correction migration atomically updates only audited identity references", async () => {
+  const sql = await readFile(
+    new URL(
+      "../supabase/migrations/20260814090000_add_project_person_correction_rpc.sql",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  assert.match(sql, /create or replace function public\.apply_project_person_correction/);
+  assert.match(sql, /project_row\.owner_id <> p_actor_id/);
+  assert.match(sql, /proposal_row\.base_graph_version/);
+  assert.match(sql, /update public\.meeting_tasks/);
+  assert.match(sql, /update public\.meeting_commitments/);
+  assert.match(sql, /update public\.project_participants/);
+  assert.match(sql, /update public\.commitment_participants/);
+  assert.match(sql, /update public\.meeting_speaker_aliases/);
+  assert.match(sql, /preserve_on_reanalysis = true/);
+  assert.match(sql, /manual_override_fields/);
+  assert.match(sql, /status = 'applied'/);
+  assert.match(sql, /proposal_not_applicable/);
+  assert.match(sql, /grant execute on function public\.apply_project_person_correction[\s\S]*service_role/);
+  assert.doesNotMatch(sql, /update public\.transcript_segments/);
+  assert.doesNotMatch(sql, /source_quote\s*=/);
+});
+
 test("apply endpoint canonicalizes aliases, logs selected operations, and refreshes project data", async () => {
   const route = await readFile(
     new URL(
@@ -417,6 +610,11 @@ test("apply endpoint canonicalizes aliases, logs selected operations, and refres
   assert.match(route, /proposal operations applied/);
   assert.match(route, /resulting_graph_version/);
   assert.match(route, /revalidatePath\(`\/projects\/\$\{id\}`\)/);
+  assert.match(route, /validateAndCanonicalizeOperationOwners/);
+  assert.match(route, /validateAndCanonicalizePersonCorrection/);
+  assert.match(route, /apply_project_person_correction/);
+  assert.match(route, /getOwnedProject/);
+  assert.match(route, /revalidatePath\("\/dashboard"\)/);
 });
 
 test("workspace includes responsive chat, review controls, retry, memory, and accessible input", async () => {
@@ -454,4 +652,9 @@ test("workspace includes responsive chat, review controls, retry, memory, and ac
   assert.match(review, /Manual edits preserved/);
   assert.match(review, /Affected commitment/);
   assert.match(review, /MEMORY_LABELS/);
+  assert.match(review, /label="Owner"/);
+  assert.match(review, /Correct Project Person Identity/);
+  assert.match(review, /Affected references/);
+  assert.match(review, /Transcript text, source quotes, evidence/);
+  assert.match(component, /No applicable structured changes are available/);
 });

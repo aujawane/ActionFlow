@@ -12,6 +12,7 @@ import {
   TaskWorkspaceTaskProvider
 } from "@/components/task-workspace-task-state";
 import { requireUser } from "@/lib/auth";
+import { loadMeetingParticipantOptions } from "@/lib/meeting-participants";
 import { computeCommitmentProgress } from "@/lib/project-execution";
 import {
   resolveTaskOwner
@@ -113,15 +114,17 @@ export default async function TaskWorkspacePage({
     : { data: null };
 
   const typedTopic = topic as MeetingTopic | null;
-  const {
-    segments,
-    aliases,
-    segmentsError
-  } = await loadResolvedMeetingTranscriptSegments({
-    meetingId: typedTask.meeting_id,
-    segmentIds: getSegmentIdsFromTopic(typedTopic?.segment_ids),
-    limit: 8
-  });
+  const [
+    { segments, aliases, segmentsError },
+    meetingParticipantOptions
+  ] = await Promise.all([
+    loadResolvedMeetingTranscriptSegments({
+      meetingId: typedTask.meeting_id,
+      segmentIds: getSegmentIdsFromTopic(typedTopic?.segment_ids),
+      limit: 8
+    }),
+    loadMeetingParticipantOptions(typedTask.meeting_id)
+  ]);
 
   if (segmentsError) {
     console.warn("[task workspace] Failed to load transcript context", {
@@ -180,7 +183,10 @@ export default async function TaskWorkspacePage({
         </nav>
 
         {/* A. Task Header -- what the task is, who owns it, when it's due, where it fits. */}
-        <TaskWorkspaceHeader parentCommitment={parentCommitment} />
+        <TaskWorkspaceHeader
+          parentCommitment={parentCommitment}
+          meetingParticipantOptions={meetingParticipantOptions}
+        />
 
         {/* lg:items-start keeps each column's height driven by its own content -- previously
             the grid stretched both columns to match the taller one, which could leave a large

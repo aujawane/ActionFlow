@@ -179,7 +179,7 @@ test("deterministic validation has no commitment count or title-verb promotion r
 
 test("meeting UI renders standalone tasks and commitments independently", async () => {
   const page = await readFile(new URL("../app/meetings/[id]/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /<StandaloneTasksPanel tasks=\{partitioned\.standaloneTasks\}/);
+  assert.match(page, /<StandaloneTasksPanel\s+tasks=\{partitioned\.standaloneTasks\}/);
   assert.match(page, /<CommitmentsPanel/);
 });
 

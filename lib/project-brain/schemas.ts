@@ -34,6 +34,33 @@ const operationMetadata = {
   warning: z.string().max(1000).nullable()
 };
 
+export const projectPersonReferenceSchema = z
+  .object({
+    type: z.enum([
+      "task",
+      "commitment",
+      "project_participant",
+      "commitment_participant",
+      "speaker_alias"
+    ]),
+    id: uuid,
+    label: z.string().min(1).max(500),
+    personName: z.string().trim().min(1).max(160),
+    fields: z
+      .array(
+        z.enum([
+          "owner",
+          "owners",
+          "lead_owner_name",
+          "participant_name",
+          "display_name"
+        ])
+      )
+      .min(1)
+      .max(3)
+  })
+  .strict();
+
 const projectChanges = z
   .object({
     name: z.string().min(1).max(200).optional(),
@@ -143,6 +170,13 @@ export const projectChangeOperationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("update_task_status"), taskId: uuid, status: taskStatus, ...operationMetadata }).strict(),
   z.object({ type: z.literal("assign_task_owner"), taskId: uuid, ownerName: z.string().max(160).nullable(), ...operationMetadata }).strict(),
   z.object({
+    type: z.literal("correct_project_person"),
+    sourceName: z.string().trim().min(1).max(160),
+    destinationName: z.string().trim().min(1).max(160),
+    affectedReferences: z.array(projectPersonReferenceSchema).min(1).max(300),
+    ...operationMetadata
+  }).strict(),
+  z.object({
     type: z.literal("add_requirement"),
     title: z.string().min(1).max(500),
     description: z.string().max(4000).nullable(),
@@ -195,7 +229,7 @@ export const projectProposalSchema = z
   .object({
     summary: z.string().min(1).max(4000),
     baseGraphVersion: z.number().int().min(0),
-    operations: z.array(projectChangeOperationSchema).max(100)
+    operations: z.array(projectChangeOperationSchema).min(1).max(100)
   })
   .strict();
 
@@ -225,9 +259,10 @@ export const projectBrainResponseSchema = z
 
 export const projectProposalReviewSchema = z
   .object({
-    operations: z.array(projectChangeOperationSchema).max(100)
+    operations: z.array(projectChangeOperationSchema).min(1).max(100)
   })
   .strict();
 
 export type ProjectChangeOperation = z.infer<typeof projectChangeOperationSchema>;
 export type ProjectBrainResponse = z.infer<typeof projectBrainResponseSchema>;
+export type ProjectPersonReference = z.infer<typeof projectPersonReferenceSchema>;

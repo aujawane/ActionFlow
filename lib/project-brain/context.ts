@@ -1,6 +1,8 @@
 import { isCommitmentCurrentGeneration, isTaskCurrentGeneration } from "@/lib/execution-generation";
 import { getOwnedProject } from "@/lib/project-access";
 import { computeProjectProgress } from "@/lib/project-execution";
+import { collectProjectPersonReferences } from "@/lib/project-brain/operations";
+import type { ProjectPersonReference } from "@/lib/project-brain/schemas";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   Meeting,
@@ -16,6 +18,7 @@ export type ProjectBrainContext = {
   decisions: Array<Record<string, unknown>>;
   constraints: Array<Record<string, unknown>>;
   participants: Array<Record<string, unknown>>;
+  personReferences?: ProjectPersonReference[];
   milestones: Array<Record<string, unknown>>;
   tasks: Array<Record<string, unknown>>;
   meetings: Array<Record<string, unknown>>;
@@ -82,7 +85,7 @@ export async function buildProjectBrainContext(
     supabaseAdmin
       .from("meeting_commitments")
       .select(
-        "id,title,description,owner,owners,due_date,priority,status,completion_state,manual_override_fields,preserve_on_reanalysis,meeting_id,metadata,created_at"
+        "id,title,description,owner,owners,lead_owner_name,due_date,priority,status,completion_state,manual_override_fields,preserve_on_reanalysis,meeting_id,metadata,created_at"
       )
       .eq("project_id", projectId)
       .is("converted_to_task_id", null)
@@ -154,6 +157,87 @@ export async function buildProjectBrainContext(
   const safeTasks = allTasks.filter((task) =>
     isTaskCurrentGeneration(task, currentGenerationByMeetingId.get(task.meeting_id) ?? null)
   );
+  // The conversational graph remains bounded above, but a project-wide identity correction must
+  // audit every People source used by Project Workspace, not just the first 50/200 graph rows.
+  const [
+    { data: identityMeetings },
+    { data: identityCommitments },
+    { data: identityTasks },
+    { data: identityProjectParticipants }
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("meetings")
+      .select("id,execution_graph_generation")
+      .eq("project_id", projectId)
+      .eq("user_id", userId)
+      .is("deleted_at", null),
+    supabaseAdmin
+      .from("meeting_commitments")
+      .select("id,meeting_id,title,owner,owners,lead_owner_name,metadata")
+      .eq("project_id", projectId)
+      .is("converted_to_task_id", null)
+      .neq("status", "dismissed"),
+    supabaseAdmin
+      .from("meeting_tasks")
+      .select("id,meeting_id,task,owner,owners,extraction_metadata")
+      .eq("project_id", projectId)
+      .neq("status", "dismissed"),
+    supabaseAdmin
+      .from("project_participants")
+      .select("id,participant_name")
+      .eq("project_id", projectId)
+  ]);
+  const identityGenerationByMeetingId = new Map(
+    (identityMeetings ?? []).map((meeting) => [
+      meeting.id,
+      meeting.execution_graph_generation ?? null
+    ])
+  );
+  const currentIdentityCommitments = ((identityCommitments ?? []) as MeetingCommitment[]).filter(
+    (commitment) => isCommitmentCurrentGeneration(
+      commitment,
+      identityGenerationByMeetingId.get(commitment.meeting_id) ?? null
+    )
+  );
+  const currentIdentityTasks = ((identityTasks ?? []) as MeetingTask[]).filter(
+    (task) => isTaskCurrentGeneration(
+      task,
+      identityGenerationByMeetingId.get(task.meeting_id) ?? null
+    )
+  );
+  const safeCommitmentIds = currentIdentityCommitments.map((commitment) => commitment.id);
+  const identityMeetingIds = (identityMeetings ?? []).map((meeting) => meeting.id);
+  const [{ data: commitmentParticipants }, { data: speakerAliases }] =
+    await Promise.all([
+      safeCommitmentIds.length
+        ? supabaseAdmin
+            .from("commitment_participants")
+            .select("id,commitment_id,participant_name")
+            .in("commitment_id", safeCommitmentIds)
+        : Promise.resolve({ data: [] }),
+      identityMeetingIds.length
+        ? supabaseAdmin
+            .from("meeting_speaker_aliases")
+            .select("id,meeting_id,raw_speaker_label,display_name")
+            .in("meeting_id", identityMeetingIds)
+        : Promise.resolve({ data: [] })
+    ]);
+  const commitmentTitleById = new Map(
+    currentIdentityCommitments.map((commitment) => [commitment.id, commitment.title])
+  );
+  const personReferences = collectProjectPersonReferences({
+    tasks: currentIdentityTasks as unknown as Array<Record<string, unknown>>,
+    commitments: currentIdentityCommitments as unknown as Array<Record<string, unknown>>,
+    projectParticipants: (identityProjectParticipants ?? []) as Array<Record<string, unknown>>,
+    commitmentParticipants: ((commitmentParticipants ?? []) as Array<Record<string, unknown>>).map(
+      (participant) => ({
+        ...participant,
+        label: commitmentTitleById.get(String(participant.commitment_id)) ??
+          String(participant.participant_name)
+      })
+    ),
+    speakerAliases: (speakerAliases ?? []) as Array<Record<string, unknown>>
+  });
   const people = new Map<string, string>();
   for (const item of [...safeCommitments, ...safeTasks]) {
     for (const owner of [
@@ -179,6 +263,7 @@ export async function buildProjectBrainContext(
         source_type: "execution_owner"
       }))
     ],
+    personReferences,
     // metadata/extraction_metadata were only fetched to compute generation currency above --
     // strip them back out so the raw internal JSONB blob never enters the model's context.
     milestones: safeCommitments.map((commitment) => {

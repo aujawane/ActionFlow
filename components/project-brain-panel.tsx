@@ -43,7 +43,10 @@ function proposalOperations(proposal: ProjectChangeProposal) {
 }
 
 function operationLabel(operation: ProjectChangeOperation) {
-  return operation.type.replaceAll("_", " ");
+  if (operation.type === "correct_project_person") {
+    return `correct project person: ${operation.sourceName} → ${operation.destinationName}`;
+  }
+  return operation.type.replaceAll("milestone", "commitment").replaceAll("_", " ");
 }
 
 export function ProjectBrainLauncher({
@@ -211,6 +214,10 @@ export function ProjectBrainPanel({
 
   function openReview(proposal: ProjectChangeProposal) {
     const operations = proposalOperations(proposal);
+    if (operations.length === 0) {
+      setError("This proposal has no applicable structured changes to review.");
+      return;
+    }
     setReviewing(proposal);
     setReviewOperations(operations);
     setEnabled(operations.map(() => true));
@@ -412,7 +419,7 @@ export function ProjectBrainPanel({
                   minute: "2-digit"
                 })}
               </p>
-              {proposal ? (
+              {proposal && proposalOperations(proposal).length > 0 ? (
                 <article className="mt-2 rounded-2xl border border-brand-200 bg-brand-50 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-brand-800">
@@ -655,6 +662,7 @@ export function ProjectBrainPanel({
               <button
                 type="button"
                 className="secondary-button !px-3 !py-1.5 text-xs"
+                disabled={reviewOperations.length === 0}
                 onClick={() => setEnabled(reviewOperations.map(() => true))}
               >
                 Approve all
@@ -668,21 +676,27 @@ export function ProjectBrainPanel({
               </button>
             </div>
             <div className="mt-5">
-              <ProjectBrainOperationReview
-                operations={reviewOperations}
-                enabled={enabled}
-                drafts={operationDrafts}
-                errors={operationErrors}
-                context={{ project, memory, milestones, tasks }}
-                onToggle={(index, value) =>
-                  setEnabled((current) =>
-                    current.map((item, itemIndex) =>
-                      itemIndex === index ? value : item
+              {reviewOperations.length > 0 ? (
+                <ProjectBrainOperationReview
+                  operations={reviewOperations}
+                  enabled={enabled}
+                  drafts={operationDrafts}
+                  errors={operationErrors}
+                  context={{ project, memory, milestones, tasks }}
+                  onToggle={(index, value) =>
+                    setEnabled((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? value : item
+                      )
                     )
-                  )
-                }
-                onDraftChange={updateOperationDraft}
-              />
+                  }
+                  onDraftChange={updateOperationDraft}
+                />
+              ) : (
+                <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  No applicable structured changes are available. Return to chat and clarify the request.
+                </p>
+              )}
             </div>
             {reviewError ? <p className="mt-3 text-sm text-rose-700" role="alert">{reviewError}</p> : null}
             <div className="mt-5 flex flex-wrap justify-end gap-2">
@@ -692,6 +706,7 @@ export function ProjectBrainPanel({
                 className="premium-button"
                 disabled={
                   loading ||
+                  reviewOperations.length === 0 ||
                   enabled.every((value) => !value) ||
                   operationErrors.some(
                     (item, index) => enabled[index] && Boolean(item)

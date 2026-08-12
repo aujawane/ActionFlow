@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -9,7 +10,12 @@ import {
   isEligibleMoveDestination,
   logCorrectionEvent
 } from "../lib/execution-corrections";
-import { computeCommitmentProgress, computeProjectProgress } from "../lib/project-execution";
+import {
+  computeCommitmentProgress,
+  computeProjectProgress,
+  mergeProjectPeople,
+  shouldPromptForCommitmentCompletion
+} from "../lib/project-execution";
 import { isCommittedWork, partitionExecutionGraph } from "../lib/execution-display";
 import type {
   Meeting,
@@ -231,6 +237,84 @@ test("moving a child task from commitment A to commitment B decreases A's progre
   const progressBAfter = computeCommitmentProgress(commitmentB, tasksAfter);
   assert.deepEqual(progressAAfter, { completed: 1, total: 1, percent: 100 });
   assert.deepEqual(progressBAfter, { completed: 0, total: 1, percent: 0 });
+});
+
+test("commitment completion prompt requires non-empty, 100% child progress and an open commitment", () => {
+  const parent = commitment({ id: "commitment-1" });
+  const complete = task({ commitment_id: parent.id, status: "completed" });
+  const pending = task({ commitment_id: parent.id, status: "pending" });
+  assert.equal(shouldPromptForCommitmentCompletion(parent, []), false);
+  assert.equal(shouldPromptForCommitmentCompletion(parent, [complete]), true);
+  assert.equal(shouldPromptForCommitmentCompletion(parent, [complete, pending]), false);
+  assert.equal(
+    shouldPromptForCommitmentCompletion(
+      commitment({ id: parent.id, status: "completed", completion_state: "completed" }),
+      [complete]
+    ),
+    false
+  );
+  assert.equal(
+    shouldPromptForCommitmentCompletion(
+      commitment({ id: parent.id, status: "dismissed", completion_state: "cancelled" }),
+      [complete]
+    ),
+    false
+  );
+});
+
+test("standalone and Future Scope tasks never trigger commitment completion", () => {
+  const parent = commitment({ id: "commitment-1" });
+  const standalone = task({ commitment_id: null, status: "completed" });
+  const future = task({
+    commitment_id: parent.id,
+    status: "completed",
+    execution_classification: "future_consideration"
+  });
+  assert.equal(shouldPromptForCommitmentCompletion(parent, [standalone, future]), false);
+});
+
+test("reopening a child does not implicitly reopen a completed commitment", () => {
+  const parent = commitment({
+    id: "commitment-1",
+    status: "completed",
+    completion_state: "completed"
+  });
+  const reopened = task({ commitment_id: parent.id, status: "in_progress" });
+  assert.equal(shouldPromptForCommitmentCompletion(parent, [reopened]), false);
+  assert.equal(parent.status, "completed");
+});
+
+test("Project People deduplicates corrected identities and prefers resolved individuals over combined labels", () => {
+  assert.deepEqual(
+    mergeProjectPeople([
+      "Aditya Ujawane",
+      "aditya ujawane",
+      "Craig Lauer",
+      "Laura Wetherhold",
+      "Craig Lauer and Laura Wetherhold"
+    ]),
+    ["Aditya Ujawane", "Craig Lauer", "Laura Wetherhold"]
+  );
+  assert.deepEqual(
+    mergeProjectPeople(["Unresolved One and Unresolved Two"]),
+    ["Unresolved One and Unresolved Two"]
+  );
+  assert.deepEqual(mergeProjectPeople(["Aditya Ujawane"]), ["Aditya Ujawane"]);
+});
+
+test("commitment workspace offers modal and load-time completion confirmation through the canonical status route", async () => {
+  const component = await readFile(
+    new URL("../components/commitment-workspace.tsx", import.meta.url),
+    "utf8"
+  );
+  assert.match(component, /All tasks are complete/);
+  assert.match(component, /Is this commitment complete\?/);
+  assert.match(component, /Ready to close this commitment\?/);
+  assert.match(component, /Mark commitment complete/);
+  assert.match(component, /status: "completed"/);
+  assert.match(component, /completion_state: "completed"/);
+  assert.match(component, /\/api\/commitments\/\$\{commitment\.id\}/);
+  assert.doesNotMatch(component, /window\.location\.reload/);
 });
 
 test("making a task standalone removes it from its old commitment's progress and it still counts toward project progress", () => {

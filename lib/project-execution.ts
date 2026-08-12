@@ -40,7 +40,7 @@ export type OwnerTaskGroup = {
   tasks: MeetingTask[];
 };
 
-function stringArray(value: unknown) {
+export function stringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
@@ -68,6 +68,30 @@ export function computeCommitmentProgress(
     total: children.length,
     percent: percent(completed, children.length)
   };
+}
+
+/** Task progress and commitment status are deliberately separate. Only a non-empty set of real,
+ * counted child tasks can trigger the close-out prompt; standalone, dismissed, Future Scope, and
+ * zero-task cases cannot. A completed commitment remains completed if a child is later reopened. */
+export function shouldPromptForCommitmentCompletion(
+  commitment: MeetingCommitment,
+  tasks: MeetingTask[]
+): boolean {
+  if (
+    commitment.status === "completed" ||
+    commitment.status === "dismissed" ||
+    commitment.completion_state === "completed" ||
+    commitment.completion_state === "cancelled"
+  ) {
+    return false;
+  }
+  const children = tasks.filter(
+    (task) =>
+      task.commitment_id === commitment.id &&
+      isCommittedWork(task) &&
+      isTaskCountedForProgress(task)
+  );
+  return children.length > 0 && children.every((task) => task.status === "completed");
 }
 
 export function computeProjectProgress(input: {
@@ -226,14 +250,34 @@ export function collectProjectPeople(
   commitments: MeetingCommitment[],
   tasks: MeetingTask[]
 ) {
-  const people = new Map<string, string>();
+  const people: string[] = [];
   for (const item of [...commitments, ...tasks]) {
     for (const owner of [item.owner, ...stringArray(item.owners)]) {
       const trimmed = owner?.trim();
-      if (trimmed) people.set(trimmed.toLowerCase(), trimmed);
+      if (trimmed) people.push(trimmed);
     }
   }
-  return Array.from(people.values()).sort((left, right) =>
+  return mergeProjectPeople(people);
+}
+
+/** Project People is a read model over name-based execution and participant references, not a
+ * Person table. Deduplicate case-insensitively and suppress a combined/raw label only when every
+ * individual named by it already exists; unresolved combined labels remain visible. */
+export function mergeProjectPeople(values: string[]) {
+  const people = new Map<string, string>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed && !people.has(trimmed.toLowerCase())) {
+      people.set(trimmed.toLowerCase(), trimmed);
+    }
+  }
+  const result = Array.from(people.entries())
+    .filter(([normalized]) => {
+      const individuals = normalized.split(/\s+and\s+/);
+      return individuals.length === 1 || !individuals.every((name) => people.has(name));
+    })
+    .map(([, name]) => name);
+  return result.sort((left, right) =>
     left.localeCompare(right)
   );
 }

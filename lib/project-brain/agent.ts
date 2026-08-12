@@ -10,8 +10,10 @@ import {
   type ProjectChangeOperation
 } from "./schemas";
 import {
+  canonicalProjectPeople,
   MILESTONE_OPERATION_TYPES,
   proposalCompletenessWarnings,
+  resolveProjectPerson,
   validateOperationsIndividually
 } from "./operations";
 
@@ -22,7 +24,7 @@ The project graph is a living execution plan. Meetings are evidence, not the onl
 of truth. Explicit human project context and confirmed decisions take precedence over
 earlier AI inference. Never casually overwrite a manual field.
 
-Requirements are not commitments. Ideas and future scope are not active tasks. A milestone
+Requirements are not commitments. Ideas and future scope are not active tasks. A commitment
 is a substantial trackable outcome; tasks are concrete executable work. Prefer reorganizing
 existing objects with their supplied stable IDs over creating duplicates. Preserve history
 by archiving, deferring, or superseding work instead of deleting it.
@@ -35,14 +37,24 @@ When current scope conflicts with active work, explain the conflict and propose 
 conflicting work out of active execution. Completion statements should match an existing
 task when confidence is high; ask for a choice when several tasks match.
 
-Before proposing task edits, compare the user's context with the complete milestone hierarchy.
-Explicitly decide whether the top-level outcomes are correct, whether narrow milestones should
-become tasks under a broader outcome, whether milestones should be renamed or merged, whether
-future-scope milestones should be deferred, and whether tasks belong to the right milestone.
+For owner corrections, resolve the destination to exactly one existing project person and emit
+assign_task_owner with the canonical taskId and ownerName. If the task or person is ambiguous,
+ask a clarification question instead of proposing an operation.
+
+Distinguish a specific assignment correction from an identity correction. When the user says one
+project person is actually the same person as another existing project person (especially in the
+People section), emit correct_project_person with the exact audited affectedReferences supplied in
+context. Never use it for a request that only changes one named task assignment.
+
+Before proposing task edits, compare the user's context with the complete commitment hierarchy.
+Explicitly decide whether the top-level outcomes are correct, whether narrow commitments should
+become tasks under a broader outcome, whether commitments should be renamed or merged, whether
+future-scope commitments should be deferred, and whether tasks belong to the right commitment.
 For a substantial MVP or scope change, normally include at least one create_milestone,
 update_milestone, rename_milestone, merge_milestones, archive_milestone, or defer_milestone
-operation. Do not return only memory and isolated task edits unless the current milestone
-hierarchy already represents the new scope; explain that conclusion when it does.
+operation. These stable operation identifiers use legacy internal names, but all prose must call
+the product concept a commitment. Do not return only memory and isolated task edits unless the
+current commitment hierarchy already represents the new scope; explain that conclusion when it does.
 
 Use only IDs present in the context. Keep output concise and return only the requested
 structured JSON. Do not expose private reasoning.
@@ -108,6 +120,7 @@ export const projectBrainResponseJsonSchema: Record<string, unknown> = {
                       "archive_task",
                       "update_task_status",
                       "assign_task_owner",
+                      "correct_project_person",
                       "add_requirement",
                       "update_requirement",
                       "add_decision",
@@ -173,6 +186,226 @@ function words(value: string) {
     .filter((word) => word.length > 2);
 }
 
+function normalizedPhrase(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function personMentionIndex(message: string, person: string) {
+  const normalized = normalizedPhrase(person);
+  const fullIndex = message.indexOf(normalized);
+  const firstIndex = message.search(new RegExp(`\\b${normalized.split(" ")[0]}\\b`));
+  if (fullIndex < 0) return firstIndex;
+  if (firstIndex < 0) return fullIndex;
+  return Math.min(fullIndex, firstIndex);
+}
+
+function mentionedProjectPeople(context: ProjectBrainContext, rawMessage: string) {
+  const message = normalizedPhrase(rawMessage);
+  return canonicalProjectPeople(context).filter((person) => {
+    const normalized = normalizedPhrase(person);
+    const first = normalized.split(" ")[0];
+    return message.includes(normalized) || new RegExp(`\\b${first}\\b`).test(message);
+  }).sort((left, right) => {
+    return personMentionIndex(message, left) - personMentionIndex(message, right);
+  });
+}
+
+function interpretIdentityCorrection(input: {
+  context: ProjectBrainContext;
+  message: string;
+}): ProjectBrainResponse | null {
+  const identityIntent =
+    /\b(?:same person as|same as|actually|identity|is really)\b/i.test(input.message) ||
+    /\bin (?:the )?people(?: section)?\b/i.test(input.message) ||
+    /\bperson\b.{0,40}\b(?:isn'?t|is not)\b/i.test(input.message);
+  if (!identityIntent) return null;
+
+  const mentioned = mentionedProjectPeople(input.context, input.message);
+  if (mentioned.length < 2) return null;
+  const normalizedMessage = normalizedPhrase(input.message);
+  const explicitlyWrong = mentioned.filter((person) => {
+    const normalized = normalizedPhrase(person);
+    const index = personMentionIndex(normalizedMessage, normalized);
+    return /\b(not|isn t|is not)\s*$/.test(
+      normalizedMessage.slice(Math.max(0, index - 30), index)
+    );
+  });
+  const earliestIndex = personMentionIndex(normalizedMessage, mentioned[0]);
+  const earliestCandidates = mentioned.filter(
+    (person) => personMentionIndex(normalizedMessage, person) === earliestIndex
+  );
+  const sourceCandidates = explicitlyWrong.length > 0
+    ? explicitlyWrong
+    : earliestCandidates;
+  if (sourceCandidates.length !== 1) {
+    return {
+      responseType: "clarification",
+      message: "I found more than one possible source person. Which identity should be corrected?",
+      proposal: null,
+      references: [],
+      warnings: []
+    };
+  }
+  const sourceCandidate = sourceCandidates[0];
+  const destinationCandidates = mentioned.filter(
+    (person) => normalizedPhrase(person) !== normalizedPhrase(sourceCandidate)
+  );
+  const source = resolveProjectPerson(sourceCandidate, input.context);
+  if (!source.ok) {
+    return {
+      responseType: "clarification",
+      message: "I found more than one possible source person. Which identity should be corrected?",
+      proposal: null,
+      references: [],
+      warnings: []
+    };
+  }
+  if (destinationCandidates.length !== 1) {
+    return {
+      responseType: "clarification",
+      message: "I found more than one possible destination person. Which existing person is correct?",
+      proposal: null,
+      references: [],
+      warnings: []
+    };
+  }
+  const destination = resolveProjectPerson(destinationCandidates[0], input.context);
+  if (!destination.ok) {
+    return {
+      responseType: "clarification",
+      message: "I could not resolve the destination to one existing project person. Who is correct?",
+      proposal: null,
+      references: [],
+      warnings: []
+    };
+  }
+  const affectedReferences = (input.context.personReferences ?? []).filter(
+    (reference) =>
+      normalizedPhrase(reference.personName) === normalizedPhrase(source.name)
+  );
+  if (affectedReferences.length === 0) return null;
+  if (affectedReferences.length > 300) {
+    return {
+      responseType: "clarification",
+      message:
+        "This person has more references than can be reviewed safely in one correction. Narrow the correction or contact support.",
+      proposal: null,
+      references: [],
+      warnings: []
+    };
+  }
+  const evidence: ProjectBrainResponse["references"] = [];
+  for (const reference of affectedReferences) {
+    if (evidence.length >= 50) break;
+    if (reference.type === "task") {
+      evidence.push({ type: "task", id: reference.id, label: reference.label });
+    } else if (reference.type === "commitment") {
+      evidence.push({ type: "milestone", id: reference.id, label: reference.label });
+    }
+  }
+  return {
+    responseType: "proposal",
+    message: `I found ${source.name} in the project People references and can merge that identity into the existing ${destination.name}. Nothing has been applied.`,
+    proposal: {
+      summary: `Correct project person identity: ${source.name} → ${destination.name}.`,
+      baseGraphVersion: input.context.project.execution_graph_version ?? 0,
+      operations: [{
+        type: "correct_project_person",
+        sourceName: source.name,
+        destinationName: destination.name,
+        affectedReferences,
+        explanation: "Merge the incorrect project identity into the existing canonical project person.",
+        evidence,
+        warning: null
+      }]
+    },
+    references: evidence,
+    warnings: []
+  };
+}
+
+function interpretOwnerCorrection(input: {
+  context: ProjectBrainContext;
+  message: string;
+}): ProjectBrainResponse | null {
+  if (!/\b(owner|person|assignee|assigned|isn'?t|is not|not|should be)\b/i.test(input.message)) {
+    return null;
+  }
+  const message = normalizedPhrase(input.message);
+  const mentioned = mentionedProjectPeople(input.context, input.message);
+  const explicitlyWrong = mentioned.find((person) => {
+    const normalized = normalizedPhrase(person);
+    const index = Math.max(message.indexOf(normalized), message.indexOf(normalized.split(" ")[0]));
+    const prefix = message.slice(Math.max(0, index - 30), index);
+    return /\b(not|isn t|is not)\s*$/.test(prefix);
+  });
+  const sourcePerson = explicitlyWrong ?? mentioned[0];
+  const sourceTasks = input.context.tasks.filter((task) => {
+    if (task.status === "dismissed" || typeof task.owner !== "string") return false;
+    return normalizedPhrase(task.owner) === normalizedPhrase(sourcePerson ?? "");
+  });
+  const sourceNames = new Set(
+    sourceTasks.flatMap((task) =>
+      typeof task.owner === "string" ? [normalizedPhrase(task.owner)] : []
+    )
+  );
+  const destinationCandidates = mentioned.filter(
+    (person) => !sourceNames.has(normalizedPhrase(person))
+  );
+  if (sourceTasks.length === 0 || destinationCandidates.length === 0) return null;
+  if (sourceTasks.length !== 1) {
+    return {
+      responseType: "clarification",
+      message: "I found more than one task with that current owner. Which task should I update?",
+      proposal: null,
+      references: sourceTasks.slice(0, 5).map((task) => ({
+        type: "task",
+        id: String(task.id),
+        label: String(task.task)
+      })),
+      warnings: []
+    };
+  }
+  if (destinationCandidates.length !== 1) {
+    return {
+      responseType: "clarification",
+      message: "I found more than one possible person. Who should own this task?",
+      proposal: null,
+      references: [],
+      warnings: []
+    };
+  }
+  const destination = resolveProjectPerson(destinationCandidates[0], input.context);
+  if (!destination.ok) {
+    return {
+      responseType: "clarification",
+      message: "I could not resolve that owner to one existing project person. Who should own this task?",
+      proposal: null,
+      references: [],
+      warnings: []
+    };
+  }
+  const task = sourceTasks[0];
+  return {
+    responseType: "proposal",
+    message: `I found the task and can update the owner from ${String(task.owner)} to ${destination.name}. Nothing has been applied.`,
+    proposal: {
+      summary: `Correct the task owner from ${String(task.owner)} to ${destination.name}.`,
+      baseGraphVersion: input.context.project.execution_graph_version ?? 0,
+      operations: [{
+        type: "assign_task_owner",
+        taskId: String(task.id),
+        ownerName: destination.name,
+        explanation: "Apply the user's explicit owner correction.",
+        evidence: [{ type: "task", id: String(task.id), label: String(task.task) }],
+        warning: null
+      }]
+    },
+    references: [{ type: "task", id: String(task.id), label: String(task.task) }],
+    warnings: []
+  };
+}
+
 function milestoneText(milestone: Record<string, unknown>) {
   return `${String(milestone.title ?? "")} ${String(
     milestone.description ?? ""
@@ -216,6 +449,11 @@ export function interpretProjectBrainMessageDeterministically(input: {
   const version = input.context.project.execution_graph_version ?? 0;
   const operations: ProjectChangeOperation[] = [];
   const references: ProjectBrainResponse["references"] = [];
+
+  const identityCorrection = interpretIdentityCorrection(input);
+  if (identityCorrection) return identityCorrection;
+  const ownerCorrection = interpretOwnerCorrection(input);
+  if (ownerCorrection) return ownerCorrection;
 
   const informational =
     /\binformational\b/.test(lower) &&
@@ -266,7 +504,7 @@ export function interpretProjectBrainMessageDeterministically(input: {
         milestoneId: String(milestone.id),
         reason: "This outcome belongs to a later phase of the project.",
         ...metadata(
-          "The milestone conflicts with the explicitly informational MVP.",
+          "The commitment conflicts with the explicitly informational MVP.",
           [
             {
               type: "milestone",
@@ -276,7 +514,7 @@ export function interpretProjectBrainMessageDeterministically(input: {
           ],
           Array.isArray(milestone.manual_override_fields) &&
             milestone.manual_override_fields.length > 0
-            ? "This milestone contains manual edits; they will be preserved."
+            ? "This commitment contains manual edits; they will be preserved."
             : null
         )
       });
@@ -337,7 +575,7 @@ export function interpretProjectBrainMessageDeterministically(input: {
             description: "Deliver the confirmed informational website release."
           },
           ...metadata(
-            "Consolidate narrow website-building outcomes under one substantial milestone.",
+            "Consolidate narrow website-building outcomes under one substantial commitment.",
             [targetMilestone, ...mergeCandidates].map((milestone) => ({
               type: "milestone" as const,
               id: String(milestone.id),
@@ -391,7 +629,7 @@ export function interpretProjectBrainMessageDeterministically(input: {
         owners: [],
         priority: "high",
         ...metadata(
-          "Create one broad outcome because no existing milestone represents the website release."
+          "Create one broad outcome because no existing commitment represents the website release."
         )
       });
     }
@@ -529,7 +767,7 @@ function operationReferenceError(
   for (const key of ["milestoneId", "targetMilestoneId"]) {
     const id = record[key];
     if (typeof id === "string" && !milestones.has(id)) {
-      return `${key} references a milestone outside the project`;
+      return `${key} references a commitment outside the project`;
     }
   }
   for (const key of ["taskId", "dependsOnTaskId", "survivorTaskId"]) {
@@ -542,7 +780,7 @@ function operationReferenceError(
     "sourceMilestoneIds" in operation &&
     operation.sourceMilestoneIds.some((id) => !milestones.has(id))
   ) {
-    return "sourceMilestoneIds contains a milestone outside the project";
+    return "sourceMilestoneIds contains a commitment outside the project";
   }
   if (
     "mergedTaskIds" in operation &&
@@ -638,6 +876,21 @@ function parseStructuredModelResponse(input: {
       ])
     )
   };
+  if (accepted.length === 0) {
+    const zeroOperationResult = projectBrainResponseSchema.safeParse({
+      responseType: "clarification",
+      message:
+        "I understood the requested change, but I could not resolve it to a safe structured operation. Please clarify the target task or person.",
+      proposal: null,
+      references: envelope.data.references,
+      warnings: candidate.warnings
+    });
+    return {
+      result: zeroOperationResult.success ? zeroOperationResult.data : null,
+      rejected,
+      completeness
+    };
+  }
   const parsed = projectBrainResponseSchema.safeParse(candidate);
   return {
     result: parsed.success ? parsed.data : null,
@@ -703,6 +956,15 @@ export async function runProjectBrainAgent(input: {
     context: input.context,
     message: input.message
   });
+  if (
+    deterministic?.proposal?.operations.some(
+      (operation) =>
+        operation.type === "assign_task_owner" ||
+        operation.type === "correct_project_person"
+    )
+  ) {
+    return { ok: true, result: deterministic, model: "deterministic" };
+  }
   try {
     const first = await requestProjectBrainModel(input);
     if (process.env.NODE_ENV !== "production") {
@@ -745,9 +1007,9 @@ export async function runProjectBrainAgent(input: {
         ...input,
         correction: [
           "The previous proposal was incomplete because the user materially changed project scope",
-          "but no milestone operation was included. Re-evaluate the complete milestone hierarchy",
-          "before task edits. Include justified milestone create, rename, update, merge, archive,",
-          "or defer operations, or explicitly explain why no milestone change is required."
+          "but no commitment operation was included. Re-evaluate the complete commitment hierarchy",
+          "before task edits. Include justified commitment create, rename, update, merge, archive,",
+          "or defer operations, or explicitly explain why no commitment change is required."
         ].join(" ")
       });
       const retryParsed = retried.raw

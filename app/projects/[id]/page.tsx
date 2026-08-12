@@ -10,7 +10,8 @@ import {
 import { formatReadableDateTime } from "@/lib/format-date";
 import {
   buildProjectExecutionModel,
-  computeCommitmentProgress
+  computeCommitmentProgress,
+  mergeProjectPeople
 } from "@/lib/project-execution";
 import { groupDeliverablesByType } from "@/lib/task-deliverable-lifecycle";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -205,14 +206,12 @@ export default async function ProjectPage({
       href: `/meetings/${artifact.meeting_id}`
     }))
   ];
-  const people = Array.from(
-    new Set([
-      ...model.people,
-      ...(projectParticipants ?? []).map(
-        (participant) => participant.participant_name
-      )
-    ])
-  );
+  const people = mergeProjectPeople([
+    ...model.people,
+    ...(projectParticipants ?? []).map(
+      (participant) => participant.participant_name
+    )
+  ]);
 
   return (
     <div className="flex items-start gap-6">

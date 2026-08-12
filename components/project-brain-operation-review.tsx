@@ -41,6 +41,11 @@ function titleCase(value: string) {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function operationTitle(value: string) {
+  if (value === "correct_project_person") return "Correct Project Person Identity";
+  return titleCase(value.replaceAll("milestone", "commitment"));
+}
+
 function displayValue(value: unknown): React.ReactNode {
   if (value == null || value === "") {
     return <span className="text-slate-400">Not specified</span>;
@@ -333,24 +338,41 @@ function operationDetails(
   ) {
     const task = context.tasks.find((item) => item.id === operation.taskId);
     const milestone = milestoneForTask(context, task);
-    let proposed: unknown;
-    if (operation.type === "archive_task") proposed = "Future scope / Archived";
-    else if (operation.type === "update_task_status") proposed = titleCase(operation.status);
-    else if (operation.type === "assign_task_owner") proposed = operation.ownerName ?? "Unassigned";
-    else proposed = operation.changes;
     return (
       <div className="space-y-2">
-        <DiffBlock
-          label={task?.task ?? "Task"}
-          current={
-            operation.type === "assign_task_owner"
-              ? task?.owner ?? "Unassigned"
-              : `${titleCase(task?.status ?? "active")} · ${
-                  task?.priority ?? "medium"
-                } priority`
-          }
-          proposed={proposed}
-        />
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task</p>
+        <p className="text-sm font-semibold text-slate-950">{task?.task ?? "Task"}</p>
+        {operation.type === "assign_task_owner" ? (
+          <DiffBlock
+            label="Owner"
+            current={task?.owner ?? "Unassigned"}
+            proposed={operation.ownerName ?? "Unassigned"}
+          />
+        ) : operation.type === "update_task" ? (
+          <div className="space-y-2">
+            {Object.entries(operation.changes).map(([field, proposed]) => {
+              const currentField = field === "description" ? "workspace_summary" : field;
+              return (
+                <DiffBlock
+                  key={field}
+                  label={field === "task" ? "Title" : titleCase(field)}
+                  current={task?.[currentField as keyof MeetingTask]}
+                  proposed={proposed}
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <DiffBlock
+            label={operation.type === "update_task_status" ? "Status" : "Execution state"}
+            current={titleCase(task?.status ?? "active")}
+            proposed={
+              operation.type === "update_task_status"
+                ? titleCase(operation.status)
+                : "Future scope / Archived"
+            }
+          />
+        )}
         <p className="text-xs text-slate-500">
           <span className="font-semibold">Affected commitment:</span>{" "}
           {milestone?.title ?? "No commitment"}
@@ -432,6 +454,39 @@ function operationDetails(
           role: operation.role
         }}
       />
+    );
+  }
+  if (operation.type === "correct_project_person") {
+    const labels: Record<(typeof operation.affectedReferences)[number]["type"], string> = {
+      task: "Task assignment",
+      commitment: "Commitment assignment",
+      project_participant: "Project participant",
+      commitment_participant: "Commitment participant",
+      speaker_alias: "Speaker identity mapping"
+    };
+    return (
+      <div className="space-y-3">
+        <DiffBlock
+          label="Person"
+          current={operation.sourceName}
+          proposed={operation.destinationName}
+        />
+        <div className="rounded-xl border border-slate-200 p-3">
+          <p className="text-xs font-semibold text-slate-800">
+            Affected references: {operation.affectedReferences.length}
+          </p>
+          <ul className="mt-2 space-y-1 text-xs text-slate-600">
+            {operation.affectedReferences.map((reference) => (
+              <li key={`${reference.type}-${reference.id}`}>
+                • {labels[reference.type]} · {reference.label} ({reference.fields.map(titleCase).join(", ")})
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="text-xs text-slate-500">
+          Transcript text, source quotes, evidence, task IDs, and commitment IDs are unchanged.
+        </p>
+      </div>
     );
   }
   if (
@@ -528,11 +583,11 @@ export function ProjectBrainOperationReview({
                     type="checkbox"
                     checked={enabled[index]}
                     onChange={(event) => onToggle(index, event.target.checked)}
-                    aria-label={`Include ${titleCase(operation.type)}`}
+                    aria-label={`Include ${operationTitle(operation.type)}`}
                   />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-slate-950">
-                      {titleCase(operation.type)}
+                      {operationTitle(operation.type)}
                     </p>
                     <p className="mt-1 text-xs leading-5 text-slate-600">
                       {operation.explanation}

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { CommitmentWorkspace } from "@/components/commitment-workspace";
 import { requireUser } from "@/lib/auth";
+import { loadMeetingParticipantOptions } from "@/lib/meeting-participants";
 import { buildCommitmentWorkspaceModel } from "@/lib/project-execution";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
@@ -47,7 +48,8 @@ export default async function CommitmentPage({
     { data: comments },
     { data: participants },
     { data: project },
-    { data: profile }
+    { data: profile },
+    meetingParticipantOptions
   ] =
     await Promise.all([
       supabaseAdmin
@@ -78,7 +80,8 @@ export default async function CommitmentPage({
         .from("profiles")
         .select("full_name")
         .eq("id", user.id)
-        .maybeSingle()
+        .maybeSingle(),
+      loadMeetingParticipantOptions(meeting.id)
     ]);
 
   const safeTasks = (tasks ?? []) as MeetingTask[];
@@ -146,6 +149,7 @@ export default async function CommitmentPage({
         initialArtifacts={(artifacts ?? []) as TaskArtifact[]}
         sourceMeeting={{ id: meeting.id, title: meeting.title }}
         currentUserName={profile?.full_name ?? null}
+        meetingParticipantOptions={meetingParticipantOptions}
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
