@@ -7,12 +7,14 @@ export default async function NewMeetingPage() {
   return (
     <section className="space-y-4">
       <div className="premium-card p-6">
-        <p className="text-sm font-semibold text-brand-700">New Meeting</p>
+        <p className="text-sm font-semibold text-brand-700">Add Meeting</p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">
-          Create new meeting
+          Add an existing meeting
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Paste a Google Meet or Zoom link to create and track a new meeting.
+          Paste an existing Google Meet or Zoom link to create and track a new meeting. To create
+          a brand-new meeting and send Parfait automatically, start one from the Meetings page
+          instead.
         </p>
       </div>
       <NewMeetingForm />

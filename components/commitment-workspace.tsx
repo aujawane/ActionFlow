@@ -277,7 +277,7 @@ export function CommitmentWorkspace({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
-              Milestone Workspace
+              Commitment Workspace
             </p>
             <input
               className="mt-2 w-full border-0 bg-transparent p-0 text-2xl font-semibold text-slate-950 outline-none"
@@ -293,7 +293,7 @@ export function CommitmentWorkspace({
             <textarea
               className="premium-input mt-3 min-h-20"
               value={commitment.description ?? ""}
-              placeholder="Milestone description"
+              placeholder="Commitment description"
               onChange={(event) =>
                 setCommitment((current) => ({
                   ...current,

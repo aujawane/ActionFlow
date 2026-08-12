@@ -34,7 +34,7 @@ export default function RootLayout({
                     href="/meetings/new"
                     className="premium-button px-3 py-1.5 text-xs sm:text-sm"
                   >
-                    New Meeting
+                    Add Meeting
                   </Link>
                   <AccountMenuServer />
                 </div>

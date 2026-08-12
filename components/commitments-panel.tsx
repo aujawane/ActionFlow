@@ -88,7 +88,13 @@ export function CommitmentsPanel({
                   <span className="font-semibold text-slate-800">{ownerLabel}</span>
                 </span>
                 {supportingOwners.length > 0 ? (
-                  <span className="text-slate-500">+{supportingOwners.length} supporting</span>
+                  <span>
+                    <span className="text-slate-500">Supporting </span>
+                    <span className="font-semibold text-slate-800">
+                      {supportingOwners.slice(0, 2).join(", ")}
+                      {supportingOwners.length > 2 ? ` +${supportingOwners.length - 2}` : ""}
+                    </span>
+                  </span>
                 ) : null}
                 {dueLabel ? (
                   <span>

@@ -56,40 +56,31 @@ export default async function DashboardPage() {
           <p className="text-sm font-semibold text-brand-700">
             {getTimeOfDayGreeting()}, {firstName}
           </p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Dashboard</h1>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Meetings</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Track your meetings and turn conversations into implementation prompts.
+            Browse and manage your meetings. Execution work they create lives on Projects.
           </p>
           <p className="mt-1 text-xs text-slate-500">Logged in as {user.email}</p>
         </div>
-        <Link
-          href="/meetings/new"
-          className="premium-button"
-        >
-          New Meeting
+        <Link href="/meetings/new" className="premium-button">
+          Add Meeting
         </Link>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="premium-card premium-card-hover p-5">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Total meetings
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">{totalMeetings}</p>
-        </div>
-        <div className="premium-card premium-card-hover p-5">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Active
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-amber-600">{activeMeetings}</p>
-        </div>
-        <div className="premium-card premium-card-hover p-5">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Completed
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-brand-700">{completedMeetings}</p>
-        </div>
-      </div>
+      {/* Meeting counts, not execution metrics -- kept as one quiet line rather than three
+          large cards so this page doesn't compete with the Projects execution dashboard. */}
+      <p className="text-sm text-slate-600">
+        <span className="font-semibold text-slate-900">{totalMeetings}</span> meeting
+        {totalMeetings === 1 ? "" : "s"}
+        {activeMeetings > 0 ? (
+          <>
+            {" "}
+            · <span className="font-semibold text-amber-600">{activeMeetings}</span> active
+          </>
+        ) : null}
+        {" "}
+        · <span className="font-semibold text-brand-700">{completedMeetings}</span> completed
+      </p>
 
       {failedMeetings > 0 ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">

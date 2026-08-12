@@ -74,9 +74,10 @@ export function StartMeetingPanel() {
   return (
     <div className="premium-card space-y-4 p-5">
       <div>
-        <h2 className="text-sm font-semibold text-slate-900">Start Meeting</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Start a Meeting</h2>
         <p className="mt-1 text-xs leading-5 text-slate-500">
-          Create an instant meeting link, send the Parfait bot, and open the meeting.
+          Create a Zoom or Google Meet and send Parfait. For a meeting you already have a link
+          for, use Add Meeting instead.
         </p>
       </div>
 

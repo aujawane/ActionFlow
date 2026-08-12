@@ -7,7 +7,7 @@ import type { Route } from "next";
 const navItems = [
   { href: "/projects" as Route, label: "Projects" },
   { href: "/dashboard" as Route, label: "Meetings" },
-  { href: "/meetings/new" as Route, label: "New Meeting" },
+  { href: "/meetings/new" as Route, label: "Add Meeting" },
   { href: "/account" as Route, label: "Account" },
   { href: "/account/integrations" as Route, label: "Integrations" }
 ];

@@ -261,7 +261,7 @@ export default async function ProjectPage({
       </section>
 
       <section className="premium-card p-5">
-        <h2 className="text-lg font-semibold text-slate-950">Milestones</h2>
+        <h2 className="text-lg font-semibold text-slate-950">Commitments</h2>
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           {model.commitments.map((commitment) => {
             const progress = computeCommitmentProgress(commitment, model.tasks);
@@ -281,14 +281,14 @@ export default async function ProjectPage({
                   href={`/commitments/${commitment.id}` as Route}
                   className="secondary-button mt-4 w-full"
                 >
-                  Open Milestone
+                  Open Commitment
                 </Link>
               </article>
             );
           })}
           {model.commitments.length === 0 ? (
             <p className="text-sm text-slate-500">
-              Assign and analyze a meeting to populate project milestones.
+              Assign and analyze a meeting to populate project commitments.
             </p>
           ) : null}
         </div>
