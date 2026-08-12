@@ -187,9 +187,9 @@ export function TaskClarifications({
   const count = comments?.length ?? 0;
   const examplePrompts = [
     "What did they mean by this?",
-    "Change Pogue to Poke",
-    "Update the next steps",
-    "Who owns this?"
+    "Who owns this?",
+    "What should I do next?",
+    "Update the next steps"
   ];
 
   const conversation = (

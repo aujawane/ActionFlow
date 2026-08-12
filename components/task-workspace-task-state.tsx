@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import type { Route } from "next";
 import {
   createContext,
   useContext,
@@ -13,6 +15,8 @@ import { TaskCategoryBadge } from "@/components/task-category-badge";
 import { InferredTaskBadge } from "@/components/task-execution-badges";
 import { normalizeSuggestedSteps } from "@/lib/ai/task-chat-patch";
 import { formatReadableDate } from "@/lib/format-date";
+import { formatStatusLabel, statusBadgeClassName } from "@/lib/status-badge";
+import { getCategoryDisplayLabel, getTaskCategorization } from "@/lib/task-deliverables";
 import { isInferredTask } from "@/lib/task-execution-display";
 import type { MeetingTask } from "@/lib/types";
 
@@ -22,13 +26,6 @@ type TaskWorkspaceState = {
 };
 
 const TaskWorkspaceContext = createContext<TaskWorkspaceState | null>(null);
-
-function formatLabel(value: string | null | undefined, fallback = "Unknown") {
-  return (value || fallback)
-    .split("_")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
 
 export function TaskWorkspaceTaskProvider({
   initialTask,
@@ -63,137 +60,161 @@ function useTaskWorkspaceState() {
   return value;
 }
 
-export function TaskWorkspaceHeader() {
+export type TaskWorkspaceParentCommitment = {
+  id: string;
+  title: string;
+  progress: { completed: number; total: number };
+};
+
+/** A. Task Header -- everything needed to understand the task at a glance (title, status,
+ * owner, due date, priority, parent commitment) in one read-first card. Editing still happens
+ * through Ask Parfait (see TaskClarifications) -- there has never been a direct edit form on
+ * this page, so this stays presentation-only rather than inventing a new form. */
+export function TaskWorkspaceHeader({
+  parentCommitment
+}: {
+  parentCommitment?: TaskWorkspaceParentCommitment | null;
+}) {
   const { task } = useTaskWorkspaceState();
+  const dueLabel = formatReadableDate(task.due_date ?? null);
+
   return (
     <div className="premium-card p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-3xl">
-          <p className="text-sm font-semibold text-brand-700">Task Workspace</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+      <div className="space-y-4">
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Task Workspace
+          </p>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
             {task.task}
           </h1>
           {task.workspace_summary ? (
-            <p className="mt-3 text-sm leading-6 text-slate-600">
+            <p className="max-w-3xl text-sm leading-6 text-slate-600">
               {task.workspace_summary}
             </p>
           ) : null}
         </div>
-        <div className="flex flex-wrap gap-2">
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+          <span className={`badge-state ${statusBadgeClassName(task.status)}`}>
+            {formatStatusLabel(task.status)}
+          </span>
+          <span className="text-slate-600">
+            <span className="text-slate-500">Owner </span>
+            <span className="font-semibold text-slate-800">{task.owner || "Unassigned"}</span>
+          </span>
+          <span className="text-slate-600">
+            <span className="text-slate-500">Due </span>
+            <span className="font-semibold text-slate-800">{dueLabel ?? "Not set"}</span>
+          </span>
+          {task.priority === "high" ? (
+            <span className="badge-state border-rose-200 bg-rose-50 text-rose-700">
+              High priority
+            </span>
+          ) : (
+            <span className="badge-meta capitalize">{task.priority} priority</span>
+          )}
           <TaskCategoryBadge task={task} />
           {isInferredTask(task) ? <InferredTaskBadge /> : null}
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold capitalize text-slate-700">
-            {formatLabel(task.status, "pending")}
-          </span>
         </div>
+
+        {parentCommitment ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Parent
+            </span>
+            <span className="min-w-0 flex-1 truncate font-semibold text-slate-900">
+              {parentCommitment.title}
+            </span>
+            <span className="text-xs text-slate-500">
+              {parentCommitment.progress.completed} / {parentCommitment.progress.total} tasks
+            </span>
+            <Link
+              href={`/commitments/${parentCommitment.id}` as Route}
+              className="text-xs font-semibold text-brand-700 hover:underline"
+            >
+              Open commitment →
+            </Link>
+          </div>
+        ) : null}
       </div>
     </div>
   );
 }
 
-export function TaskWorkspaceEditableDetails() {
+/** Compact and omitted entirely when there is nothing to show -- extraction-provided next steps
+ * are useful when present, but a large card reading "No suggested steps were generated" is pure
+ * noise (see Phase 4 empty-section policy). */
+export function TaskWorkspaceSuggestedSteps() {
   const { task } = useTaskWorkspaceState();
-  const suggestedSteps = normalizeSuggestedSteps(task.suggested_steps) ?? [];
+  const steps = normalizeSuggestedSteps(task.suggested_steps) ?? [];
+  if (steps.length === 0) return null;
 
   return (
-    <>
-      <section className="premium-card p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Task Summary</h2>
-        <dl className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Owner
-            </dt>
-            <dd className="mt-1 text-sm font-medium text-slate-900">
-              {task.owner || "Unassigned"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Priority
-            </dt>
-            <dd className="mt-1 text-sm font-medium capitalize text-slate-900">
-              {task.priority}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Task Type
-            </dt>
-            <dd className="mt-1 text-sm font-medium text-slate-900">
-              {formatLabel(task.task_type, "other")}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Status
-            </dt>
-            <dd className="mt-1 text-sm font-medium text-slate-900">
-              {formatLabel(task.status, "pending")}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Due Date
-            </dt>
-            <dd className="mt-1 text-sm font-medium text-slate-900">
-              {formatReadableDate(task.due_date) || "Not set"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Confidence
-            </dt>
-            <dd className="mt-1 text-sm font-medium text-slate-900">
-              {task.confidence === null
-                ? "N/A"
-                : `${Math.round(task.confidence * 100)}%`}
-            </dd>
-          </div>
-        </dl>
-      </section>
+    <section className="premium-card p-5">
+      <h2 className="text-sm font-semibold text-slate-900">Suggested Next Steps</h2>
+      <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-sm leading-6 text-slate-700">
+        {steps.map((step, index) => (
+          <li key={`${index}-${step}`}>{step}</li>
+        ))}
+      </ol>
+    </section>
+  );
+}
 
-      <section className="premium-card p-5">
-        <h2 className="text-sm font-semibold text-slate-900">
-          Suggested Next Steps
-        </h2>
-        {suggestedSteps.length > 0 ? (
-          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-700">
-            {suggestedSteps.map((step, index) => (
-              <li key={`${index}-${step}`}>{step}</li>
-            ))}
-          </ol>
-        ) : (
-          <p className="mt-3 text-sm text-slate-500">
-            No suggested steps were generated.
+/** Classification metadata + trust/debug layers (rationale, supporting context, extraction
+ * confidence) -- deliberately reactive (context-driven) rather than static props, since Ask
+ * Parfait can patch task_type/rationale/supporting_context and this must stay in sync without a
+ * reload. Meant to be rendered inside the page's Context & Evidence disclosure, not as its own
+ * card, so it never competes visually with the task-completion workflow above it. */
+export function TaskWorkspaceClassificationEvidence() {
+  const { task } = useTaskWorkspaceState();
+  const categorization = getTaskCategorization(task);
+  const confidenceLabel =
+    task.confidence === null || task.confidence === undefined
+      ? "N/A"
+      : `${Math.round(task.confidence * 100)}%`;
+  const rationale = task.rationale?.trim();
+  const supportingContext = task.supporting_context?.trim();
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-xs text-slate-600">
+        <span>
+          <span className="text-slate-500">Task type </span>
+          <span className="font-medium capitalize text-slate-800">
+            {formatStatusLabel(task.task_type)}
+          </span>
+        </span>
+        <span>
+          <span className="text-slate-500">Category </span>
+          <span className="font-medium text-slate-800">
+            {getCategoryDisplayLabel(categorization.category)}
+          </span>
+        </span>
+        <span>
+          <span className="text-slate-500">Extraction confidence </span>
+          <span className="font-medium text-slate-800">{confidenceLabel}</span>
+        </span>
+      </div>
+
+      {rationale ? (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Rationale
           </p>
-        )}
-      </section>
-
-      <section className="premium-card p-5">
-        <h2 className="text-sm font-semibold text-slate-900">
-          Rationale and Supporting Context
-        </h2>
-        <div className="mt-4 space-y-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Rationale
-            </p>
-            <p className="mt-1 text-sm leading-6 text-slate-700">
-              {task.rationale || "No task rationale has been added."}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Supporting Context
-            </p>
-            <p className="mt-1 text-sm leading-6 text-slate-700">
-              {task.supporting_context ||
-                "No additional supporting context has been added."}
-            </p>
-          </div>
+          <p className="mt-1 text-sm leading-6 text-slate-700">{rationale}</p>
         </div>
-      </section>
-    </>
+      ) : null}
+
+      {supportingContext ? (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Supporting Context
+          </p>
+          <p className="mt-1 text-sm leading-6 text-slate-700">{supportingContext}</p>
+        </div>
+      ) : null}
+    </div>
   );
 }

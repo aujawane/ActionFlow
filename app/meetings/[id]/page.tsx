@@ -294,6 +294,24 @@ export default async function MeetingDetailPage({
         </div>
       )}
 
+      {/* Meeting-level operational utilities (queue analysis, sync status, reimport transcript)
+          and the current analysis state -- these are page-level controls, not evidence content,
+          so they live near the top rather than inside Evidence & Analysis below. Both components
+          are already self-compacting (MeetingAnalysisStatusPanel collapses to one line once
+          analysis is complete), so this stays a quiet utility row rather than a hero section. */}
+      <div className="flex flex-wrap items-start gap-4">
+        <MeetingActions
+          meetingId={meeting.id}
+          showDevReimport={process.env.NODE_ENV === "development"}
+        />
+        <MeetingAnalysisStatusPanel
+          meetingId={meeting.id}
+          meetingStatus={meeting.status}
+          initialJob={latestAnalysisJob}
+          segmentCount={(segments ?? []).length}
+        />
+      </div>
+
       {/* Speaker resolution: a compact callout when identities are unresolved (affects
           ownership accuracy), collapsed by default either way -- see SpeakerMappingPanel. */}
       <SpeakerMappingPanel meetingId={meeting.id} initialSpeakers={speakerRoster} />
@@ -329,9 +347,10 @@ export default async function MeetingDetailPage({
         tasks={partitioned.ideaTasks}
       />
 
-      {/* 6. Meeting Intelligence / Evidence -- everything pipeline-oriented (processing
-          controls, analysis status, topic breakdown, transcript) lives here, after
-          execution results, via progressive disclosure. */}
+      {/* 6. Meeting Intelligence / Evidence -- supporting analysis only (topic breakdown,
+          transcript, pipeline metrics), after execution results, via progressive disclosure.
+          Meeting-level operational controls (Meeting Actions, analysis status) live near the
+          top of the page instead -- they're utilities, not evidence content. */}
       <section className="space-y-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -345,19 +364,6 @@ export default async function MeetingDetailPage({
             {(segments ?? []).length} transcript segments · {typedTopics.length} topics ·{" "}
             {(insights ?? []).length} insights
           </p>
-        </div>
-
-        <div className="flex flex-wrap items-start gap-4">
-          <MeetingActions
-            meetingId={meeting.id}
-            showDevReimport={process.env.NODE_ENV === "development"}
-          />
-          <MeetingAnalysisStatusPanel
-            meetingId={meeting.id}
-            meetingStatus={meeting.status}
-            initialJob={latestAnalysisJob}
-            segmentCount={(segments ?? []).length}
-          />
         </div>
 
         <details className="premium-card p-5">

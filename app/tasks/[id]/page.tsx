@@ -6,11 +6,13 @@ import { MeetingStatusBadge } from "@/components/meeting-status-badge";
 import { TaskClarifications } from "@/components/task-clarifications";
 import { TaskExecutionPanel } from "@/components/task-execution-panel";
 import {
-  TaskWorkspaceEditableDetails,
+  TaskWorkspaceClassificationEvidence,
   TaskWorkspaceHeader,
+  TaskWorkspaceSuggestedSteps,
   TaskWorkspaceTaskProvider
 } from "@/components/task-workspace-task-state";
 import { requireUser } from "@/lib/auth";
+import { computeCommitmentProgress } from "@/lib/project-execution";
 import {
   resolveTaskOwner
 } from "@/lib/speaker-aliases";
@@ -75,6 +77,22 @@ export default async function TaskWorkspacePage({
         .maybeSingle()
     : { data: null };
   const typedCommitment = commitment as MeetingCommitment | null;
+  const { data: commitmentTasks } = typedCommitment
+    ? await supabaseAdmin
+        .from("meeting_tasks")
+        .select("*")
+        .eq("commitment_id", typedCommitment.id)
+    : { data: [] };
+  const parentCommitment = typedCommitment
+    ? {
+        id: typedCommitment.id,
+        title: typedCommitment.title,
+        progress: computeCommitmentProgress(
+          typedCommitment,
+          (commitmentTasks ?? []) as MeetingTask[]
+        )
+      }
+    : null;
   const { data: project } = typedTask.project_id
     ? await supabaseAdmin
         .from("projects")
@@ -125,6 +143,9 @@ export default async function TaskWorkspacePage({
     .order("created_at", { ascending: false });
   const initialArtifacts = (artifacts ?? []) as TaskArtifact[];
 
+  const hasEvidence =
+    Boolean(resolvedTask.source_quote) || segments.length > 0 || Boolean(typedTopic);
+
   return (
     <TaskWorkspaceTaskProvider initialTask={resolvedTask}>
       <section className="space-y-6">
@@ -157,115 +178,124 @@ export default async function TaskWorkspacePage({
           <span>/</span>
           <span className="text-slate-900">{resolvedTask.task}</span>
         </nav>
-        <TaskWorkspaceHeader />
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
-          <div className="space-y-6">
-            <TaskWorkspaceEditableDetails />
+        {/* A. Task Header -- what the task is, who owns it, when it's due, where it fits. */}
+        <TaskWorkspaceHeader parentCommitment={parentCommitment} />
 
-          <section className="premium-card p-5">
-            <h2 className="text-sm font-semibold text-slate-900">Source Quote</h2>
-            {resolvedTask.source_quote ? (
-              <blockquote className="mt-3 border-l-2 border-brand-200 pl-3 text-sm italic leading-6 text-slate-600">
-                &ldquo;{resolvedTask.source_quote}&rdquo;
-              </blockquote>
-            ) : (
-              <p className="mt-3 text-sm text-slate-500">No source quote was captured.</p>
-            )}
-          </section>
+        {/* lg:items-start keeps each column's height driven by its own content -- previously
+            the grid stretched both columns to match the taller one, which could leave a large
+            empty block in whichever column was shorter (see Phase 4 layout fix). The right rail
+            now only holds bounded content (Ask Parfait's fixed-height panel + a compact source
+            meeting card), so it should rarely be the taller column at all. */}
+        <div className="grid gap-6 lg:grid-cols-[1fr_22rem] lg:items-start">
+          <div className="min-w-0 space-y-6">
+            {/* B/C. Task Actions + Deliverables, promoted ahead of any rationale/evidence. */}
+            <TaskWorkspaceSuggestedSteps />
+            <TaskExecutionPanel
+              taskId={resolvedTask.id}
+              workspaceType={resolvedTask.workspace_type}
+              initialArtifacts={initialArtifacts}
+            />
 
-          <section className="premium-card p-5">
-            <h2 className="text-sm font-semibold text-slate-900">Meeting Context</h2>
-            {segments.length > 0 ? (
-              <div className="mt-4 max-h-[24rem] space-y-3 overflow-y-auto rounded-xl bg-slate-50 p-3">
-                {segments.map((segment) => (
-                  <div key={segment.id} className="rounded-xl bg-white p-3 shadow-sm">
-                    <p className="text-xs font-semibold text-slate-500">
-                      {segment.speaker || "Unknown speaker"} • {formatTime(segment.timestamp)}
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-slate-700">{segment.text}</p>
-                  </div>
-                ))}
+            {/* E. Context & Evidence -- trust/debug layer: why this task exists and what
+                supports it. Collapsed by default so it never competes with the actions above
+                it; still fully accessible. */}
+            <section className="premium-card p-5 sm:p-6">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Context & Evidence
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                  Why this task exists
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Supporting evidence and classification behind Parfait&apos;s interpretation.
+                </p>
               </div>
-            ) : (
-              <p className="mt-3 text-sm text-slate-500">No transcript context is available.</p>
-            )}
-          </section>
-        </div>
 
-        <aside className="space-y-6">
-          <TaskClarifications taskId={resolvedTask.id} variant="panel" />
+              <div className="mt-5 space-y-3">
+                {resolvedTask.source_quote ? (
+                  <details className="disclosure">
+                    <summary>Source quote</summary>
+                    <blockquote className="mt-2 border-l-2 border-brand-200 pl-3 text-sm italic leading-6 text-slate-600">
+                      &ldquo;{resolvedTask.source_quote}&rdquo;
+                    </blockquote>
+                  </details>
+                ) : null}
 
-          {typedCommitment ? (
-            <section className="premium-card p-5">
-              <h2 className="text-sm font-semibold text-slate-900">
-                Parent Commitment
-              </h2>
-              <div className="mt-4 space-y-3">
-                <p className="text-sm font-semibold text-slate-950">
-                  {typedCommitment.title}
-                </p>
-                <p className="text-xs font-medium capitalize text-slate-500">
-                  {typedCommitment.type.replace(/_/g, " ")}
-                </p>
-                {typedCommitment.description ? (
-                  <p className="text-sm leading-6 text-slate-600">
-                    {typedCommitment.description}
+                {segments.length > 0 ? (
+                  <details className="disclosure">
+                    <summary>Meeting context ({segments.length})</summary>
+                    <div className="mt-2 max-h-[24rem] space-y-3 overflow-y-auto rounded-xl bg-slate-50 p-3">
+                      {segments.map((segment) => (
+                        <div key={segment.id} className="rounded-xl bg-white p-3 shadow-sm">
+                          <p className="text-xs font-semibold text-slate-500">
+                            {segment.speaker || "Unknown speaker"} • {formatTime(segment.timestamp)}
+                          </p>
+                          <p className="mt-1 text-sm leading-6 text-slate-700">{segment.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+
+                {typedTopic ? (
+                  <details className="disclosure">
+                    <summary>Topic context — {typedTopic.title}</summary>
+                    <div className="mt-2 space-y-2">
+                      {typedTopic.summary ? (
+                        <p className="text-sm leading-6 text-slate-600">{typedTopic.summary}</p>
+                      ) : null}
+                      {typedTopic.separation_reason ? (
+                        <p className="text-xs text-slate-500">
+                          Why separated: {typedTopic.separation_reason}
+                        </p>
+                      ) : null}
+                    </div>
+                  </details>
+                ) : null}
+
+                <details className="disclosure">
+                  <summary>Classification &amp; rationale</summary>
+                  <div className="mt-2">
+                    <TaskWorkspaceClassificationEvidence />
+                  </div>
+                </details>
+
+                {!hasEvidence ? (
+                  <p className="text-sm text-slate-500">
+                    No additional evidence was captured for this task.
                   </p>
                 ) : null}
-                <Link
-                  href={`/commitments/${typedCommitment.id}` as Route}
-                  className="secondary-button w-full"
-                >
-                  Open Milestone
-                </Link>
               </div>
             </section>
-          ) : null}
+          </div>
 
-          <section className="premium-card p-5">
-            <h2 className="text-sm font-semibold text-slate-900">Related Meeting</h2>
-            <div className="mt-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-slate-900">
+          {/* D. Ask Parfait -- the contextual assistant for this task -- plus compact source
+              meeting access. Kept sticky on desktop; both cards are bounded/content-driven so
+              they don't produce runaway sidebar height. */}
+          <aside className="space-y-6 lg:sticky lg:top-6">
+            <TaskClarifications taskId={resolvedTask.id} variant="panel" />
+
+            <section className="premium-card p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Source
+              </p>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate-950">
                   {meeting.title || "Untitled meeting"}
                 </p>
                 <MeetingStatusBadge status={meeting.status} />
               </div>
-              <p className="break-all text-xs text-slate-500">{meeting.meeting_url}</p>
-              <Link href={`/meetings/${meeting.id}` as Route} className="secondary-button w-full">
-                Open Meeting
+              <Link
+                href={`/meetings/${meeting.id}` as Route}
+                className="secondary-button mt-4 w-full"
+              >
+                Open meeting →
               </Link>
-            </div>
-          </section>
-
-          <section className="premium-card p-5">
-            <h2 className="text-sm font-semibold text-slate-900">Topic Context</h2>
-            {typedTopic ? (
-              <div className="mt-4 space-y-3">
-                <p className="text-sm font-semibold text-slate-900">{typedTopic.title}</p>
-                {typedTopic.summary ? (
-                  <p className="text-sm leading-6 text-slate-600">{typedTopic.summary}</p>
-                ) : null}
-                {typedTopic.separation_reason ? (
-                  <p className="text-xs text-slate-500">
-                    Why separated: {typedTopic.separation_reason}
-                  </p>
-                ) : null}
-              </div>
-            ) : (
-              <p className="mt-3 text-sm text-slate-500">No topic context is available.</p>
-            )}
-          </section>
-
-        </aside>
-      </div>
-
-      <TaskExecutionPanel
-        taskId={resolvedTask.id}
-        workspaceType={resolvedTask.workspace_type}
-        initialArtifacts={initialArtifacts}
-      />
+            </section>
+          </aside>
+        </div>
       </section>
     </TaskWorkspaceTaskProvider>
   );
