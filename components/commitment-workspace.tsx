@@ -17,6 +17,10 @@ import {
   selectNextBestTask
 } from "@/lib/project-execution";
 import { formatReadableDate } from "@/lib/format-date";
+import {
+  getDeliverableLifecycleState,
+  groupDeliverablesByType
+} from "@/lib/task-deliverable-lifecycle";
 import { statusBadgeClassName } from "@/lib/status-badge";
 import type {
   CommitmentComment,
@@ -88,6 +92,16 @@ export function CommitmentWorkspace({
     () => deriveCommitmentPeople({ commitment, tasks, participants }),
     [commitment, participants, tasks]
   );
+  const deliverableRows = useMemo(() => {
+    const rows: Array<{ taskItem: MeetingTask; current: TaskArtifact }> = [];
+    for (const taskItem of tasks) {
+      const taskArtifacts = initialArtifacts.filter((artifact) => artifact.task_id === taskItem.id);
+      for (const group of groupDeliverablesByType(taskArtifacts)) {
+        if (group.current) rows.push({ taskItem, current: group.current });
+      }
+    }
+    return rows;
+  }, [initialArtifacts, tasks]);
 
   async function request(url: string, init: RequestInit) {
     setBusy(true);
@@ -697,6 +711,47 @@ export function CommitmentWorkspace({
           ))}
         </div>
       </section>
+
+      {/* Deliverables overview -- an overview of what child tasks have produced, not a second
+          editor. Each row opens the same focused deliverable view Task Workspace links to. */}
+      {deliverableRows.length > 0 ? (
+        <section className="premium-card p-5">
+          <h2 className="text-lg font-semibold text-slate-950">Deliverables</h2>
+          <div className="mt-4 space-y-2">
+            {deliverableRows.map(({ taskItem, current }) => {
+              const state = getDeliverableLifecycleState(current);
+              return (
+                <Link
+                  key={current.id}
+                  href={`/deliverables/${current.id}` as Route}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-brand-200 hover:bg-brand-50/40"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-slate-950">
+                      {current.title}
+                    </span>
+                    <span className="text-xs text-slate-500">Task: {taskItem.task}</span>
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={`badge-state ${
+                        state === "accepted"
+                          ? "border-brand-200 bg-brand-50 text-brand-800"
+                          : state === "failed"
+                            ? "border-rose-200 bg-rose-50 text-rose-700"
+                            : "border-slate-200 bg-slate-50 text-slate-700"
+                      }`}
+                    >
+                      {state === "accepted" ? "Accepted" : state === "failed" ? "Failed" : "Draft"}
+                    </span>
+                    <span className="text-xs font-semibold text-brand-700">Open →</span>
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <Modal
         open={confirmingMerge}

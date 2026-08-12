@@ -405,6 +405,8 @@ export interface TaskArtifact {
   version: number;
   status?: TaskArtifactStatus;
   metadata?: Record<string, JsonValue> | JsonValue;
+  accepted_at?: string | null;
+  accepted_by?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -24,11 +24,15 @@ export async function POST(
   const { id } = await context.params;
   const url = new URL(request.url);
   const regenerate = url.searchParams.get("regenerate") === "true";
+  const body = (await request.json().catch(() => null)) as { instruction?: unknown } | null;
+  const instruction =
+    typeof body?.instruction === "string" ? body.instruction.trim().slice(0, 500) : undefined;
 
   const result = await generateTaskDeliverable({
     taskId: id,
     userId: auth.user.id,
-    regenerate
+    regenerate,
+    instruction
   });
 
   if (!result.ok) {

@@ -99,6 +99,10 @@ export async function generateTaskDeliverable(input: {
   taskId: string;
   userId: string;
   regenerate?: boolean;
+  /** Optional user guidance for a regeneration pass (e.g. "make it shorter"). Appended to the
+   * existing generation prompt's task context -- see generateTaskDeliverableDraft -- rather than
+   * introducing a new prompting architecture. */
+  instruction?: string;
 }) {
   const contextResult = await getTaskWorkspaceContext(input.taskId, input.userId);
   if (!contextResult.ok) {
@@ -141,27 +145,27 @@ export async function generateTaskDeliverable(input: {
 
   const generation = await generateTaskDeliverableDraft({
     ...contextResult.context,
-    task
+    task,
+    instruction: input.instruction
   });
 
   if (!generation.ok) {
-    const { data: failedArtifact } = await supabaseAdmin
-      .from("task_artifacts")
-      .insert({
-        task_id: input.taskId,
-        artifact_type: getArtifactTypeLabel(deliverableType),
-        deliverable_type: deliverableType,
-        title: getArtifactTypeLabel(deliverableType),
-        content: generation.error,
-        version: 1,
-        status: "failed",
-        metadata: {
-          error: generation.error,
-          details: generation.details ?? null
-        }
-      })
-      .select("*")
-      .single();
+    // Routed through the same versioning RPC as a successful generation (rather than a raw
+    // insert with a hardcoded version: 1) so a failed regeneration attempt doesn't collide with
+    // or reset the real version sequence -- create_deliverable_version already skips failed rows
+    // when computing the next version number.
+    const { data: failedArtifact } = await supabaseAdmin.rpc("create_deliverable_version", {
+      p_task_id: input.taskId,
+      p_deliverable_type: deliverableType,
+      p_artifact_type: getArtifactTypeLabel(deliverableType),
+      p_title: getArtifactTypeLabel(deliverableType),
+      p_content: generation.error,
+      p_status: "failed",
+      p_metadata: {
+        error: generation.error,
+        details: generation.details ?? null
+      }
+    });
 
     return {
       ok: false as const,
@@ -174,36 +178,22 @@ export async function generateTaskDeliverable(input: {
     };
   }
 
-  const { data: latestArtifact } = await supabaseAdmin
-    .from("task_artifacts")
-    .select("version")
-    .eq("task_id", input.taskId)
-    .eq("deliverable_type", deliverableType)
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const version =
-    typeof latestArtifact?.version === "number" ? latestArtifact.version + 1 : 1;
-
-  const { data: artifact, error: insertError } = await supabaseAdmin
-    .from("task_artifacts")
-    .insert({
-      task_id: input.taskId,
-      artifact_type: getArtifactTypeLabel(deliverableType),
-      deliverable_type: deliverableType,
-      title: generation.artifact.title,
-      content: generation.artifact.content,
-      version,
-      status: "generated",
-      metadata: {
+  const { data: artifact, error: insertError } = await supabaseAdmin.rpc(
+    "create_deliverable_version",
+    {
+      p_task_id: input.taskId,
+      p_deliverable_type: deliverableType,
+      p_artifact_type: getArtifactTypeLabel(deliverableType),
+      p_title: generation.artifact.title,
+      p_content: generation.artifact.content,
+      p_status: "generated",
+      p_metadata: {
         category: metadata.category,
         deliverable_type: deliverableType,
         generated_at: new Date().toISOString()
       }
-    })
-    .select("*")
-    .single();
+    }
+  );
 
   if (insertError || !artifact) {
     return {

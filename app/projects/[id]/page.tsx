@@ -11,6 +11,7 @@ import {
   buildProjectExecutionModel,
   computeCommitmentProgress
 } from "@/lib/project-execution";
+import { groupDeliverablesByType } from "@/lib/task-deliverable-lifecycle";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   Meeting,
@@ -175,12 +176,26 @@ export default async function ProjectPage({
     dependencies: (dependencies ?? []) as TaskDependency[],
     currentUserName: profile?.full_name ?? null
   });
+  // Only the current version of each task's deliverable -- task_artifacts now accumulates one
+  // row per edit/regeneration (see Phase 7), so this list must collapse to "current" per
+  // (task, deliverable_type) rather than listing every historical version.
+  const taskArtifactsByTaskId = ((taskArtifacts ?? []) as TaskArtifact[]).reduce<
+    Record<string, TaskArtifact[]>
+  >((acc, artifact) => {
+    (acc[artifact.task_id] ??= []).push(artifact);
+    return acc;
+  }, {});
+  const currentTaskDeliverables = Object.values(taskArtifactsByTaskId)
+    .flatMap((items) => groupDeliverablesByType(items))
+    .map((group) => group.current)
+    .filter((artifact): artifact is TaskArtifact => artifact !== null);
+
   const files = [
-    ...((taskArtifacts ?? []) as TaskArtifact[]).map((artifact) => ({
+    ...currentTaskDeliverables.map((artifact) => ({
       id: artifact.id,
       title: artifact.title,
       kind: artifact.deliverable_type || artifact.artifact_type,
-      href: `/tasks/${safeTasks.find((task) => task.id === artifact.task_id)?.id ?? ""}`
+      href: `/deliverables/${artifact.id}`
     })),
     ...((meetingArtifacts ?? []) as MeetingArtifact[]).map((artifact) => ({
       id: artifact.id,

@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MeetingCommitment, MeetingTask, Project } from "@/lib/types";
+import type { MeetingCommitment, MeetingTask, Project, TaskArtifact } from "@/lib/types";
 
 export async function getOwnedProject(projectId: string, userId: string) {
   const { data } = await supabaseAdmin
@@ -43,4 +43,18 @@ export async function getOwnedTask(taskId: string, userId: string) {
     .is("deleted_at", null)
     .maybeSingle();
   return meeting ? (task as MeetingTask) : null;
+}
+
+/** Same ownership chain as getOwnedTask (artifact -> task -> meeting -> user), one hop further --
+ * reused by every Phase 7 deliverable write path so accept/reopen/edit/restore can never act on
+ * another user's task_artifacts row, matching the existing RLS policy's own chain. */
+export async function getOwnedArtifact(artifactId: string, userId: string) {
+  const { data: artifact } = await supabaseAdmin
+    .from("task_artifacts")
+    .select("*")
+    .eq("id", artifactId)
+    .maybeSingle();
+  if (!artifact) return null;
+  const task = await getOwnedTask(artifact.task_id, userId);
+  return task ? { artifact: artifact as TaskArtifact, task } : null;
 }

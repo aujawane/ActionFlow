@@ -1,8 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
+import { Modal, ModalActions } from "@/components/modal";
 import { useOptionalTaskWorkspaceState } from "@/components/task-workspace-task-state";
+import { formatReadableDate } from "@/lib/format-date";
+import {
+  getDeliverableLifecycleState,
+  groupDeliverablesByType
+} from "@/lib/task-deliverable-lifecycle";
 import {
   getDeliverableButtonLabel,
   getDeliverablePanelTitle,
@@ -32,6 +41,18 @@ const promptLabelByWorkspaceType: Partial<Record<MeetingTaskWorkspaceType, strin
   analysis: "Generate Analysis Prompt"
 };
 
+function lifecycleBadgeClassName(state: "draft" | "accepted" | "failed") {
+  if (state === "accepted") return "border-brand-200 bg-brand-50 text-brand-800";
+  if (state === "failed") return "border-rose-200 bg-rose-50 text-rose-700";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function lifecycleLabel(state: "draft" | "accepted" | "failed") {
+  if (state === "accepted") return "Accepted";
+  if (state === "failed") return "Failed";
+  return "Draft";
+}
+
 async function parseJson<T>(response: Response) {
   return (await response.json().catch(() => ({}))) as T;
 }
@@ -41,6 +62,7 @@ export function TaskExecutionPanel({
   workspaceType,
   initialArtifacts
 }: TaskExecutionPanelProps) {
+  const router = useRouter();
   const workspaceState = useOptionalTaskWorkspaceState();
   const task = workspaceState?.task;
   const categorization = task ? getTaskCategorization(task) : null;
@@ -53,46 +75,18 @@ export function TaskExecutionPanel({
   const [guide, setGuide] = useState<TaskGuide | null>(null);
   const [taskPrompt, setTaskPrompt] = useState<TaskPrompt | null>(null);
   const [artifacts, setArtifacts] = useState<TaskArtifact[]>(initialArtifacts);
-  const [selectedArtifact, setSelectedArtifact] = useState<TaskArtifact | null>(
-    initialArtifacts[0] ?? null
-  );
-  const [showDeliverablePanel, setShowDeliverablePanel] = useState(
-    Boolean(initialArtifacts[0])
-  );
-  const [editableTitle, setEditableTitle] = useState(initialArtifacts[0]?.title ?? "");
-  const [editableContent, setEditableContent] = useState(
-    initialArtifacts[0]?.content ?? ""
-  );
   const [guideLoading, setGuideLoading] = useState(false);
   const [promptLoading, setPromptLoading] = useState(false);
   const [artifactLoading, setArtifactLoading] = useState(false);
-  const [saveLoading, setSaveLoading] = useState(false);
   const [guideError, setGuideError] = useState<string | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [artifactError, setArtifactError] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [acceptTargetId, setAcceptTargetId] = useState<string | null>(null);
+  const [acceptBusy, setAcceptBusy] = useState(false);
 
   const promptLabel = promptLabelByWorkspaceType[workspaceType];
-
-  useEffect(() => {
-    setArtifacts(initialArtifacts);
-    if (initialArtifacts[0]) {
-      setSelectedArtifact(initialArtifacts[0]);
-      setEditableTitle(initialArtifacts[0].title);
-      setEditableContent(initialArtifacts[0].content);
-      setShowDeliverablePanel(true);
-    }
-  }, [initialArtifacts]);
-
-  const selectArtifact = useCallback((artifact: TaskArtifact) => {
-    setSelectedArtifact(artifact);
-    setEditableTitle(artifact.title);
-    setEditableContent(artifact.content);
-    setShowDeliverablePanel(true);
-    setSaveMessage(null);
-    setCopyMessage(null);
-  }, []);
+  const groups = groupDeliverablesByType(artifacts);
+  const acceptTarget = artifacts.find((item) => item.id === acceptTargetId) ?? null;
 
   async function generateGuide() {
     setGuideLoading(true);
@@ -113,11 +107,10 @@ export function TaskExecutionPanel({
   async function generateDeliverable(regenerate = false) {
     setArtifactLoading(true);
     setArtifactError(null);
-    setSaveMessage(null);
 
     const response = await fetch(
       `/api/tasks/${taskId}/generate-deliverable?regenerate=${regenerate ? "true" : "false"}`,
-      { method: "POST" }
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }
     );
     const result = await parseJson<{
       artifact?: TaskArtifact;
@@ -139,8 +132,7 @@ export function TaskExecutionPanel({
       const withoutDuplicate = current.filter((item) => item.id !== result.artifact!.id);
       return [result.artifact!, ...withoutDuplicate];
     });
-    selectArtifact(result.artifact);
-    setSaveMessage(result.reused ? "Showing saved deliverable." : "Deliverable generated.");
+    router.refresh();
   }
 
   async function generatePrompt() {
@@ -159,53 +151,27 @@ export function TaskExecutionPanel({
     setTaskPrompt(result.taskPrompt);
   }
 
-  async function saveDeliverable() {
-    if (!selectedArtifact) return;
-
-    setSaveLoading(true);
-    setSaveMessage(null);
-
-    const response = await fetch(`/api/tasks/${taskId}/deliverable`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        artifactId: selectedArtifact.id,
-        title: editableTitle,
-        content: editableContent
-      })
+  async function confirmAccept() {
+    if (!acceptTarget) return;
+    setAcceptBusy(true);
+    const response = await fetch(`/api/deliverables/${acceptTarget.id}/accept`, {
+      method: "POST"
     });
-    const result = await parseJson<{ artifact?: TaskArtifact } & ApiError>(response);
-    setSaveLoading(false);
-
-    if (!response.ok || !result.artifact) {
-      setSaveMessage(result.error || "Unable to save deliverable.");
-      return;
-    }
+    const result = await parseJson<{ artifact?: TaskArtifact; task?: unknown } & ApiError>(
+      response
+    );
+    setAcceptBusy(false);
+    if (!response.ok || !result.artifact) return;
 
     setArtifacts((current) =>
-      current.map((artifact) =>
-        artifact.id === result.artifact!.id ? result.artifact! : artifact
-      )
+      current.map((item) => (item.id === result.artifact!.id ? result.artifact! : item))
     );
-    selectArtifact(result.artifact);
-    setSaveMessage("Deliverable saved.");
-  }
-
-  async function copyDeliverable() {
-    if (!editableContent.trim()) return;
-    try {
-      await navigator.clipboard.writeText(editableContent);
-      setCopyMessage("Copied to clipboard.");
-    } catch {
-      setCopyMessage("Unable to copy deliverable.");
+    if (result.task && workspaceState) {
+      workspaceState.setTask(result.task as Parameters<typeof workspaceState.setTask>[0]);
     }
+    setAcceptTargetId(null);
+    router.refresh();
   }
-
-  const panelTitle = selectedArtifact
-    ? getDeliverablePanelTitle(
-        selectedArtifact.deliverable_type ?? categorization?.deliverable_type
-      )
-    : "Deliverable";
 
   return (
     <div className="space-y-6">
@@ -283,17 +249,12 @@ export function TaskExecutionPanel({
               disabled={artifactLoading}
               className="premium-button mt-4 w-full"
             >
-              {artifactLoading ? "Generating..." : deliverableButtonLabel}
+              {artifactLoading ? `Parfait is creating the ${deliverableNoun}…` : deliverableButtonLabel}
             </button>
 
             {artifactError ? (
               <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
                 {artifactError}
-              </p>
-            ) : null}
-            {saveMessage ? (
-              <p className="mt-3 rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-800">
-                {saveMessage}
               </p>
             ) : null}
           </div>
@@ -334,9 +295,9 @@ export function TaskExecutionPanel({
         ) : null}
       </section>
 
-      {/* C. Deliverables -- promoted next to Task Actions, ahead of any rationale/context, since
-          generated output is core product value the user shouldn't have to scroll past evidence
-          to find. */}
+      {/* C. Deliverables -- compact cards only. Deeper interaction (edit, regenerate with
+          instructions, version history) lives on the focused deliverable view; forcing the full
+          editor into this page was the thing Phase 7 explicitly moved away from. */}
       <section className="premium-card p-5 sm:p-6">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
@@ -345,123 +306,86 @@ export function TaskExecutionPanel({
           <h2 className="mt-1 text-lg font-semibold text-slate-950">Deliverables</h2>
         </div>
 
-        {selectedArtifact && showDeliverablePanel ? (
-          <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-brand-800">
-                  {panelTitle}
-                </p>
-                <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                  {editableTitle || selectedArtifact.title}
-                </h3>
-                <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                  <span>
-                    {selectedArtifact.artifact_type} v{selectedArtifact.version}
-                  </span>
-                  {selectedArtifact.status === "failed" ? (
-                    <span className="badge-state border-rose-200 bg-rose-50 text-rose-700">
-                      Failed
-                    </span>
-                  ) : selectedArtifact.status ? (
-                    <span className="badge-meta capitalize">{selectedArtifact.status}</span>
+        {groups.length > 0 ? (
+          <div className="mt-5 space-y-3">
+            {groups.map((group) => {
+              const current = group.current;
+              if (!current) {
+                return group.latestFailed ? (
+                  <div
+                    key={group.deliverableType}
+                    className="rounded-2xl border border-rose-200 bg-rose-50 p-4"
+                  >
+                    <p className="text-sm font-semibold text-rose-700">Generation failed</p>
+                    <p className="mt-1 text-xs text-rose-700">
+                      {group.latestFailed.content || "Parfait was unable to generate this deliverable."}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => generateDeliverable(true)}
+                      disabled={artifactLoading}
+                      className="secondary-button mt-3 px-3 py-1.5 text-xs"
+                    >
+                      {artifactLoading ? "Retrying…" : "Retry"}
+                    </button>
+                  </div>
+                ) : null;
+              }
+              const state = getDeliverableLifecycleState(current);
+              const preview = current.content.replace(/\s+/g, " ").trim().slice(0, 160);
+              return (
+                <div
+                  key={group.deliverableType}
+                  className="rounded-2xl border border-slate-200 bg-white p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-950">{current.title}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+                        <span className={`badge-state ${lifecycleBadgeClassName(state)}`}>
+                          {lifecycleLabel(state)}
+                        </span>
+                        <span>Generated {formatReadableDate(current.created_at)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {preview ? (
+                    <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">
+                      &ldquo;{preview}
+                      {current.content.length > 160 ? "…" : ""}&rdquo;
+                    </p>
                   ) : null}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={copyDeliverable}
-                  className="secondary-button px-3 py-2 text-xs"
-                >
-                  Copy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => generateDeliverable(true)}
-                  disabled={artifactLoading}
-                  className="secondary-button px-3 py-2 text-xs"
-                >
-                  {artifactLoading ? "Generating..." : "Regenerate"}
-                </button>
-                <button
-                  type="button"
-                  onClick={saveDeliverable}
-                  disabled={saveLoading}
-                  className="premium-button px-3 py-2 text-xs"
-                >
-                  {saveLoading ? "Saving..." : "Save"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowDeliverablePanel(false)}
-                  className="tertiary-button px-3 py-2 text-xs"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            {copyMessage ? (
-              <p className="mt-4 text-xs font-medium text-slate-500">{copyMessage}</p>
-            ) : null}
-
-            <div className="mt-6 space-y-4">
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Title
-                </label>
-                <input
-                  value={editableTitle}
-                  onChange={(event) => setEditableTitle(event.target.value)}
-                  className="premium-input mt-2 w-full text-base font-semibold"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Deliverable
-                </label>
-                <textarea
-                  value={editableContent}
-                  onChange={(event) => setEditableContent(event.target.value)}
-                  className="mt-2 min-h-[24rem] w-full resize-y rounded-2xl border border-slate-200 bg-white px-5 py-5 font-mono text-sm leading-7 text-slate-800 shadow-inner outline-none transition focus:border-brand-300 focus:ring-4 focus:ring-brand-500/10 sm:min-h-[28rem]"
-                />
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {artifacts.length > 0 ? (
-          <div className="mt-5">
-            {artifacts.length > 1 || !showDeliverablePanel ? (
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                {showDeliverablePanel ? "All saved deliverables" : "Saved deliverables"}
-              </p>
-            ) : null}
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {artifacts.map((artifact) => (
-                <button
-                  type="button"
-                  key={artifact.id}
-                  onClick={() => selectArtifact(artifact)}
-                  className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                    selectedArtifact?.id === artifact.id
-                      ? "border-brand-200 bg-brand-50 text-brand-900"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-brand-200 hover:bg-brand-50/40"
-                  }`}
-                >
-                  <p className="text-sm font-semibold">{artifact.title}</p>
-                  <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
-                    <span>
-                      {artifact.artifact_type} v{artifact.version}
-                    </span>
-                    {artifact.status === "failed" ? (
-                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden="true" />
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <Link
+                      href={`/deliverables/${current.id}` as Route}
+                      className="secondary-button px-3 py-1.5 text-xs"
+                    >
+                      Open
+                    </Link>
+                    {state === "draft" ? (
+                      <button
+                        type="button"
+                        onClick={() => setAcceptTargetId(current.id)}
+                        className="premium-button px-3 py-1.5 text-xs"
+                      >
+                        Accept
+                      </button>
                     ) : null}
-                  </p>
-                </button>
-              ))}
-            </div>
+                    <button
+                      type="button"
+                      onClick={() => generateDeliverable(true)}
+                      disabled={artifactLoading}
+                      className="tertiary-button px-3 py-1.5 text-xs"
+                    >
+                      {artifactLoading ? "Regenerating…" : "Regenerate"}
+                    </button>
+                    {group.latestFailed ? (
+                      <span className="text-xs text-rose-600">Last regeneration failed</span>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="premium-empty-compact mt-5">
@@ -480,6 +404,40 @@ export function TaskExecutionPanel({
           </div>
         )}
       </section>
+
+      <Modal
+        open={acceptTargetId !== null}
+        title="Accept this deliverable?"
+        onClose={() => setAcceptTargetId(null)}
+      >
+        <h2 className="text-base font-semibold text-slate-950">Accept this deliverable?</h2>
+        {acceptTarget && task ? (
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            This will mark:
+            <br />
+            <span className="font-semibold text-slate-900">&ldquo;{task.task}&rdquo;</span>
+            <br />
+            as completed.
+          </p>
+        ) : null}
+        <ModalActions>
+          <button
+            type="button"
+            onClick={() => setAcceptTargetId(null)}
+            className="tertiary-button px-4 py-2 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void confirmAccept()}
+            disabled={acceptBusy}
+            className="premium-button px-4 py-2 text-sm"
+          >
+            {acceptBusy ? "Accepting…" : "Accept & Complete Task"}
+          </button>
+        </ModalActions>
+      </Modal>
     </div>
   );
 }

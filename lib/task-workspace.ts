@@ -363,7 +363,7 @@ export async function generateTaskGuide(
 }
 
 export async function generateTaskDeliverableDraft(
-  context: TaskWorkspaceContext
+  context: TaskWorkspaceContext & { instruction?: string }
 ): Promise<
   | { ok: true; artifact: GeneratedArtifactDraft }
   | { ok: false; error: string; details?: string }
@@ -397,9 +397,14 @@ export async function generateTaskDeliverableDraft(
             `Task description: ${context.task.workspace_summary ?? "Not provided."}`,
             `Category: ${categorization.category}`,
             `Deliverable type: ${deliverableType}`,
+            context.instruction?.trim()
+              ? `User's regeneration instruction (apply this while keeping the deliverable accurate to the task): ${context.instruction.trim()}`
+              : "",
             "",
             buildTaskContextPrompt(context)
-          ].join("\n")
+          ]
+            .filter(Boolean)
+            .join("\n")
         }
       ],
       text: {
