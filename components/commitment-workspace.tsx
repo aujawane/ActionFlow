@@ -77,17 +77,26 @@ export function CommitmentWorkspace({
   async function request(url: string, init: RequestInit) {
     setBusy(true);
     setError(null);
-    const response = await fetch(url, {
-      ...init,
-      headers: { "content-type": "application/json", ...(init.headers ?? {}) }
-    });
-    const result = await response.json().catch(() => ({}));
-    setBusy(false);
-    if (!response.ok) {
-      setError(result.details || result.error || "Request failed.");
+    try {
+      const response = await fetch(url, {
+        ...init,
+        headers: { "content-type": "application/json", ...(init.headers ?? {}) }
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(result.details || result.error || "Request failed.");
+        return null;
+      }
+      return result;
+    } catch {
+      // A network failure here (e.g. a dropped dev-server connection) previously left this
+      // request unresolved forever -- busy stayed true and no error surfaced, so a later retry
+      // of the same field could look like it silently did nothing.
+      setError("Network error. The change was not saved -- please try again.");
       return null;
+    } finally {
+      setBusy(false);
     }
-    return result;
   }
 
   async function updateCommitment(patch: Record<string, unknown>) {
@@ -104,11 +113,16 @@ export function CommitmentWorkspace({
       body: JSON.stringify(patch)
     });
     if (result?.task) {
+      // Commitment progress is derived from this same `tasks` state (see the `progress`
+      // useMemo below), so updating it here is what makes the progress bar move immediately.
+      // router.refresh() also runs so any other consumer of this page's server props (e.g. a
+      // back-navigation into this route) picks up the persisted change too.
       setTasks((current) =>
         current.map((task) =>
           task.id === taskId ? (result.task as MeetingTask) : task
         )
       );
+      router.refresh();
     }
   }
 
@@ -545,6 +559,7 @@ export function CommitmentWorkspace({
                         <select
                           className={`badge-state cursor-pointer border ${statusBadgeClassName(task.status)}`}
                           value={task.status}
+                          disabled={busy}
                           onChange={(event) => void updateTask(task.id, { status: event.target.value })}
                           aria-label={`Status for ${task.task}`}
                         >

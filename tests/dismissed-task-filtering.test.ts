@@ -168,6 +168,77 @@ test("9/17 (commitment workspace): a commitment whose only children are all dism
   assert.equal(progress.percent, 100);
 });
 
+// ============================================================
+// Commitment Workspace progress reactivity -- regression coverage for the bug where completing
+// a child task did not immediately move the parent commitment's progress indicator. The
+// workspace's `progress` value is a useMemo over the same `tasks` array that `updateTask`
+// replaces via `setTasks(current => current.map(...))`; these tests replay that exact
+// replace-one-element-by-id update against computeCommitmentProgress to prove the recalculated
+// total tracks the child task state on every toggle, not just on initial load.
+// ============================================================
+
+test("commitment workspace: completing one of 7 pending child tasks immediately moves progress from 0/7 (0%) to 1/7 (14%)", () => {
+  const parent = commitment({ id: "commitment-1" });
+  const children = Array.from({ length: 7 }, () =>
+    task({ status: "pending", commitment_id: "commitment-1" })
+  );
+
+  const before = computeCommitmentProgress(parent, children);
+  assert.deepEqual(before, { completed: 0, total: 7, percent: 0 });
+
+  // Mirrors CommitmentWorkspace.updateTask's setTasks(current => current.map(...)) after a
+  // successful PATCH response -- replace only the completed task, by id, in a new array.
+  const targetId = children[0].id;
+  const afterChildren = children.map((child) =>
+    child.id === targetId ? { ...child, status: "completed" as const } : child
+  );
+  const after = computeCommitmentProgress(parent, afterChildren);
+  assert.deepEqual(after, { completed: 1, total: 7, percent: 14 });
+});
+
+test("commitment workspace: completing another task moves progress from 3/7 to 4/7", () => {
+  const parent = commitment({ id: "commitment-1" });
+  const children = [
+    ...Array.from({ length: 3 }, () => task({ status: "completed", commitment_id: "commitment-1" })),
+    ...Array.from({ length: 4 }, () => task({ status: "pending", commitment_id: "commitment-1" }))
+  ];
+  assert.equal(computeCommitmentProgress(parent, children).completed, 3);
+
+  const targetId = children[3].id;
+  const afterChildren = children.map((child) =>
+    child.id === targetId ? { ...child, status: "completed" as const } : child
+  );
+  const after = computeCommitmentProgress(parent, afterChildren);
+  assert.equal(after.completed, 4);
+  assert.equal(after.total, 7);
+});
+
+test("commitment workspace: reopening a completed task decrements progress (4/7 -> 3/7, and 7/7 -> 6/7)", () => {
+  const parent = commitment({ id: "commitment-1" });
+  const children = [
+    ...Array.from({ length: 4 }, () => task({ status: "completed", commitment_id: "commitment-1" })),
+    ...Array.from({ length: 3 }, () => task({ status: "pending", commitment_id: "commitment-1" }))
+  ];
+  const targetId = children[0].id;
+  const reopened = children.map((child) =>
+    child.id === targetId ? { ...child, status: "pending" as const } : child
+  );
+  const afterReopen = computeCommitmentProgress(parent, reopened);
+  assert.equal(afterReopen.completed, 3);
+  assert.equal(afterReopen.total, 7);
+
+  const allCompleted = Array.from({ length: 7 }, () =>
+    task({ status: "completed", commitment_id: "commitment-1" })
+  );
+  assert.equal(computeCommitmentProgress(parent, allCompleted).percent, 100);
+  const oneReopened = allCompleted.map((child, index) =>
+    index === 0 ? { ...child, status: "pending" as const } : child
+  );
+  const progress = computeCommitmentProgress(parent, oneReopened);
+  assert.equal(progress.completed, 6);
+  assert.equal(progress.total, 7);
+});
+
 test("commitment workspace: dismissed child tasks are excluded from the rendered task list and owner groups", () => {
   const parent = commitment({ id: "commitment-1" });
   const dismissedChild = task({ status: "dismissed", commitment_id: "commitment-1", owner: "Jamileh Hamideh" });
