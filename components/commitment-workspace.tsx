@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CommitmentCorrectionMenu } from "@/components/commitment-correction-menu";
@@ -38,6 +38,21 @@ function mergedFragmentCount(task: MeetingTask): number {
   return Array.isArray(merged) ? merged.length : 0;
 }
 
+/** Matches TaskClarifications' bubble timestamp formatting so Ask Parfait looks like the same
+ * assistant system on both the Commitment and Task workspace. */
+function formatCommentTime(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+const ASK_PARFAIT_EXAMPLE_PROMPTS = [
+  "What's blocking this?",
+  "Who owns this next?",
+  "What should happen next?",
+  "Summarize progress so far"
+];
+
 export function CommitmentWorkspace({
   initialCommitment,
   initialTasks,
@@ -68,7 +83,9 @@ export function CommitmentWorkspace({
   const [newParticipant, setNewParticipant] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [confirmingMerge, setConfirmingMerge] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [mergeBusy, setMergeBusy] = useState(false);
@@ -298,20 +315,56 @@ export function CommitmentWorkspace({
     }
   }
 
-  async function sendMessage(event: React.FormEvent) {
-    event.preventDefault();
-    if (!message.trim()) return;
+  useEffect(() => {
+    const element = chatMessagesRef.current;
+    if (!element) return;
+    element.scrollTop = element.scrollHeight;
+  }, [comments, sending]);
+
+  async function submitMessage(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed || sending) return;
+
+    const optimisticComment: CommitmentComment = {
+      id: `optimistic-${Date.now()}`,
+      commitment_id: commitment.id,
+      user_id: null,
+      role: "user",
+      message: trimmed,
+      created_at: new Date().toISOString()
+    };
+    setSending(true);
+    setComments((current) => [...current, optimisticComment]);
+    setMessage("");
+
     const result = await request(`/api/commitments/${commitment.id}/comments`, {
       method: "POST",
-      body: JSON.stringify({ message: message.trim() })
+      body: JSON.stringify({ message: trimmed })
     });
+    setSending(false);
+
     if (result?.comments) {
       setComments((current) => [
-        ...current,
+        ...current.filter((item) => item.id !== optimisticComment.id),
         ...(result.comments as CommitmentComment[])
       ]);
-      setMessage("");
+    } else {
+      // The request failed -- request() already surfaced an error message, so just drop the
+      // optimistic bubble and give the user their draft back rather than leaving a stuck message.
+      setComments((current) => current.filter((item) => item.id !== optimisticComment.id));
+      setMessage(trimmed);
     }
+  }
+
+  function sendMessage(event: React.FormEvent) {
+    event.preventDefault();
+    void submitMessage(message);
+  }
+
+  function handleChatInputKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    void submitMessage(message);
   }
 
   return (
@@ -815,49 +868,117 @@ export function CommitmentWorkspace({
 
       <section className="premium-card p-5">
         <h2 className="text-lg font-semibold text-slate-950">Ask Parfait</h2>
-        <div className="mt-4 max-h-72 space-y-3 overflow-y-auto">
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          Ask about blockers, sequencing, or the next action.
+        </p>
+
+        <div ref={chatMessagesRef} className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">
+          {comments.length === 0 ? (
+            <div className="space-y-4 py-4 text-center">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-50 text-lg text-brand-700">
+                ✦
+              </div>
+              <p className="mx-auto max-w-xs text-sm leading-6 text-slate-600">
+                Ask Parfait about blockers, sequencing, or what to do next on this commitment.
+              </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {ASK_PARFAIT_EXAMPLE_PROMPTS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => setMessage(prompt)}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-left text-xs font-medium text-slate-600 transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {comments.map((comment) => {
+            const time = formatCommentTime(comment.created_at);
+
             // System entries (e.g. "Report incorrect extraction") are notes about the
             // commitment, not a conversational turn -- kept visually distinct from both the
             // user's own messages and Parfait's replies (see Ask Parfait comment-role audit).
             if (comment.role === "system") {
               return (
-                <p
-                  key={comment.id}
-                  className="mx-auto max-w-[90%] rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs leading-5 text-slate-500"
-                >
-                  <span className="font-semibold uppercase tracking-wide text-slate-400">
-                    System:{" "}
-                  </span>
-                  {comment.message}
-                </p>
+                <div key={comment.id} className="flex justify-center">
+                  <p className="max-w-[90%] rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs leading-5 text-slate-500">
+                    <span className="font-semibold uppercase tracking-wide text-slate-400">
+                      System{time ? ` · ${time}` : ""}:{" "}
+                    </span>
+                    {comment.message}
+                  </p>
+                </div>
               );
             }
+
+            const isUser = comment.role === "user";
             return (
-              <div
-                key={comment.id}
-                className={`rounded-xl p-3 text-sm ${
-                  comment.role === "user"
-                    ? "ml-8 bg-brand-50 text-brand-950"
-                    : "mr-8 bg-slate-50 text-slate-700"
-                }`}
-              >
-                {comment.message}
+              <div key={comment.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[88%] ${isUser ? "text-right" : "text-left"}`}>
+                  <p
+                    className={`mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide ${
+                      isUser ? "text-brand-700" : "text-slate-400"
+                    }`}
+                  >
+                    {isUser ? "You" : "Parfait"}
+                    {time ? ` · ${time}` : ""}
+                  </p>
+                  <div
+                    className={`whitespace-pre-wrap rounded-2xl px-3 py-2.5 text-sm leading-5 shadow-sm ${
+                      isUser
+                        ? "rounded-br-md bg-brand-700 text-white"
+                        : "rounded-bl-md border border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    {comment.message}
+                  </div>
+                </div>
               </div>
             );
           })}
+
+          {sending ? (
+            <div className="flex justify-start">
+              <div>
+                <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Parfait
+                </p>
+                <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-slate-200 bg-white px-3 py-3 shadow-sm">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-400 [animation-delay:150ms]" />
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-300 [animation-delay:300ms]" />
+                  <span className="ml-1 text-xs text-slate-500">Thinking</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
-        <form onSubmit={sendMessage} className="mt-4 flex gap-2">
+
+        <form onSubmit={sendMessage} className="mt-4 flex items-end gap-2">
           <textarea
-            className="premium-input min-h-16"
+            className="premium-input max-h-[7.5rem] min-h-11 flex-1 resize-none py-2.5 text-sm"
             value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            placeholder="Ask about blockers, sequencing, or the next action…"
+            onChange={(event) => {
+              setMessage(event.target.value);
+              event.target.style.height = "auto";
+              event.target.style.height = `${Math.min(event.target.scrollHeight, 120)}px`;
+            }}
+            onKeyDown={handleChatInputKeyDown}
+            rows={1}
+            disabled={sending}
+            placeholder="Ask Parfait about this commitment…"
           />
-          <button className="premium-button" disabled={busy || !message.trim()}>
-            Send
+          <button className="premium-button h-11 px-4 text-xs" disabled={sending || !message.trim()}>
+            {sending ? "Sending..." : "Send"}
           </button>
         </form>
+        <p className="mt-2 text-center text-[10px] text-slate-400">
+          Enter to send · Shift+Enter for a new line
+        </p>
         {error ? <p className="mt-3 text-sm text-rose-700">{error}</p> : null}
       </section>
     </div>

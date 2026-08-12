@@ -7,6 +7,7 @@ import {
   ProjectBrainLauncher,
   ProjectBrainPanel
 } from "@/components/project-brain-panel";
+import { formatReadableDateTime } from "@/lib/format-date";
 import {
   buildProjectExecutionModel,
   computeCommitmentProgress
@@ -374,7 +375,7 @@ export default async function ProjectPage({
               </p>
               <p className="mt-0.5 text-xs text-slate-500">
                 {event.entity_type.replaceAll("_", " ")} ·{" "}
-                {new Date(event.created_at).toLocaleString()}
+                {formatReadableDateTime(event.created_at)}
               </p>
             </article>
           ))}

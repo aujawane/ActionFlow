@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import { MeetingLibrary } from "@/components/meeting-library";
 import { StartMeetingPanel } from "@/components/start-meeting-panel";
 import { requireUser } from "@/lib/auth";
@@ -51,20 +49,14 @@ export default async function DashboardPage() {
 
   return (
     <section className="space-y-6">
-      <div className="premium-card flex flex-wrap items-center justify-between gap-4 p-6">
-        <div>
-          <p className="text-sm font-semibold text-brand-700">
-            {getTimeOfDayGreeting()}, {firstName}
-          </p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Meetings</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Browse and manage your meetings. Execution work they create lives on Projects.
-          </p>
-          <p className="mt-1 text-xs text-slate-500">Logged in as {user.email}</p>
-        </div>
-        <Link href="/meetings/new" className="premium-button">
-          Add Meeting
-        </Link>
+      <div className="premium-card p-6">
+        <p className="text-sm font-semibold text-brand-700">
+          {getTimeOfDayGreeting()}, {firstName}
+        </p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Meetings</h1>
+        <p className="mt-1 text-sm text-slate-600">
+          Browse and manage your meetings. Execution work they create lives on Projects.
+        </p>
       </div>
 
       {/* Meeting counts, not execution metrics -- kept as one quiet line rather than three

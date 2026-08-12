@@ -47,8 +47,8 @@ export function IdeasRequirementsPanel({
       <div>
         <h2 className="text-lg font-semibold text-slate-950">Future Scope</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Discussed items that are not currently committed execution work. These do
-          not count toward action-item totals, owner workload, or follow-up emails.
+          Discussed, not currently committed. These do not count toward task totals,
+          owner workload, or follow-up emails.
         </p>
       </div>
 

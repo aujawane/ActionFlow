@@ -118,7 +118,7 @@ test("buildFallbackCategorization returns safe defaults", () => {
     confidence: 0,
     reason: "Categorization unavailable; using safe defaults.",
     missing_info: [],
-    suggested_button_label: "Do it for me"
+    suggested_button_label: "Create next steps"
   });
 });
 

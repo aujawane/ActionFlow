@@ -413,11 +413,21 @@ export function TaskExecutionPanel({
         <h2 className="text-base font-semibold text-slate-950">Accept this deliverable?</h2>
         {acceptTarget && task ? (
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            This will mark:
-            <br />
-            <span className="font-semibold text-slate-900">&ldquo;{task.task}&rdquo;</span>
-            <br />
-            as completed.
+            {task.status === "completed" ? (
+              <>
+                <span className="font-semibold text-slate-900">&ldquo;{task.task}&rdquo;</span>{" "}
+                is already completed by another accepted deliverable. Accepting this one keeps
+                it completed.
+              </>
+            ) : (
+              <>
+                This will mark:
+                <br />
+                <span className="font-semibold text-slate-900">&ldquo;{task.task}&rdquo;</span>
+                <br />
+                as completed.
+              </>
+            )}
           </p>
         ) : null}
         <ModalActions>

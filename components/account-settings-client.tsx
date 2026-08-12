@@ -216,13 +216,6 @@ export function AccountSettingsClient({
               >
                 Change Password
               </button>
-              <button
-                type="button"
-                onClick={() => setPasswordModalOpen(true)}
-                className="secondary-button"
-              >
-                View Password
-              </button>
             </div>
           </section>
         </div>

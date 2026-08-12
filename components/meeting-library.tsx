@@ -143,8 +143,8 @@ export function MeetingLibrary({ initialMeetings }: { initialMeetings: Meeting[]
         </div>
         <p className="mt-4 text-base font-semibold text-slate-900">No meetings yet</p>
         <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
-          Create your first meeting to start ingesting transcript events and extracting action
-          items.
+          Create your first meeting and Parfait will capture commitments, tasks, and next steps
+          automatically.
         </p>
         <Link href="/meetings/new" className="premium-button mt-5">
           Create First Meeting

@@ -14,7 +14,7 @@ export const MILESTONE_OPERATION_TYPES = new Set<ProjectChangeOperation["type"]>
 
 export type ProjectBrainOperationGroup =
   | "Project Context"
-  | "Milestones"
+  | "Commitments"
   | "Tasks"
   | "People"
   | "Requirements and Decisions"
@@ -29,7 +29,7 @@ export function operationGroup(
   ) {
     return "Project Context";
   }
-  if (MILESTONE_OPERATION_TYPES.has(operation.type)) return "Milestones";
+  if (MILESTONE_OPERATION_TYPES.has(operation.type)) return "Commitments";
   if (
     operation.type === "create_task" ||
     operation.type === "update_task" ||

@@ -4,15 +4,19 @@ export default function GlobalError({
   error,
   reset
 }: {
-  error: Error;
+  error: Error & { digest?: string };
   reset: () => void;
 }) {
   return (
     <div className="mx-auto max-w-xl rounded-xl border border-rose-200 bg-rose-50 p-6">
       <h2 className="text-lg font-semibold text-rose-800">Something went wrong</h2>
       <p className="mt-2 text-sm text-rose-700">
-        {error.message || "Unexpected error while rendering this page."}
+        Parfait ran into an unexpected error loading this page. Try again, or come back in a
+        moment.
       </p>
+      {error.digest ? (
+        <p className="mt-2 text-xs text-rose-500">Reference: {error.digest}</p>
+      ) : null}
       <button
         type="button"
         onClick={() => reset()}

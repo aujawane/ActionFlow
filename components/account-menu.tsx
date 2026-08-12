@@ -17,6 +17,7 @@ export function AccountMenu({ fullName, email, initials }: AccountMenuProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -30,6 +31,7 @@ export function AccountMenu({ fullName, email, initials }: AccountMenuProps) {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setOpen(false);
+        buttonRef.current?.focus();
       }
     }
 
@@ -52,6 +54,7 @@ export function AccountMenu({ fullName, email, initials }: AccountMenuProps) {
   return (
     <div ref={menuRef} className="relative">
       <button
+        ref={buttonRef}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}

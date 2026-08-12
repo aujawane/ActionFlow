@@ -161,28 +161,8 @@ export default async function MeetingDetailPage({
     )
   ).sort((a, b) => a.localeCompare(b));
 
-  if (process.env.NODE_ENV !== "production") {
-    console.info("[meeting-detail] fetched tasks:", {
-      meetingId: id,
-      count: safeTasks.length,
-      tasks: safeTasks.map((task) => ({
-        id: task.id,
-        task: task.task,
-        topic_id: task.topic_id
-      }))
-    });
-    console.info("[meeting-detail] fetched topics:", {
-      meetingId: id,
-      count: typedTopics.length,
-      topics: typedTopics.map((topic) => ({
-        id: topic.id,
-        title: topic.title
-      }))
-    });
-
-    if (tasksError && !tasksMissingTable) {
-      console.error("[meeting-detail] meeting_tasks fetch error:", tasksError);
-    }
+  if (tasksError && !tasksMissingTable) {
+    console.error("[meeting-detail] meeting_tasks fetch error:", tasksError);
   }
 
   const meetingWithOptionalError = meeting as typeof meeting & {
@@ -287,9 +267,7 @@ export default async function MeetingDetailPage({
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Some data sections could not be loaded. Try refreshing this page.
           {tasksError && !tasksMissingTable ? (
-            <span className="mt-1 block text-xs">
-              Action items failed to load: {tasksError.message}
-            </span>
+            <span className="mt-1 block text-xs">Tasks failed to load. Please refresh.</span>
           ) : null}
         </div>
       )}
@@ -371,11 +349,7 @@ export default async function MeetingDetailPage({
             Topics and supporting analysis
           </summary>
           <div className="mt-5">
-            <TopicResults
-              topics={typedTopics}
-              insights={insights ?? []}
-              tasks={[]}
-            />
+            <TopicResults topics={typedTopics} insights={insights ?? []} />
             {typedTopics.length === 0 ? (
               <div className="mt-4">
                 <InsightsPanel

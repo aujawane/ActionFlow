@@ -452,6 +452,6 @@ test("workspace includes responsive chat, review controls, retry, memory, and ac
   assert.match(component, /Invalid JSON syntax/);
   assert.match(review, /Tasks affected/);
   assert.match(review, /Manual edits preserved/);
-  assert.match(review, /Affected milestone/);
+  assert.match(review, /Affected commitment/);
   assert.match(review, /MEMORY_LABELS/);
 });

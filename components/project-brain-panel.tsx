@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ProjectBrainOperationReview } from "@/components/project-brain-operation-review";
+import { formatReadableDate } from "@/lib/format-date";
 import type {
   Project,
   ProjectChangeProposal,
@@ -27,7 +28,7 @@ const suggestions = [
   "Describe this project",
   "Clarify the MVP",
   "Update the project scope",
-  "Reorganize milestones",
+  "Reorganize commitments",
   "Record completed work",
   "Add a project constraint"
 ];
@@ -601,7 +602,7 @@ export function ProjectBrainPanel({
                       {source ? `Source: ${source.replaceAll("_", " ")}` : "No confirmed source"}
                       {` · ${confirmed ? "User-confirmed" : "AI-inferred"}`}
                       {memory?.updated_at
-                        ? ` · Updated ${new Date(memory.updated_at).toLocaleDateString()}`
+                        ? ` · Updated ${formatReadableDate(memory.updated_at)}`
                         : ""}
                     </p>
                     <button

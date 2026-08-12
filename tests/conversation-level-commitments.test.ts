@@ -320,5 +320,8 @@ test("participant persistence and workspace/meeting UI preserve requested bounda
   assert.match(workspace, /href=\{`\/tasks\/\$\{task\.id\}` as Route\}/);
   assert.doesNotMatch(meetingPage, /<ExecutionDashboard/);
   assert.match(meetingPage, /<StandaloneTasksPanel tasks=\{partitioned\.standaloneTasks\}/);
-  assert.match(meetingPage, /tasks=\{\[\]\}/);
+  // TopicResults no longer accepts a tasks prop at all (Phase 8 removed the always-empty,
+  // never-rendering ActionItemsPanel it used to feed) -- tasks stay scoped to the Commitments/
+  // Standalone Tasks/Future Scope panels above, never duplicated into the Topics disclosure.
+  assert.match(meetingPage, /<TopicResults topics=\{typedTopics\} insights=\{insights \?\? \[\]\} \/>/);
 });

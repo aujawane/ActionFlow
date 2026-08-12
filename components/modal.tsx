@@ -14,12 +14,17 @@ export function Modal({
   open,
   title,
   onClose,
-  children
+  children,
+  variant = "dialog"
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  /** "dialog" (default): centered card, used by every confirmation/form dialog. "drawer": panel
+   * pinned to the left edge, full height -- reused by MobileNav so the slide-over gets the same
+   * focus trap/scroll-lock/Escape/restoration behavior without duplicating it. */
+  variant?: "dialog" | "drawer";
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -78,6 +83,27 @@ export function Modal({
   }, [open, onClose]);
 
   if (!open) return null;
+
+  if (variant === "drawer") {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-stretch justify-start bg-slate-950/40"
+        onClick={onClose}
+      >
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          tabIndex={-1}
+          onClick={(event) => event.stopPropagation()}
+          className="h-full w-72 max-w-[80vw] overflow-y-auto bg-white p-5 shadow-2xl outline-none"
+        >
+          {children}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

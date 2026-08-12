@@ -7,3 +7,18 @@ export function formatReadableDate(value: string | null | undefined): string | n
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
+
+/** Same convention as formatReadableDate, plus a time-of-day, for timestamps where same-day
+ * ordering matters (e.g. an activity/change log where several events can land on one date). */
+export function formatReadableDateTime(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}

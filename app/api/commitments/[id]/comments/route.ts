@@ -30,7 +30,7 @@ export async function GET(
     .order("created_at", { ascending: true });
   if (error) {
     return NextResponse.json(
-      { error: "Failed to load milestone chat.", details: error.message },
+      { error: "Failed to load commitment chat.", details: error.message },
       { status: 500 }
     );
   }
@@ -95,12 +95,12 @@ export async function POST(
         {
           role: "system",
           content:
-            "You are Parfait, helping execute one project milestone. Answer concisely using the milestone, its tasks, evidence, and conversation. Identify blockers and the next concrete action. Do not claim to edit data."
+            "You are Parfait, helping execute one commitment. Answer concisely using the commitment, its tasks, evidence, and conversation. Identify blockers and the next concrete action. Do not claim to edit data."
         },
         {
           role: "user",
           content: JSON.stringify({
-            milestone: commitment,
+            commitment,
             tasks: tasks ?? [],
             conversation: history ?? [],
             latest_message: parsed.data.message

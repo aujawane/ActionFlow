@@ -2,9 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { ActionItemsPanel } from "@/components/action-items-panel";
 import { InsightsPanel } from "@/components/insights-panel";
-import type { ExtractedInsight, MeetingTask, MeetingTopic } from "@/lib/types";
+import type { ExtractedInsight, MeetingTopic } from "@/lib/types";
 
 function formatConfidence(confidence: number | null) {
   if (confidence === null || Number.isNaN(confidence)) return "N/A";
@@ -13,12 +12,10 @@ function formatConfidence(confidence: number | null) {
 
 export function TopicResults({
   topics,
-  insights,
-  tasks = []
+  insights
 }: {
   topics: MeetingTopic[];
   insights: ExtractedInsight[];
-  tasks?: MeetingTask[];
 }) {
   const sortedTopics = useMemo(() => {
     return [...topics].sort(
@@ -80,22 +77,7 @@ export function TopicResults({
       <div className="space-y-4">
         {sortedTopics.map((topic) => {
           const topicInsights = insights.filter((item) => item.topic_id === topic.id);
-          const topicId = String(topic.id);
-          const topicTasks = tasks.filter((item) => String(item.topic_id) === topicId);
           const isExpanded = expandedTopicIds.has(topic.id);
-
-          if (process.env.NODE_ENV !== "production") {
-            console.info("[topic-results] topic task filter:", {
-              topic_id: topic.id,
-              title: topic.title,
-              taskCount: topicTasks.length,
-              tasks: topicTasks.map((task) => ({
-                id: task.id,
-                task: task.task,
-                topic_id: task.topic_id
-              }))
-            });
-          }
 
           return (
             <article
@@ -128,12 +110,7 @@ export function TopicResults({
                 ) : null}
               </div>
 
-              {isExpanded ? (
-                <>
-                  <InsightsPanel insights={topicInsights} />
-                  <ActionItemsPanel tasks={topicTasks} />
-                </>
-              ) : null}
+              {isExpanded ? <InsightsPanel insights={topicInsights} /> : null}
             </article>
           );
         })}

@@ -43,7 +43,10 @@ export async function GET(request: Request) {
   if (oauthError) {
     return redirectToIntegrations(request, {
       google: "error",
-      message: oauthError
+      message:
+        oauthError === "access_denied"
+          ? "Google connection was cancelled."
+          : "Google connection failed. Please try again."
     });
   }
 
@@ -99,9 +102,13 @@ export async function GET(request: Request) {
 
     return redirectToIntegrations(request, { google: "connected" });
   } catch (error) {
+    console.error("[google-integration-callback] connection failed", {
+      userId: auth.user.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
     return redirectToIntegrations(request, {
       google: "error",
-      message: error instanceof Error ? error.message : "Google connection failed."
+      message: "Google connection failed. Please try again."
     });
   }
 }

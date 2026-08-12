@@ -68,7 +68,7 @@ export const DELIVERABLE_BUTTON_LABELS: Record<TaskDeliverableType, string> = {
   action_plan: "Create plan",
   analysis_summary: "Create summary",
   document_draft: "Draft document",
-  generic_next_steps: "Do it for me"
+  generic_next_steps: "Create next steps"
 };
 
 export const DELIVERABLE_PANEL_TITLES: Record<TaskDeliverableType, string> = {

@@ -14,7 +14,7 @@ import type { ProjectChangeOperation } from "@/lib/project-brain/schemas";
 
 const GROUP_ORDER: ProjectBrainOperationGroup[] = [
   "Project Context",
-  "Milestones",
+  "Commitments",
   "Tasks",
   "People",
   "Requirements and Decisions",
@@ -159,7 +159,7 @@ function operationDetails(
   if (operation.type === "create_milestone") {
     return (
       <DiffBlock
-        label="Milestone"
+        label="Commitment"
         current={null}
         proposed={{
           title: operation.title,
@@ -184,7 +184,7 @@ function operationDetails(
     return (
       <div className="space-y-2">
         <p className="text-sm font-semibold text-slate-900">
-          {milestone?.title ?? "Milestone"}
+          {milestone?.title ?? "Commitment"}
         </p>
         {Object.entries(changes).map(([field, proposed]) => (
           <DiffBlock
@@ -269,7 +269,7 @@ function operationDetails(
     );
     return (
       <DiffBlock
-        label={milestone?.title ?? "Milestone"}
+        label={milestone?.title ?? "Commitment"}
         current={`${titleCase(milestone?.status ?? "active")} · ${
           milestone?.priority ?? "medium"
         } priority`}
@@ -287,7 +287,7 @@ function operationDetails(
         current={null}
         proposed={{
           title: operation.title,
-          milestone: milestone?.title ?? "Selected milestone",
+          commitment: milestone?.title ?? "Selected commitment",
           owner: operation.ownerName ?? "Unassigned",
           priority: operation.priority
         }}
@@ -303,8 +303,8 @@ function operationDetails(
     return (
       <DiffBlock
         label={task?.task ?? "Task"}
-        current={currentMilestone?.title ?? "No milestone"}
-        proposed={target?.title ?? "Selected milestone"}
+        current={currentMilestone?.title ?? "No commitment"}
+        proposed={target?.title ?? "Selected commitment"}
       />
     );
   }
@@ -352,8 +352,8 @@ function operationDetails(
           proposed={proposed}
         />
         <p className="text-xs text-slate-500">
-          <span className="font-semibold">Affected milestone:</span>{" "}
-          {milestone?.title ?? "No milestone"}
+          <span className="font-semibold">Affected commitment:</span>{" "}
+          {milestone?.title ?? "No commitment"}
         </p>
       </div>
     );
@@ -562,7 +562,8 @@ export function ProjectBrainOperationReview({
                         Advanced technical details
                       </summary>
                       <p className="mt-2 text-xs text-slate-500">
-                        Developer feature. Changes are validated before approval.
+                        Advanced: edit the underlying change directly. Changes are validated
+                        before approval.
                       </p>
                       <textarea
                         className="premium-input mt-2 min-h-40 font-mono text-xs"
