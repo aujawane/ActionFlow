@@ -40,6 +40,7 @@ import {
   type PreparedMeetingAnalysis
 } from "@/lib/meeting-analysis/topics";
 import { categorizeMeetingTasksBestEffort } from "@/lib/task-categorization-batch";
+import { runDependencyInferenceBestEffort } from "@/lib/task-dependency-inference-batch";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
@@ -259,6 +260,22 @@ export async function runMeetingAnalysisStage(input: {
         });
       } catch (error) {
         console.warn("[meeting-analysis] Task categorization failed:", error);
+      }
+
+      // Dependency inference enrichment -- runs once, after the canonical current commitment/
+      // task graph is fully persisted. Best-effort/non-throwing by design (see
+      // runDependencyInferenceBestEffort): a failure here must never fail the analysis job.
+      try {
+        await runDependencyInferenceBestEffort({
+          commitments: persisted.commitments,
+          tasks: persisted.tasks,
+          meetingContextByTopicId: new Map(
+            checkpoint.prepared.meetingContextByTopicId
+          ),
+          currentGeneration: input.generation
+        });
+      } catch (error) {
+        console.warn("[meeting-analysis] Task dependency inference failed:", error);
       }
     }
 

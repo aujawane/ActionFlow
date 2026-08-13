@@ -120,13 +120,19 @@ export async function POST(
     )
   });
 
+  // apply_project_change_proposal_with_dependency_provenance atomically applies the proposal
+  // AND marks manual dependency provenance for any approved add_dependency/remove_dependency
+  // operations in one Postgres function invocation -- see the migration comment for why this
+  // must not be two separate calls (a failure between them could leave a human-approved
+  // dependency decision readable as AI-unlocked). The existing, untouched
+  // apply_project_change_proposal is still what it calls internally.
   const { data, error } = identityValidation?.ok
     ? await supabaseAdmin.rpc("apply_project_person_correction", {
         p_proposal_id: proposalId,
         p_actor_id: auth.user.id,
         p_operation: identityValidation.operation
       })
-    : await supabaseAdmin.rpc("apply_project_change_proposal", {
+    : await supabaseAdmin.rpc("apply_project_change_proposal_with_dependency_provenance", {
         p_proposal_id: proposalId,
         p_actor_id: auth.user.id,
         p_operations: operationsForApply

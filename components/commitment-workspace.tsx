@@ -33,6 +33,18 @@ import type {
   TaskDependency
 } from "@/lib/types";
 
+/** A task's CURRENT dependency is AI-authored exactly when no human has ever touched this
+ * task's dependency selection -- see app/api/tasks/[id]/dependencies/route.ts, which marks
+ * "dependencies" in manual_override_fields the moment a person uses the picker below (add,
+ * change, or remove). That single flag is deliberately coarse (per-task, not per-edge): once a
+ * human decides, AI dependency inference never touches this task's dependencies again. */
+function isAiInferredDependency(task: MeetingTask): boolean {
+  return !(
+    Array.isArray(task.manual_override_fields) &&
+    task.manual_override_fields.includes("dependencies")
+  );
+}
+
 function mergedFragmentCount(task: MeetingTask): number {
   const metadata = task.extraction_metadata;
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return 0;
@@ -478,6 +490,7 @@ export function CommitmentWorkspace({
               commitment={commitment}
               hasActiveChildren={getActiveChildTasks(commitment, tasks).length > 0}
               onCommitmentUpdated={setCommitment}
+              onDependenciesRefreshed={setDependencies}
             />
           </div>
         </div>
@@ -789,6 +802,18 @@ export function CommitmentWorkspace({
                             ))}
                         </select>
                       </div>
+                      {/* AI dependency inference is the default; the picker above is always the
+                          human override. Deliberately quiet -- a small secondary note, not a
+                          loud badge -- and only shown while the current dependency is still
+                          AI-authored (see isAiInferredDependency). */}
+                      {dependency && isAiInferredDependency(task) ? (
+                        <p
+                          className="mt-1 text-[10px] text-slate-400"
+                          title="Parfait inferred this dependency automatically. Change or remove it above at any time."
+                        >
+                          AI inferred
+                        </p>
+                      ) : null}
 
                       <div className="mt-1.5 flex justify-end gap-0.5">
                         <button
