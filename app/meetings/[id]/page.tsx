@@ -7,6 +7,7 @@ import { LiveMeetingStatusBadge } from "@/components/live-meeting-status-badge";
 import { LiveTranscript } from "@/components/live-transcript";
 import { MeetingActions } from "@/components/meeting-actions";
 import { MeetingAnalysisStatusPanel } from "@/components/meeting-analysis-status";
+import { MeetingAssistantPanel } from "@/components/meeting-assistant-panel";
 import { MeetingProjectAssignment } from "@/components/meeting-project-assignment";
 import { SpeakerMappingPanel } from "@/components/speaker-mapping-panel";
 import { StandaloneTasksPanel } from "@/components/standalone-tasks-panel";
@@ -190,6 +191,44 @@ export default async function MeetingDetailPage({
     currentGeneration: meeting.execution_graph_generation ?? null
   });
 
+  // Cheap, bounded lookup solely to decide which "Ask Parfait" suggestion chips are relevant --
+  // never triggers an OpenAI call just to render the drawer (see MeetingAssistantPanel).
+  const executionTaskIds = [...partitioned.linkedExecutionTasks, ...partitioned.standaloneTasks].map(
+    (task) => task.id
+  );
+  const { data: dependencyRows } = executionTaskIds.length
+    ? await supabaseAdmin.from("task_dependencies").select("*").in("task_id", executionTaskIds)
+    : { data: [] };
+  const taskById = new Map(safeTasks.map((task) => [task.id, task]));
+  const hasBlockedTasks = (dependencyRows ?? []).some((dependency) => {
+    const prerequisite = taskById.get(dependency.depends_on_task_id);
+    return prerequisite && prerequisite.status !== "completed";
+  });
+  const distinctOwners = new Set(
+    [...partitioned.linkedExecutionTasks, ...partitioned.standaloneTasks]
+      .map((task) => task.owner?.trim())
+      .filter((owner): owner is string => Boolean(owner))
+  );
+  const hasIncompleteWork =
+    partitioned.activeCommitments.some((commitment) => commitment.status !== "completed") ||
+    executionTaskIds.some((taskId) => taskById.get(taskId)?.status !== "completed");
+  const meetingAnalyzed =
+    partitioned.activeCommitments.length > 0 || executionTaskIds.length > 0;
+
+  const assistantSuggestions: string[] = [];
+  if (meetingAnalyzed) {
+    assistantSuggestions.push("Summarize this meeting", "Who owns what?");
+    if (hasBlockedTasks) assistantSuggestions.push("What's blocked?");
+    if (distinctOwners.size >= 2) assistantSuggestions.push("Summarize work by owner");
+    if (partitioned.activeCommitments.length > 0) {
+      assistantSuggestions.push("Draft team follow-up email");
+    }
+    if (distinctOwners.size >= 2) assistantSuggestions.push("Draft emails by owner");
+    if (hasIncompleteWork) assistantSuggestions.push("Create next-meeting agenda");
+  } else if ((segments ?? []).length > 0) {
+    assistantSuggestions.push("Summarize this meeting", "What did we discuss?");
+  }
+
   const meetingDateLabel = formatReadableDate(meeting.created_at);
 
   return (
@@ -282,10 +321,12 @@ export default async function MeetingDetailPage({
 
       {/* Meeting-level operational utilities (queue analysis, sync status, reimport transcript)
           and the current analysis state -- these are page-level controls, not evidence content,
-          so they live near the top rather than inside Evidence & Analysis below. Both components
-          are already self-compacting (MeetingAnalysisStatusPanel collapses to one line once
-          analysis is complete), so this stays a quiet utility row rather than a hero section. */}
-      <div className="flex flex-wrap items-start gap-4">
+          so they live near the top rather than inside Evidence & Analysis below, and stay full
+          width above the two-column execution/assistant workspace. Both components are already
+          self-compacting (MeetingAnalysisStatusPanel collapses to one line once analysis is
+          complete), so `justify-between` keeps the row feeling intentional (actions left, status
+          right) instead of controls floating loosely in empty space. */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <MeetingActions
           meetingId={meeting.id}
           showDevReimport={process.env.NODE_ENV === "development"}
@@ -298,92 +339,113 @@ export default async function MeetingDetailPage({
         />
       </div>
 
-      {/* Speaker resolution: a compact callout when identities are unresolved (affects
-          ownership accuracy), collapsed by default either way -- see SpeakerMappingPanel. */}
-      <SpeakerMappingPanel meetingId={meeting.id} initialSpeakers={speakerRoster} />
+      {/* Two-column workspace: meeting execution content on the left, Ask Parfait on the right.
+          A single `grid` (not `xl:grid`) so CSS `order` on MeetingAssistantPanel already takes
+          effect below xl too -- on narrower screens this collapses to one column and the
+          assistant's trigger surfaces first (see its own order-first/xl:order-none classes),
+          while at xl+ the explicit two-column template seats it as a persistent right rail
+          beside the main column. main column keeps `xl:min-w-0` so long content wraps instead of
+          forcing the grid track wider than its 400px-ish assistant sibling. */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_400px] xl:items-start">
+        <div className="space-y-6 xl:min-w-0">
+          {/* Speaker resolution: a compact callout when identities are unresolved (affects
+              ownership accuracy), collapsed by default either way -- see SpeakerMappingPanel. */}
+          <SpeakerMappingPanel meetingId={meeting.id} initialSpeakers={speakerRoster} />
 
-      {/* 2. Compact execution summary -- execution-oriented counts only. Transcript/topic/
-          insight processing metrics moved to Meeting Intelligence below. */}
-      <div className="premium-card grid grid-cols-2 divide-y divide-slate-100 sm:grid-cols-4 sm:divide-y-0 sm:divide-x">
-        {[
-          ["Active Commitments", partitioned.activeCommitments.length],
-          ["Linked Tasks", partitioned.linkedExecutionTasks.length],
-          ["Standalone Tasks", partitioned.standaloneTasks.length],
-          ["Future Scope", partitioned.ideaCommitments.length + partitioned.ideaTasks.length]
-        ].map(([label, value]) => (
-          <div key={label as string} className="p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
-            <p className="mt-1.5 text-xl font-semibold text-slate-900">{value}</p>
+          {/* 2. Compact execution summary -- execution-oriented counts only. Transcript/topic/
+              insight processing metrics moved to Meeting Intelligence below. */}
+          <div className="premium-card grid grid-cols-2 divide-y divide-slate-100 sm:grid-cols-4 sm:divide-y-0 sm:divide-x">
+            {[
+              ["Active Commitments", partitioned.activeCommitments.length],
+              ["Linked Tasks", partitioned.linkedExecutionTasks.length],
+              ["Standalone Tasks", partitioned.standaloneTasks.length],
+              ["Future Scope", partitioned.ideaCommitments.length + partitioned.ideaTasks.length]
+            ].map(([label, value]) => (
+              <div key={label as string} className="p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  {label}
+                </p>
+                <p className="mt-1.5 text-xl font-semibold text-slate-900">{value}</p>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* 3. Commitments -- the primary output of the meeting. */}
-      <CommitmentsPanel
-        commitments={partitioned.activeCommitments}
-        tasks={partitioned.linkedExecutionTasks}
-      />
+          {/* 3. Commitments -- the primary output of the meeting. */}
+          <CommitmentsPanel
+            commitments={partitioned.activeCommitments}
+            tasks={partitioned.linkedExecutionTasks}
+          />
 
-      {/* 4. Standalone tasks -- actionable, but not part of a larger commitment. */}
-      <StandaloneTasksPanel
-        tasks={partitioned.standaloneTasks}
-        meetingParticipantOptions={meetingParticipantOptions}
-      />
+          {/* 4. Standalone tasks -- actionable, but not part of a larger commitment. */}
+          <StandaloneTasksPanel
+            tasks={partitioned.standaloneTasks}
+            meetingParticipantOptions={meetingParticipantOptions}
+          />
 
-      {/* 5. Future scope -- discussed, not committed. */}
-      <IdeasRequirementsPanel
-        commitments={partitioned.ideaCommitments}
-        tasks={partitioned.ideaTasks}
-      />
+          {/* 5. Future scope -- discussed, not committed. */}
+          <IdeasRequirementsPanel
+            commitments={partitioned.ideaCommitments}
+            tasks={partitioned.ideaTasks}
+          />
 
-      {/* 6. Meeting Intelligence / Evidence -- supporting analysis only (topic breakdown,
-          transcript, pipeline metrics), after execution results, via progressive disclosure.
-          Meeting-level operational controls (Meeting Actions, analysis status) live near the
-          top of the page instead -- they're utilities, not evidence content. */}
-      <section className="space-y-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Meeting Intelligence
-          </p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-950">Evidence &amp; Analysis</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Supporting analysis behind Parfait&apos;s interpretation of this meeting.
-          </p>
-          <p className="badge-internal mt-2">
-            {(segments ?? []).length} transcript segments · {typedTopics.length} topics ·{" "}
-            {(insights ?? []).length} insights
-          </p>
-        </div>
+          {/* 6. Meeting Intelligence / Evidence -- supporting analysis only (topic breakdown,
+              transcript, pipeline metrics), after execution results, via progressive disclosure.
+              Meeting-level operational controls (Meeting Actions, analysis status) live near the
+              top of the page instead -- they're utilities, not evidence content. */}
+          <section className="space-y-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Meeting Intelligence
+              </p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                Evidence &amp; Analysis
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Supporting analysis behind Parfait&apos;s interpretation of this meeting.
+              </p>
+              <p className="badge-internal mt-2">
+                {(segments ?? []).length} transcript segments · {typedTopics.length} topics ·{" "}
+                {(insights ?? []).length} insights
+              </p>
+            </div>
 
-        <details className="premium-card p-5">
-          <summary className="cursor-pointer font-semibold text-slate-950">
-            Topics and supporting analysis
-          </summary>
-          <div className="mt-5">
-            <TopicResults topics={typedTopics} insights={insights ?? []} />
-            {typedTopics.length === 0 ? (
-              <div className="mt-4">
-                <InsightsPanel
-                  insights={(insights ?? []).filter((item) => item.topic_id == null)}
+            <details className="premium-card p-5">
+              <summary className="cursor-pointer font-semibold text-slate-950">
+                Topics and supporting analysis
+              </summary>
+              <div className="mt-5">
+                <TopicResults topics={typedTopics} insights={insights ?? []} />
+                {typedTopics.length === 0 ? (
+                  <div className="mt-4">
+                    <InsightsPanel
+                      insights={(insights ?? []).filter((item) => item.topic_id == null)}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </details>
+
+            <details className="premium-card p-5">
+              <summary className="cursor-pointer font-semibold text-slate-950">
+                Transcript
+              </summary>
+              <div className="mt-5">
+                <LiveTranscript
+                  meetingId={meeting.id}
+                  initialSegments={safeSegments}
+                  initialStatus={meeting.status}
                 />
               </div>
-            ) : null}
-          </div>
-        </details>
+            </details>
+          </section>
+        </div>
 
-        <details className="premium-card p-5">
-          <summary className="cursor-pointer font-semibold text-slate-950">
-            Transcript
-          </summary>
-          <div className="mt-5">
-            <LiveTranscript
-              meetingId={meeting.id}
-              initialSegments={safeSegments}
-              initialStatus={meeting.status}
-            />
-          </div>
-        </details>
-      </section>
+        <MeetingAssistantPanel
+          meetingId={meeting.id}
+          meetingTitle={meeting.title}
+          suggestions={assistantSuggestions.slice(0, 6)}
+        />
+      </div>
     </section>
   );
 }

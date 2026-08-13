@@ -395,6 +395,46 @@ export interface TaskComment {
   created_at: string;
 }
 
+export type MeetingAssistantResponseType =
+  | "answer"
+  | "generated_content"
+  | "clarification"
+  | "declined_mutation";
+
+/** One drafted output (an email, a Slack update, an agenda, ...). `subject` is null for output
+ * types that don't have one (Slack updates, agendas, summaries); generatedContent is an array so
+ * one response can hold several drafts at once (e.g. "draft individual emails for everyone"). */
+export interface MeetingAssistantGeneratedContentItem {
+  title: string;
+  subject: string | null;
+  body: string;
+}
+
+/** A transcript segment the answer leaned on -- resolved server-side from segment ids the model
+ * referenced against the exact segments it was given, never invented. See
+ * lib/meeting-assistant/agent.ts. */
+export interface MeetingAssistantSource {
+  segment_id: string;
+  speaker: string;
+  timestamp: string;
+}
+
+export interface MeetingAssistantCommentMetadata {
+  responseType?: MeetingAssistantResponseType;
+  generatedContent?: MeetingAssistantGeneratedContentItem[];
+  sources?: MeetingAssistantSource[];
+}
+
+export interface MeetingComment {
+  id: string;
+  meeting_id: string;
+  user_id: string | null;
+  role: TaskCommentRole;
+  message: string;
+  metadata?: MeetingAssistantCommentMetadata;
+  created_at: string;
+}
+
 export interface TaskArtifact {
   id: string;
   task_id: string;
