@@ -4,24 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ActionMenu } from "@/components/action-menu";
+import { EntityCorrectionAssistant } from "@/components/entity-correction-assistant";
 import { Modal, ModalActions } from "@/components/modal";
 import { isCommittedWork } from "@/lib/execution-display";
 import type { MeetingCommitment, TaskDependency } from "@/lib/types";
-
-const REPORT_REASONS: Array<{ value: string; label: string }> = [
-  { value: "wrong_owner", label: "Wrong owner" },
-  { value: "wrong_classification", label: "Wrong classification" },
-  { value: "duplicate", label: "Duplicate" },
-  { value: "missing_context", label: "Missing/incorrect context" },
-  { value: "not_execution_work", label: "Should not be execution work" },
-  { value: "other", label: "Other" }
-];
 
 type DialogKind =
   | "future_scope"
   | "promote"
   | "evidence"
-  | "report"
+  | "correction"
   | "reevaluate_dependencies"
   | null;
 
@@ -29,7 +21,13 @@ type DialogKind =
  * usually already has the commitment's task list in scope -- Commitment Workspace, Meeting
  * Detail's CommitmentsPanel) hide "Move to Future Scope" up front when it would strand active
  * child tasks; the server independently re-checks the same rule (see
- * /api/commitments/[id]/classification), so this is a UX nicety, not the safety boundary. */
+ * /api/commitments/[id]/classification), so this is a UX nicety, not the safety boundary.
+ *
+ * "Correct with Parfait" replaced the old option-heavy "Report incorrect extraction" form (radio
+ * reasons + a structured owner/supporting-person picker) with a conversational correction
+ * assistant -- see components/entity-correction-assistant.tsx and lib/commitment-correction/*.
+ * It no longer needs a meetingParticipantOptions prop (every call site updated) -- the correction
+ * assistant resolves participants itself, server-side, from fresh data on every turn. */
 export function CommitmentCorrectionMenu({
   commitment,
   hasActiveChildren = false,
@@ -47,16 +45,12 @@ export function CommitmentCorrectionMenu({
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reportReason, setReportReason] = useState("wrong_owner");
-  const [reportNote, setReportNote] = useState("");
-  const [reportSubmitted, setReportSubmitted] = useState(false);
   const [reevaluateSummary, setReevaluateSummary] = useState<string | null>(null);
 
   function closeDialog() {
     setDialog(null);
     setError(null);
     setBusy(false);
-    setReportSubmitted(false);
     setReevaluateSummary(null);
   }
 
@@ -103,24 +97,6 @@ export function CommitmentCorrectionMenu({
     router.refresh();
   }
 
-  async function submitReport() {
-    setBusy(true);
-    setError(null);
-    const response = await fetch(`/api/commitments/${commitment.id}/report`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ reason: reportReason, note: reportNote.trim() || undefined })
-    });
-    setBusy(false);
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      setError(result.error || "Failed to send report.");
-      return;
-    }
-    setReportSubmitted(true);
-    router.refresh();
-  }
-
   const isActive = isCommittedWork(commitment);
   const items = [
     isActive && !hasActiveChildren
@@ -136,11 +112,7 @@ export function CommitmentCorrectionMenu({
     isActive && onDependenciesRefreshed
       ? { label: "Re-evaluate dependencies", onSelect: () => setDialog("reevaluate_dependencies") }
       : null,
-    {
-      label: "Report incorrect extraction",
-      onSelect: () => setDialog("report"),
-      variant: "destructive" as const
-    }
+    { label: "Correct with Parfait", onSelect: () => setDialog("correction") }
   ].filter((item): item is NonNullable<typeof item> => item !== null);
 
   return (
@@ -255,65 +227,28 @@ export function CommitmentCorrectionMenu({
         </ModalActions>
       </Modal>
 
-      <Modal open={dialog === "report"} title="Report incorrect extraction" onClose={closeDialog}>
-        <h2 className="text-base font-semibold text-slate-950">Report incorrect extraction</h2>
-        {reportSubmitted ? (
-          <>
-            <p className="mt-3 text-sm text-slate-600">
-              Thanks -- this was recorded on the commitment&apos;s history.
-            </p>
-            <ModalActions>
-              <button type="button" onClick={closeDialog} className="secondary-button px-4 py-2 text-sm">
-                Close
-              </button>
-            </ModalActions>
-          </>
-        ) : (
-          <>
-            <fieldset className="mt-3 space-y-1.5">
-              <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                What&apos;s wrong?
-              </legend>
-              {REPORT_REASONS.map((reason) => (
-                <label key={reason.value} className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="commitment-report-reason"
-                    value={reason.value}
-                    checked={reportReason === reason.value}
-                    onChange={() => setReportReason(reason.value)}
-                    className="accent-brand-600"
-                  />
-                  {reason.label}
-                </label>
-              ))}
-            </fieldset>
-            <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Note (optional)
-              <textarea
-                className="premium-input mt-2 min-h-16"
-                value={reportNote}
-                maxLength={1000}
-                onChange={(event) => setReportNote(event.target.value)}
-                placeholder="Anything that would help explain the issue"
-              />
-            </label>
-            {error ? <p className="mt-3 text-sm text-rose-700">{error}</p> : null}
-            <ModalActions>
-              <button type="button" onClick={closeDialog} className="tertiary-button px-4 py-2 text-sm">
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={submitReport}
-                disabled={busy}
-                className="premium-button px-4 py-2 text-sm"
-              >
-                {busy ? "Sending…" : "Send report"}
-              </button>
-            </ModalActions>
-          </>
-        )}
+      <Modal open={dialog === "correction"} title="Correct with Parfait" onClose={closeDialog}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-950">Correct with Parfait</h2>
+            <p className="mt-1 truncate text-xs text-slate-500">{commitment.title}</p>
+          </div>
+        </div>
+        <div className="mt-3">
+          <EntityCorrectionAssistant
+            entityType="commitment"
+            entityId={commitment.id}
+            onApplied={(updated) => {
+              onCommitmentUpdated(updated as MeetingCommitment);
+              router.refresh();
+            }}
+          />
+        </div>
+        <ModalActions>
+          <button type="button" onClick={closeDialog} className="tertiary-button px-4 py-2 text-sm">
+            Done
+          </button>
+        </ModalActions>
       </Modal>
     </>
   );

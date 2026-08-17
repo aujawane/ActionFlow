@@ -28,6 +28,15 @@ export function Modal({
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  // onClose is frequently an unmemoized inline function (a new reference every render of the
+  // caller -- e.g. any parent that re-renders because a controlled input inside the dialog
+  // changed). Reading it through a ref, updated every render but never a dependency of the effect
+  // below, keeps that effect from tearing down and re-running on every keystroke of content
+  // unrelated to opening/closing the dialog -- see git history for the bug this caused: the
+  // effect's cleanup calls previouslyFocused.current?.focus(), which was yanking focus out of a
+  // dialog's textarea mid-effect-rerun whenever onClose's identity changed underneath it.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -44,7 +53,7 @@ export function Modal({
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialogRef.current) return;
@@ -80,7 +89,11 @@ export function Modal({
       document.body.style.overflow = previousOverflow;
       previouslyFocused.current?.focus();
     };
-  }, [open, onClose]);
+    // Deliberately NOT depending on `onClose` -- see onCloseRef above. This effect should only
+    // ever re-run when the dialog opens or closes, never because the caller re-rendered with a
+    // new (but behaviorally identical) onClose reference.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 

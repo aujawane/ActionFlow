@@ -732,7 +732,11 @@ export function CommitmentWorkspace({
                         >
                           {task.task}
                         </Link>
-                        <TaskCorrectionMenu task={task} onTaskUpdated={handleTaskUpdated} />
+                        <TaskCorrectionMenu
+                          task={task}
+                          onTaskUpdated={handleTaskUpdated}
+                          meetingParticipantOptions={meetingParticipantOptions}
+                        />
                       </div>
                       {mergedCount > 0 ? (
                         <p className="mt-1 pl-6 text-xs text-slate-400">

@@ -12,10 +12,14 @@ import type { MeetingCommitment, MeetingTask } from "@/lib/types";
 
 export function IdeasRequirementsPanel({
   commitments: initialCommitments,
-  tasks: initialTasks
+  tasks: initialTasks,
+  meetingParticipantOptions = []
 }: {
   commitments: MeetingCommitment[];
   tasks: MeetingTask[];
+  /** Resolved participant names from this meeting -- see lib/meeting-participants.ts. Powers the
+   * "Correct owner" picker inside each item's "Report incorrect extraction" dialog. */
+  meetingParticipantOptions?: string[];
 }) {
   const [commitments, setCommitments] = useState(initialCommitments);
   const [tasks, setTasks] = useState(initialTasks);
@@ -107,7 +111,11 @@ export function IdeasRequirementsPanel({
                     )}
                   </span>
                 </div>
-                <TaskCorrectionMenu task={task} onTaskUpdated={handleTaskUpdated} />
+                <TaskCorrectionMenu
+                  task={task}
+                  onTaskUpdated={handleTaskUpdated}
+                  meetingParticipantOptions={meetingParticipantOptions}
+                />
               </div>
             </div>
           ))}

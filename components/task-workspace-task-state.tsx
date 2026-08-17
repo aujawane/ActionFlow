@@ -111,7 +111,11 @@ export function TaskWorkspaceHeader({
               </p>
             ) : null}
           </div>
-          <TaskCorrectionMenu task={task} onTaskUpdated={setTask} />
+          <TaskCorrectionMenu
+            task={task}
+            onTaskUpdated={setTask}
+            meetingParticipantOptions={meetingParticipantOptions}
+          />
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">

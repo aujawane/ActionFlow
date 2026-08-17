@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireApiUser } from "@/lib/api-auth";
-import { mergeManualOverrideFields } from "@/lib/manual-overrides";
+import { applyCommitmentPatch } from "@/lib/commitment-mutations";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const updateCommitmentSchema = z
@@ -66,33 +66,13 @@ export async function PATCH(
     return NextResponse.json({ error: "Commitment not found." }, { status: 404 });
   }
 
-  const update = { ...parsed.data };
-  if ("lead_owner_name" in update) {
-    update.owner = update.lead_owner_name;
-  }
-  if (update.completion_state === "completed" && !update.status) {
-    update.status = "completed";
-  }
-
-  const { data, error } = await supabaseAdmin
-    .from("meeting_commitments")
-    .update({
-      ...update,
-      preserve_on_reanalysis: true,
-      manual_override_fields: mergeManualOverrideFields(
-        commitment.manual_override_fields,
-        Object.keys(update)
-      )
-    })
-    .eq("id", id)
-    .select("*")
-    .single();
-  if (error || !data) {
+  const result = await applyCommitmentPatch(id, parsed.data);
+  if ("error" in result) {
     return NextResponse.json(
-      { error: "Failed to update commitment.", details: error?.message },
-      { status: 500 }
+      { error: result.error, details: result.details },
+      { status: result.error === "Commitment not found." ? 404 : 500 }
     );
   }
 
-  return NextResponse.json({ commitment: data });
+  return NextResponse.json({ commitment: result.commitment });
 }

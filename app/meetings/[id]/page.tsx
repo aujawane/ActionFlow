@@ -386,6 +386,7 @@ export default async function MeetingDetailPage({
           <IdeasRequirementsPanel
             commitments={partitioned.ideaCommitments}
             tasks={partitioned.ideaTasks}
+            meetingParticipantOptions={meetingParticipantOptions}
           />
 
           {/* 6. Meeting Intelligence / Evidence -- supporting analysis only (topic breakdown,

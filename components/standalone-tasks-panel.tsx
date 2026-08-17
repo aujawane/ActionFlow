@@ -102,7 +102,11 @@ export function StandaloneTasksPanel({
                   Execute Task
                 </Link>
               ) : null}
-              <TaskCorrectionMenu task={task} onTaskUpdated={handleTaskUpdated} />
+              <TaskCorrectionMenu
+                task={task}
+                onTaskUpdated={handleTaskUpdated}
+                meetingParticipantOptions={meetingParticipantOptions}
+              />
             </div>
           </li>
         ))}

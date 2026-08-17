@@ -7,6 +7,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const REASON_LABELS: Record<string, string> = {
   wrong_owner: "Wrong owner",
+  wrong_supporting_person: "Wrong supporting person",
   wrong_classification: "Wrong classification",
   duplicate: "Duplicate",
   missing_context: "Missing/incorrect context",
@@ -18,6 +19,7 @@ const bodySchema = z
   .object({
     reason: z.enum([
       "wrong_owner",
+      "wrong_supporting_person",
       "wrong_classification",
       "duplicate",
       "missing_context",

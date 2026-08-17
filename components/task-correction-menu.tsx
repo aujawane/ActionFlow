@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 
 import { ActionMenu } from "@/components/action-menu";
 import { Modal, ModalActions } from "@/components/modal";
+import { TaskOwnerSelect } from "@/components/task-owner-select";
 import { isCommittedWork } from "@/lib/execution-display";
+import { isSameOwnerValue } from "@/lib/owner-utils";
 import type { MeetingTask } from "@/lib/types";
 
 type DestinationCommitment = { id: string; title: string };
@@ -27,10 +29,16 @@ type DialogKind = "move" | "standalone" | "future_scope" | "promote" | "evidence
  * without each caller re-implementing the same fetch/dialog plumbing. */
 export function TaskCorrectionMenu({
   task,
-  onTaskUpdated
+  onTaskUpdated,
+  meetingParticipantOptions = []
 }: {
   task: MeetingTask;
   onTaskUpdated: (task: MeetingTask) => void;
+  /** Resolved participant names from this task's source meeting -- see
+   * lib/meeting-participants.ts. Powers the "Correct owner" picker in the report dialog below
+   * when "Wrong owner" is selected; defaults to empty for any caller that hasn't wired it up yet
+   * (the dropdown then degrades to Unassigned-only rather than crashing). */
+  meetingParticipantOptions?: string[];
 }) {
   const router = useRouter();
   const [dialog, setDialog] = useState<DialogKind>(null);
@@ -43,12 +51,27 @@ export function TaskCorrectionMenu({
   const [reportReason, setReportReason] = useState("wrong_owner");
   const [reportNote, setReportNote] = useState("");
   const [reportSubmitted, setReportSubmitted] = useState(false);
+  // Seeded to the task's real owner whenever the report dialog opens (see openReportDialog), so
+  // "no change yet" and "corrected back to the same owner" both correctly disable the action --
+  // see isSameOwnerValue.
+  const [correctedOwner, setCorrectedOwner] = useState<string | null>(task.owner ?? null);
+  const [reportOwnerBaseline, setReportOwnerBaseline] = useState<string | null>(task.owner ?? null);
+  const [correctionApplied, setCorrectionApplied] = useState(false);
 
   function closeDialog() {
     setDialog(null);
     setError(null);
     setBusy(false);
     setReportSubmitted(false);
+    setCorrectionApplied(false);
+  }
+
+  function openReportDialog() {
+    setDialog("report");
+    setError(null);
+    setCorrectionApplied(false);
+    setCorrectedOwner(task.owner ?? null);
+    setReportOwnerBaseline(task.owner ?? null);
   }
 
   async function openMoveDialog() {
@@ -123,22 +146,72 @@ export function TaskCorrectionMenu({
     closeDialog();
   }
 
+  // "Wrong owner" is the one report reason with a safe, existing canonical correction to reuse
+  // (the general task PATCH route -- same pathway TaskOwnerSelect already uses everywhere else,
+  // so manual_override_fields/preserve_on_reanalysis provenance is identical). Every other reason
+  // stays report-only for this pass -- see the audit notes in the PR description for why
+  // classification/duplicate/not-execution-work don't have an equally unambiguous reuse target.
+  const reportReasonIsActionable = reportReason === "wrong_owner";
+  const ownerCorrectionChanged =
+    reportReasonIsActionable && !isSameOwnerValue(correctedOwner, reportOwnerBaseline);
+  const canSubmitReport = reportReasonIsActionable ? ownerCorrectionChanged : true;
+
   async function submitReport() {
     setBusy(true);
     setError(null);
+
+    // Correction first, report second -- the safer sequence when the two calls can't be made
+    // atomic without a disproportionate backend change (see PR description section 10): if the
+    // correction fails, nothing has changed and the report is never sent. `correctionApplied`
+    // guards a retry after the *report* half fails from re-applying (and potentially re-flagging
+    // an unrelated field as manually overridden) an already-successful correction.
+    let ownerJustCorrected = correctionApplied;
+    if (reportReasonIsActionable && ownerCorrectionChanged && !correctionApplied) {
+      const ownerResponse = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ owner: correctedOwner })
+      });
+      const ownerResult = await ownerResponse.json().catch(() => ({}));
+      if (!ownerResponse.ok || !ownerResult.task) {
+        setBusy(false);
+        setError(ownerResult.error || "Failed to apply the owner correction.");
+        return;
+      }
+      onTaskUpdated(ownerResult.task as MeetingTask);
+      setCorrectionApplied(true);
+      ownerJustCorrected = true;
+    }
+
     const response = await fetch(`/api/tasks/${task.id}/report`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ reason: reportReason, note: reportNote.trim() || undefined })
     });
-    setBusy(false);
     if (!response.ok) {
       const result = await response.json().catch(() => ({}));
-      setError(result.error || "Failed to send report.");
+      setBusy(false);
+      setError(
+        ownerJustCorrected
+          ? "Owner corrected, but the report could not be saved. You can try sending it again."
+          : result.error || "Failed to send report."
+      );
+      return;
+    }
+
+    setBusy(false);
+    router.refresh();
+
+    // The actionable path's success is the visible owner change itself -- close immediately
+    // rather than adding an extra manual-dismiss confirmation step (matches every other mutating
+    // dialog in this menu -- move/standalone/promote all close on success the same way). The
+    // report-only path keeps its existing inline "Thanks" confirmation, since there's no other
+    // visible change on the page to serve as feedback.
+    if (ownerJustCorrected) {
+      closeDialog();
       return;
     }
     setReportSubmitted(true);
-    router.refresh();
   }
 
   const isActive = isCommittedWork(task);
@@ -156,7 +229,7 @@ export function TaskCorrectionMenu({
     task.source_quote ? { label: "View source evidence", onSelect: () => setDialog("evidence") } : null,
     {
       label: "Report incorrect extraction",
-      onSelect: () => setDialog("report"),
+      onSelect: openReportDialog,
       variant: "destructive" as const
     }
   ].filter((item): item is NonNullable<typeof item> => item !== null);
@@ -324,6 +397,31 @@ export function TaskCorrectionMenu({
                 </label>
               ))}
             </fieldset>
+            {reportReasonIsActionable ? (
+              <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Current owner
+                  </p>
+                  <p className="mt-1 text-sm text-slate-800">{task.owner?.trim() || "Unassigned"}</p>
+                </div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Correct owner
+                  <div className="mt-2">
+                    <TaskOwnerSelect
+                      ownerValue={correctedOwner}
+                      options={meetingParticipantOptions}
+                      ariaLabel="Correct owner"
+                      className="premium-input"
+                      onCommit={setCorrectedOwner}
+                    />
+                  </div>
+                </label>
+                {!ownerCorrectionChanged ? (
+                  <p className="text-xs text-slate-500">Choose a different owner.</p>
+                ) : null}
+              </div>
+            ) : null}
             <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Note (optional)
               <textarea
@@ -342,10 +440,16 @@ export function TaskCorrectionMenu({
               <button
                 type="button"
                 onClick={submitReport}
-                disabled={busy}
+                disabled={busy || !canSubmitReport}
                 className="premium-button px-4 py-2 text-sm"
               >
-                {busy ? "Sending…" : "Send report"}
+                {busy
+                  ? reportReasonIsActionable
+                    ? "Applying…"
+                    : "Sending…"
+                  : reportReasonIsActionable
+                    ? "Apply correction"
+                    : "Send report"}
               </button>
             </ModalActions>
           </>
