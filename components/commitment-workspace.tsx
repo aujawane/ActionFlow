@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 
 import { CommitmentCorrectionMenu } from "@/components/commitment-correction-menu";
 import { Modal, ModalActions } from "@/components/modal";
+import { ParfaitResponseRenderer } from "@/components/parfait-response-renderer";
 import { TaskCorrectionMenu } from "@/components/task-correction-menu";
 import { TaskOwnerSelect } from "@/components/task-owner-select";
 import { isCommittedWork } from "@/lib/execution-display";
@@ -1022,7 +1023,7 @@ export function CommitmentWorkspace({
             const isUser = comment.role === "user";
             return (
               <div key={comment.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[88%] ${isUser ? "text-right" : "text-left"}`}>
+                <div className={isUser ? "max-w-[88%] text-right" : "max-w-3xl text-left"}>
                   <p
                     className={`mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide ${
                       isUser ? "text-brand-700" : "text-slate-400"
@@ -1031,15 +1032,19 @@ export function CommitmentWorkspace({
                     {isUser ? "You" : "Parfait"}
                     {time ? ` · ${time}` : ""}
                   </p>
-                  <div
-                    className={`whitespace-pre-wrap rounded-2xl px-3 py-2.5 text-sm leading-5 shadow-sm ${
-                      isUser
-                        ? "rounded-br-md bg-brand-700 text-white"
-                        : "rounded-bl-md border border-slate-200 bg-white text-slate-700"
-                    }`}
-                  >
-                    {comment.message}
-                  </div>
+                  {isUser ? (
+                    <div className="whitespace-pre-wrap rounded-2xl rounded-br-md bg-brand-700 px-3 py-2.5 text-sm leading-5 text-white shadow-sm">
+                      {comment.message}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      <ParfaitResponseRenderer
+                        response={comment.metadata?.structuredResponse}
+                        legacyText={comment.message}
+                        onFollowUp={(text) => void submitMessage(text)}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             );

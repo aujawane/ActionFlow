@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireApiUser } from "@/lib/api-auth";
-import { getOpenAIModel, openai } from "@/lib/openai";
+import { runCommitmentChatAgent } from "@/lib/commitment-chat/agent";
 import { getOwnedCommitment } from "@/lib/project-access";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { CommitmentCommentMetadata } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -88,31 +89,26 @@ export async function POST(
 
   let assistantMessage =
     "I could not generate a response right now. Your message was saved.";
-  try {
-    const response = await openai.responses.create({
-      model: getOpenAIModel(),
-      input: [
-        {
-          role: "system",
-          content:
-            "You are Parfait, helping execute one commitment. Answer concisely using the commitment, its tasks, evidence, and conversation. Identify blockers and the next concrete action. Do not claim to edit data."
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            commitment,
-            tasks: tasks ?? [],
-            conversation: history ?? [],
-            latest_message: parsed.data.message
-          })
-        }
-      ]
-    });
-    assistantMessage = response.output_text?.trim() || assistantMessage;
-  } catch (error) {
-    console.warn("[commitment-chat] OpenAI response failed", {
+  let assistantMetadata: CommitmentCommentMetadata = {};
+
+  const agentResult = await runCommitmentChatAgent({
+    commitment,
+    tasks: tasks ?? [],
+    conversation: (history ?? []).map((entry) => ({ role: entry.role, message: entry.message })),
+    latestMessage: parsed.data.message
+  });
+
+  if (agentResult.ok) {
+    assistantMessage = agentResult.response.answer;
+    assistantMetadata = { structuredResponse: agentResult.response };
+  } else {
+    // Never surface the raw failure (a ZodError, a JSON.parse error, an OpenAI error message
+    // that could echo request internals) to the user -- log enough to debug, show a plain
+    // fallback sentence instead. The user's own message is still saved either way.
+    console.warn("[commitment-chat] structured response failed", {
       commitment_id: id,
-      error: error instanceof Error ? error.message : String(error)
+      error: agentResult.error,
+      details: agentResult.details
     });
   }
 
@@ -122,7 +118,8 @@ export async function POST(
       commitment_id: id,
       user_id: null,
       role: "assistant",
-      message: assistantMessage
+      message: assistantMessage,
+      metadata: assistantMetadata
     })
     .select("*")
     .single();

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 
+import { ParfaitResponseRenderer } from "@/components/parfait-response-renderer";
 import { useOptionalTaskWorkspaceState } from "@/components/task-workspace-task-state";
 import type { AllowedTaskPatch } from "@/lib/task-clarification-patches";
 import type { MeetingTask, TaskComment } from "@/lib/types";
@@ -261,15 +262,15 @@ export function TaskClarifications({
                 {isUser ? "You" : "Parfait"}
                 {time ? ` · ${time}` : ""}
               </p>
-              <div
-                className={`whitespace-pre-wrap rounded-2xl px-3 py-2.5 text-sm leading-5 shadow-sm ${
-                  isUser
-                    ? "rounded-br-md bg-brand-700 text-white"
-                    : "rounded-bl-md border border-slate-200 bg-white text-slate-700"
-                }`}
-              >
-                {comment.message}
-              </div>
+              {isUser ? (
+                <div className="whitespace-pre-wrap rounded-2xl rounded-br-md bg-brand-700 px-3 py-2.5 text-sm leading-5 text-white shadow-sm">
+                  {comment.message}
+                </div>
+              ) : (
+                <div className="rounded-2xl rounded-bl-md border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+                  <ParfaitResponseRenderer legacyText={comment.message} />
+                </div>
+              )}
             </div>
           </div>
         );

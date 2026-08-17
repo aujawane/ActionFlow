@@ -360,13 +360,54 @@ export interface TaskDependency {
   created_at: string;
 }
 
+/** Shared structured-response envelope for Parfait chat surfaces -- see
+ * lib/parfait-response/schema.ts for the Zod validation this type mirrors, and
+ * components/parfait-response-renderer.tsx for the universal renderer that consumes it. Defined
+ * here (not in lib/parfait-response/*) so it's available to every *Comment interface below
+ * without lib/types.ts taking on its first import -- this file is a dependency-free leaf module
+ * by convention. */
+export type ParfaitResponseSection =
+  | { type: "evidence"; title?: string; content: string; source?: ParfaitResponseEvidenceSource }
+  | { type: "blocker"; title?: string; content: string }
+  | { type: "next_action"; title?: string; content: string }
+  | { type: "decision"; title?: string; content: string }
+  | { type: "list"; title?: string; items: string[] }
+  | { type: "warning"; title?: string; content: string };
+
+export interface ParfaitResponseEvidenceSource {
+  meetingId?: string;
+  segmentId?: string;
+  speaker?: string;
+  timestamp?: string;
+}
+
+export interface ParfaitResponse {
+  answer: string;
+  sections?: ParfaitResponseSection[];
+  followUps?: string[];
+}
+
+export interface CommitmentCommentMetadata {
+  /** Populated by the commitment chat's structured-response agent (see
+   * lib/commitment-chat/agent.ts). Absent on legacy rows -- those render through the shared
+   * renderer's plain/Markdown fallback path instead. */
+  structuredResponse?: ParfaitResponse;
+  /** A different producer writes to this same column: the AI correction assistant's apply
+   * endpoint (app/api/commitments/[id]/correction/apply/route.ts) inserts an audit row shaped
+   * like this instead -- kept optional here, alongside structuredResponse, so both producers'
+   * rows type-check without a migration or a second metadata column. */
+  kind?: "ai_correction";
+  user_message?: string | null;
+  changes?: Array<{ field: string; from: string; to: string }>;
+}
+
 export interface CommitmentComment {
   id: string;
   commitment_id: string;
   user_id: string | null;
   role: TaskCommentRole;
   message: string;
-  metadata?: JsonValue;
+  metadata?: CommitmentCommentMetadata;
   created_at: string;
 }
 

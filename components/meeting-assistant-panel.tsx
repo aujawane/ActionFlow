@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 
+import { ParfaitResponseRenderer } from "@/components/parfait-response-renderer";
 import type { MeetingComment } from "@/lib/types";
 
 type MessagesResponse = {
@@ -295,15 +296,15 @@ export function MeetingAssistantPanel({
                       {isUser ? "You" : "Parfait"}
                       {time ? ` · ${time}` : ""}
                     </p>
-                    <div
-                      className={`whitespace-pre-wrap rounded-2xl px-3 py-2.5 text-sm leading-5 shadow-sm ${
-                        isUser
-                          ? "rounded-br-md bg-brand-700 text-white"
-                          : "rounded-bl-md border border-slate-200 bg-white text-slate-700"
-                      }`}
-                    >
-                      {comment.message}
-                    </div>
+                    {isUser ? (
+                      <div className="whitespace-pre-wrap rounded-2xl rounded-br-md bg-brand-700 px-3 py-2.5 text-sm leading-5 text-white shadow-sm">
+                        {comment.message}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl rounded-bl-md border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+                        <ParfaitResponseRenderer legacyText={comment.message} />
+                      </div>
+                    )}
 
                     {generatedContent.length > 0 ? (
                       <div className="mt-2 space-y-2 text-left">

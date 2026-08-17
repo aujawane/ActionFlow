@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { ParfaitResponseRenderer } from "@/components/parfait-response-renderer";
 import { ProjectBrainOperationReview } from "@/components/project-brain-operation-review";
 import { formatReadableDate } from "@/lib/format-date";
 import type {
@@ -411,7 +412,11 @@ export function ProjectBrainPanel({
                     : "rounded-2xl rounded-bl-md bg-slate-100 px-4 py-3 text-sm text-slate-800"
                 }
               >
-                <p className="whitespace-pre-wrap leading-6">{message.content}</p>
+                {message.role === "user" ? (
+                  <p className="whitespace-pre-wrap leading-6">{message.content}</p>
+                ) : (
+                  <ParfaitResponseRenderer legacyText={message.content} />
+                )}
               </article>
               <p className="mt-1 px-1 text-[10px] text-slate-400">
                 {new Date(message.created_at).toLocaleTimeString([], {

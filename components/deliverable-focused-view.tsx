@@ -5,6 +5,7 @@ import type { Route } from "next";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { DeliverableDocument } from "@/components/deliverable-document";
 import { Modal, ModalActions } from "@/components/modal";
 import { formatReadableDate } from "@/lib/format-date";
 import { getDeliverableLifecycleState } from "@/lib/task-deliverable-lifecycle";
@@ -348,9 +349,7 @@ export function DeliverableFocusedView({
           </div>
         ) : (
           <div className="premium-card p-5 sm:p-6">
-            <div className="whitespace-pre-wrap text-sm leading-7 text-slate-800">
-              {artifact.content}
-            </div>
+            <DeliverableDocument content={artifact.content} />
           </div>
         )}
       </div>
