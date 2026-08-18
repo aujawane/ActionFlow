@@ -40,8 +40,7 @@ export const projectPersonReferenceSchema = z
       "task",
       "commitment",
       "project_participant",
-      "commitment_participant",
-      "speaker_alias"
+      "commitment_participant"
     ]),
     id: uuid,
     label: z.string().min(1).max(500),
@@ -52,8 +51,7 @@ export const projectPersonReferenceSchema = z
           "owner",
           "owners",
           "lead_owner_name",
-          "participant_name",
-          "display_name"
+          "participant_name"
         ])
       )
       .min(1)

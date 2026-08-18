@@ -25,7 +25,7 @@ Captures transcripts via Recall.ai bots, extracts commitments/tasks with OpenAI,
 
 ## Status
 
-**Implemented:** auth, meeting create/start, Recall ingest, speaker aliases, topic segmentation, background analysis, first-class projects with manual meeting assignment, global conversation-level commitment synthesis, Project Brain chat/memory/reviewable atomic proposals, dependency-aware next task ranking, owner-grouped commitment workspaces, deliverables, follow-up emails, Google/Zoom integrations.
+**Implemented:** auth, meeting create/start, Recall transcript attribution, topic segmentation, background analysis, first-class projects with manual meeting assignment, global conversation-level commitment synthesis, Project Brain chat/memory/reviewable atomic proposals, dependency-aware next task ranking, owner-grouped commitment workspaces, deliverables, follow-up emails, Google/Zoom integrations.
 
 **Ops gap:** additive migrations through `20260727130000_*` exist in repo; **do not apply to production** until gated. Staging must apply the project hierarchy, commitment people, and Project Brain migrations before the new workspaces use real data.
 

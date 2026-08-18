@@ -7,38 +7,24 @@ import {
   ownerSelectValueToOwner,
   resolveTaskOwnerSelectState
 } from "../components/task-owner-select";
-import type { MeetingSpeakerAlias } from "../lib/types";
-
-function alias(overrides: Partial<MeetingSpeakerAlias>): MeetingSpeakerAlias {
-  return {
-    id: `alias-${Math.random()}`,
-    meeting_id: "meeting-1",
-    raw_speaker_label: "Speaker 1",
-    display_name: "Someone",
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-    ...overrides
-  };
-}
 
 // ============================================================
 // buildMeetingParticipantOptions
 // ============================================================
 
-test("buildMeetingParticipantOptions: resolved speaker alias identities are used", () => {
+test("buildMeetingParticipantOptions: Recall participant names are used", () => {
   const options = buildMeetingParticipantOptions({
-    aliases: [alias({ raw_speaker_label: "Speaker 1", display_name: "Craig Lauer" })],
+    transcriptSegments: [{ participant_name: "Craig Lauer", speaker: "Speaker 1" }],
     tasks: [],
     commitments: []
   });
   assert.deepEqual(options, ["Craig Lauer"]);
 });
 
-test("buildMeetingParticipantOptions: a raw speaker label on a task owner resolves through the meeting's aliases (not shown as a second, unresolved identity)", () => {
-  const aliases = [alias({ raw_speaker_label: "Speaker 1", display_name: "Craig Lauer" })];
+test("buildMeetingParticipantOptions: Recall speaker fallback is available without a participant name", () => {
   const options = buildMeetingParticipantOptions({
-    aliases,
-    tasks: [{ owner: "Speaker 1" }],
+    transcriptSegments: [{ participant_name: null, speaker: "Craig Lauer" }],
+    tasks: [],
     commitments: []
   });
   assert.deepEqual(options, ["Craig Lauer"]);
@@ -46,7 +32,6 @@ test("buildMeetingParticipantOptions: a raw speaker label on a task owner resolv
 
 test("buildMeetingParticipantOptions: task and commitment owners across the meeting are included", () => {
   const options = buildMeetingParticipantOptions({
-    aliases: [],
     tasks: [{ owner: "Aditya Ujawane" }, { owner: null }],
     commitments: [{ owner: null, lead_owner_name: "Craig Lauer" }]
   });
@@ -55,7 +40,6 @@ test("buildMeetingParticipantOptions: task and commitment owners across the meet
 
 test("buildMeetingParticipantOptions: a combined/raw label collapses once both named individuals already exist (Project People's existing dedup rule)", () => {
   const options = buildMeetingParticipantOptions({
-    aliases: [],
     tasks: [
       { owner: "Craig Lauer" },
       { owner: "Craig Lauer and Laura Wetherhold" },
@@ -66,10 +50,10 @@ test("buildMeetingParticipantOptions: a combined/raw label collapses once both n
   assert.deepEqual(options, ["Craig Lauer", "Laura Wetherhold"]);
 });
 
-test("buildMeetingParticipantOptions: exact-duplicate names across aliases and task owners collapse to one entry", () => {
+test("buildMeetingParticipantOptions: duplicates across Recall participants and owners collapse case/whitespace-insensitively", () => {
   const options = buildMeetingParticipantOptions({
-    aliases: [alias({ raw_speaker_label: "Speaker 2", display_name: "Aditya Ujawane" })],
-    tasks: [{ owner: "aditya ujawane" }],
+    transcriptSegments: [{ participant_name: "Aditya   Ujawane", speaker: null }],
+    tasks: [{ owner: " aditya ujawane " }],
     commitments: []
   });
   assert.deepEqual(options, ["Aditya Ujawane"]);
@@ -77,16 +61,24 @@ test("buildMeetingParticipantOptions: exact-duplicate names across aliases and t
 
 test("buildMeetingParticipantOptions: owners arrays (plural) on tasks and commitments are also resolved", () => {
   const options = buildMeetingParticipantOptions({
-    aliases: [],
     tasks: [{ owner: null, owners: ["Laura Wetherhold"] }],
     commitments: [{ owner: null, owners: ["Craig Lauer"] }]
   });
   assert.deepEqual(options, ["Craig Lauer", "Laura Wetherhold"]);
 });
 
+test("buildMeetingParticipantOptions: commitment supporting people remain available", () => {
+  const options = buildMeetingParticipantOptions({
+    tasks: [],
+    commitments: [],
+    commitmentParticipants: [{ participant_name: "Cameron" }]
+  });
+  assert.deepEqual(options, ["Cameron"]);
+});
+
 test("buildMeetingParticipantOptions: no participant data at all returns an empty list", () => {
   assert.deepEqual(
-    buildMeetingParticipantOptions({ aliases: [], tasks: [], commitments: [] }),
+    buildMeetingParticipantOptions({ tasks: [], commitments: [] }),
     []
   );
 });
@@ -224,7 +216,7 @@ test("standalone tasks panel: selecting an owner routes through the same canonic
   assert.match(source, /handleTaskUpdated\(result\.task as MeetingTask\)/);
 });
 
-test("meeting detail page: one meeting-participant option list is computed from already-loaded data and threaded to Standalone Tasks -- no per-task query, no duplicate DB round trip", async () => {
+test("meeting detail page: one meeting-participant option list is computed and threaded to Standalone Tasks -- no per-task query", async () => {
   const source = await readFile(
     new URL("../app/meetings/[id]/page.tsx", import.meta.url),
     "utf8"
@@ -234,19 +226,16 @@ test("meeting detail page: one meeting-participant option list is computed from 
     source,
     /<StandaloneTasksPanel[\s\S]{0,120}meetingParticipantOptions=\{meetingParticipantOptions\}/
   );
-  // Built in-process from data this page already fetched once for the whole page (aliases,
-  // rawTasks, safeCommitments) -- the query-issuing loader is never called here.
+  // Built once for the whole page from transcript, execution owners, and supporting people --
+  // the query-issuing loader is never called per task.
   assert.doesNotMatch(source, /loadMeetingParticipantOptions/);
 });
 
-test("buildMeetingParticipantOptions: a meeting participant with no speaker alias and no assigned work is not included -- documented limitation, not silently invented identity", () => {
-  // Mirrors the audited conclusion: no lightweight, already-persisted "attended but unassigned"
-  // participant source exists in this schema (see lib/meeting-participants.ts doc comment).
+test("buildMeetingParticipantOptions: a Recall participant with no assigned work remains available", () => {
   const options = buildMeetingParticipantOptions({
-    aliases: [alias({ raw_speaker_label: "Speaker 1", display_name: "Craig Lauer" })],
-    tasks: [{ owner: "Craig Lauer" }],
+    transcriptSegments: [{ participant_name: "Laura Wetherhold", speaker: "Speaker 1" }],
+    tasks: [],
     commitments: []
   });
-  assert.deepEqual(options, ["Craig Lauer"]);
-  assert.ok(!options.includes("Laura Wetherhold"));
+  assert.deepEqual(options, ["Laura Wetherhold"]);
 });

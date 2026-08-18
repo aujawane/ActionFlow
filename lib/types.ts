@@ -25,35 +25,10 @@ export interface TranscriptSegment {
   meeting_id: string;
   speaker: string | null;
   participant_name: string | null;
-  diarized_speaker: string | null;
-  resolved_speaker: string | null;
-  speaker_confidence: number | null;
   text: string;
   timestamp: string;
   raw_payload: JsonValue;
   created_at: string;
-}
-
-export interface MeetingSpeakerAlias {
-  id: string;
-  meeting_id: string;
-  raw_speaker_label: string;
-  display_name: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface MeetingSpeakerRosterItem {
-  rawSpeakerLabel: string;
-  displayName: string;
-  participantName: string | null;
-  diarizedSpeaker: string | null;
-  isResolved: boolean;
-  isAmbiguous: boolean;
-  segmentCount: number;
-  taskCount: number;
-  exampleQuotes: string[];
-  possibleNameHints: string[];
 }
 
 export interface ExtractedInsight {

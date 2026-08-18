@@ -17,8 +17,6 @@ test("fetches a transcript through the current transcript artifact endpoint", as
   const transcript = [
     {
       participant: { id: 7, name: "Aditya" },
-      diarized_speaker: "Speaker 0",
-      speaker_confidence: 0.9,
       words: [{ text: "Test", start_timestamp: 1 }]
     }
   ];
@@ -81,24 +79,18 @@ test("fetches a transcript through the current transcript artifact endpoint", as
   }
 });
 
-test("preserves Recall speaker fields while parsing artifact transcript entries", () => {
+test("preserves Recall participant attribution and raw payload while parsing transcript entries", () => {
   const [segment] = parseRecallTranscriptToSegments([
     {
       participant: { id: 7, name: "Aditya" },
-      diarized_speaker: "Speaker 1",
-      speaker_confidence: 0.85,
       words: [{ text: "Hello", start_timestamp: 1 }]
     }
   ]);
 
   assert.equal(segment.participant_name, "Aditya");
-  assert.equal(segment.diarized_speaker, "Speaker 1");
   assert.equal(segment.speaker, "Aditya");
-  assert.equal(segment.speaker_confidence, 0.85);
   assert.deepEqual(segment.raw_payload, {
     participant: { id: 7, name: "Aditya" },
-    diarized_speaker: "Speaker 1",
-    speaker_confidence: 0.85,
     words: [{ text: "Hello", start_timestamp: 1 }]
   });
 });

@@ -8,11 +8,9 @@ import {
   getTaskCategorization,
   normalizeTaskCategory
 } from "@/lib/task-deliverables";
-import {
-  resolveTaskOwner
-} from "@/lib/speaker-aliases";
-import { getSegmentIdsFromTopic, loadResolvedMeetingTranscriptSegments } from "@/lib/transcript-segments";
+import { getSegmentIdsFromTopic, loadMeetingTranscriptSegments } from "@/lib/transcript-segments";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getTranscriptSpeakerLabel } from "@/lib/transcript-speaker";
 import type {
   Meeting,
   MeetingTask,
@@ -223,12 +221,7 @@ export async function getTaskWorkspaceContext(
     : { data: null };
 
   const typedTopic = (topic as MeetingTopic | null) ?? null;
-  const {
-    segments,
-    aliases,
-    segmentsError,
-    aliasesError
-  } = await loadResolvedMeetingTranscriptSegments({
+  const { segments, error: segmentsError } = await loadMeetingTranscriptSegments({
     meetingId: typedTask.meeting_id,
     segmentIds: getSegmentIds(typedTopic),
     limit: 12
@@ -243,23 +236,10 @@ export async function getTaskWorkspaceContext(
     };
   }
 
-  if (aliasesError) {
-    return {
-      ok: false,
-      status: 500,
-      error: "Failed to load speaker aliases",
-      details: aliasesError.message
-    };
-  }
-
-  const typedAliases = aliases;
   return {
     ok: true,
     context: {
-      task: {
-        ...typedTask,
-        owner: resolveTaskOwner(typedTask.owner, typedAliases)
-      },
+      task: typedTask,
       meeting: meeting as Meeting,
       topic: typedTopic,
       segments
@@ -271,7 +251,7 @@ export function buildTaskContextPrompt(context: TaskWorkspaceContext) {
   const suggestedSteps = getSuggestedSteps(context.task.suggested_steps);
   const transcript = context.segments
     .map((segment) => {
-      const speaker = segment.speaker?.trim() || "Unknown speaker";
+      const speaker = getTranscriptSpeakerLabel(segment);
       const text = segment.text.trim().replace(/\s+/g, " ");
       return `${speaker}: ${text}`;
     })

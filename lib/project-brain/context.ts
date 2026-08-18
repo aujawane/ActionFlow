@@ -206,22 +206,12 @@ export async function buildProjectBrainContext(
     )
   );
   const safeCommitmentIds = currentIdentityCommitments.map((commitment) => commitment.id);
-  const identityMeetingIds = (identityMeetings ?? []).map((meeting) => meeting.id);
-  const [{ data: commitmentParticipants }, { data: speakerAliases }] =
-    await Promise.all([
-      safeCommitmentIds.length
-        ? supabaseAdmin
-            .from("commitment_participants")
-            .select("id,commitment_id,participant_name")
-            .in("commitment_id", safeCommitmentIds)
-        : Promise.resolve({ data: [] }),
-      identityMeetingIds.length
-        ? supabaseAdmin
-            .from("meeting_speaker_aliases")
-            .select("id,meeting_id,raw_speaker_label,display_name")
-            .in("meeting_id", identityMeetingIds)
-        : Promise.resolve({ data: [] })
-    ]);
+  const { data: commitmentParticipants } = safeCommitmentIds.length
+    ? await supabaseAdmin
+        .from("commitment_participants")
+        .select("id,commitment_id,participant_name")
+        .in("commitment_id", safeCommitmentIds)
+    : { data: [] };
   const commitmentTitleById = new Map(
     currentIdentityCommitments.map((commitment) => [commitment.id, commitment.title])
   );
@@ -235,8 +225,7 @@ export async function buildProjectBrainContext(
         label: commitmentTitleById.get(String(participant.commitment_id)) ??
           String(participant.participant_name)
       })
-    ),
-    speakerAliases: (speakerAliases ?? []) as Array<Record<string, unknown>>
+    )
   });
   const people = new Map<string, string>();
   for (const item of [...safeCommitments, ...safeTasks]) {

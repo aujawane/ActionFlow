@@ -6,7 +6,6 @@ import type {
   ExtractedInsight,
   Meeting,
   MeetingCommitment,
-  MeetingSpeakerAlias,
   MeetingTask,
   MeetingTopic,
   Project,
@@ -63,7 +62,7 @@ export type MeetingAssistantContextInput = {
   tasks: MeetingTask[];
   dependencies: TaskDependency[];
   artifacts: TaskArtifact[];
-  aliases: MeetingSpeakerAlias[];
+  transcriptParticipants: Array<{ participant_name: string | null; speaker: string | null }>;
   topics: MeetingTopic[];
   insights: ExtractedInsight[];
 };
@@ -145,7 +144,7 @@ export function buildMeetingAssistantExecutionContext(
   }
 
   const participants = buildMeetingParticipantOptions({
-    aliases: input.aliases,
+    transcriptSegments: input.transcriptParticipants,
     tasks: input.tasks,
     commitments: input.commitments
   });

@@ -9,7 +9,6 @@ import { MeetingActions } from "@/components/meeting-actions";
 import { MeetingAnalysisStatusPanel } from "@/components/meeting-analysis-status";
 import { MeetingAssistantPanel } from "@/components/meeting-assistant-panel";
 import { MeetingProjectAssignment } from "@/components/meeting-project-assignment";
-import { SpeakerMappingPanel } from "@/components/speaker-mapping-panel";
 import { StandaloneTasksPanel } from "@/components/standalone-tasks-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
@@ -18,18 +17,13 @@ import { formatReadableDate } from "@/lib/format-date";
 import { meetingPlatformLabel } from "@/lib/meeting-platform";
 import { getLatestMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
 import { buildMeetingParticipantOptions } from "@/lib/meeting-participants";
-import {
-  applySpeakerAliases,
-  applySpeakerAliasesToTasks,
-  buildMeetingSpeakerRoster
-} from "@/lib/speaker-aliases";
 import { loadMeetingTasksWithFallback } from "@/lib/meeting-task-query";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
+import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 import type {
   MeetingAnalysisJob,
   MeetingCommitment,
-  MeetingSpeakerAlias,
   MeetingTask,
   MeetingTopic,
   Project,
@@ -87,7 +81,6 @@ export default async function MeetingDetailPage({
     { data: topics, error: topicsError },
     { data: tasks, error: tasksError },
     { data: commitments, error: commitmentsError },
-    { data: aliases, error: aliasesError },
     latestAnalysisJob
   ] =
     await Promise.all([
@@ -123,11 +116,6 @@ export default async function MeetingDetailPage({
         .select("*")
         .eq("meeting_id", id)
         .order("created_at", { ascending: true }),
-      supabaseAdmin
-        .from("meeting_speaker_aliases")
-        .select("*")
-        .eq("meeting_id", id)
-        .order("raw_speaker_label", { ascending: true }),
       getLatestMeetingAnalysisJob(id).catch(() => null as MeetingAnalysisJob | null)
     ]);
 
@@ -140,27 +128,27 @@ export default async function MeetingDetailPage({
   const safeTopics = topicsMissingTable ? [] : (topics ?? []);
   const rawTasks = (tasksMissingTable ? [] : (tasks ?? [])) as MeetingTask[];
   const typedTopics = safeTopics as MeetingTopic[];
-  const safeAliases = (aliases ?? []) as MeetingSpeakerAlias[];
-  const rawSegments = canonicalTranscriptOrder((segments ?? []) as TranscriptSegment[]);
-  const safeSegments = applySpeakerAliases(rawSegments, safeAliases);
-  const safeTasks = applySpeakerAliasesToTasks(rawTasks, safeAliases);
+  const safeSegments = canonicalTranscriptOrder((segments ?? []) as TranscriptSegment[])
+    .map(normalizeTranscriptSpeaker);
+  const safeTasks = rawTasks;
   const safeCommitments = (commitmentsMissingTable
     ? []
     : commitments ?? []) as MeetingCommitment[];
   const activeCommitments = safeCommitments.filter(
     (commitment) => !commitment.converted_to_task_id
   );
-  const speakerRoster = buildMeetingSpeakerRoster({
-    segments: rawSegments,
-    aliases: safeAliases,
-    tasks: rawTasks
-  });
-  // Reuses this page's own already-loaded aliases/tasks/commitments -- no additional query, and
-  // one shared option list for every owner dropdown on the page (see StandaloneTasksPanel below).
+  const commitmentIds = activeCommitments.map((commitment) => commitment.id);
+  const { data: commitmentParticipants } = commitmentIds.length
+    ? await supabaseAdmin
+        .from("commitment_participants")
+        .select("participant_name")
+        .in("commitment_id", commitmentIds)
+    : { data: [] };
   const meetingParticipantOptions = buildMeetingParticipantOptions({
-    aliases: safeAliases,
+    transcriptSegments: safeSegments,
     tasks: rawTasks,
-    commitments: safeCommitments
+    commitments: safeCommitments,
+    commitmentParticipants: commitmentParticipants ?? []
   });
   const participants = Array.from(
     new Set(
@@ -307,7 +295,6 @@ export default async function MeetingDetailPage({
       {(segmentsError ||
         insightsError ||
         promptsError ||
-        aliasesError ||
         (topicsError && !topicsMissingTable) ||
         (tasksError && !tasksMissingTable) ||
         (commitmentsError && !commitmentsMissingTable)) && (
@@ -348,10 +335,6 @@ export default async function MeetingDetailPage({
           forcing the grid track wider than its 400px-ish assistant sibling. */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_400px] xl:items-start">
         <div className="space-y-6 xl:min-w-0">
-          {/* Speaker resolution: a compact callout when identities are unresolved (affects
-              ownership accuracy), collapsed by default either way -- see SpeakerMappingPanel. */}
-          <SpeakerMappingPanel meetingId={meeting.id} initialSpeakers={speakerRoster} />
-
           {/* 2. Compact execution summary -- execution-oriented counts only. Transcript/topic/
               insight processing metrics moved to Meeting Intelligence below. */}
           <div className="premium-card grid grid-cols-2 divide-y divide-slate-100 sm:grid-cols-4 sm:divide-y-0 sm:divide-x">

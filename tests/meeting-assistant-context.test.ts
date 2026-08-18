@@ -6,7 +6,6 @@ import type {
   ExtractedInsight,
   Meeting,
   MeetingCommitment,
-  MeetingSpeakerAlias,
   MeetingTask,
   MeetingTopic,
   TaskArtifact,
@@ -95,7 +94,7 @@ function task(overrides: Partial<MeetingTask> = {}): MeetingTask {
 const baseInput = {
   meeting: meeting(),
   project: null,
-  aliases: [] as MeetingSpeakerAlias[],
+  transcriptParticipants: [] as Array<{ participant_name: string | null; speaker: string | null }>,
   topics: [] as MeetingTopic[],
   insights: [] as ExtractedInsight[],
   dependencies: [] as TaskDependency[],
@@ -213,21 +212,12 @@ test("context: a completed prerequisite unblocks the dependent task", () => {
 });
 
 // 6. includes participants
-test("context: meeting.participants reflects resolved meeting participants (aliases + extracted owners)", () => {
+test("context: meeting.participants reflects Recall participants and extracted owners", () => {
   const context = buildMeetingAssistantExecutionContext({
     ...baseInput,
     commitments: [commitment({ owner: "Craig Lauer" })],
     tasks: [task({ owner: "Aditya Ujawane" })],
-    aliases: [
-      {
-        id: "alias-1",
-        meeting_id: "meeting-1",
-        raw_speaker_label: "Speaker 1",
-        display_name: "Laura Wetherhold",
-        created_at: "2026-08-01T00:00:00Z",
-        updated_at: "2026-08-01T00:00:00Z"
-      }
-    ]
+    transcriptParticipants: [{ participant_name: "Laura Wetherhold", speaker: "Laura Wetherhold" }]
   });
   assert.deepEqual(
     [...context.meeting.participants].sort(),

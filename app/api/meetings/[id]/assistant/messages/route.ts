@@ -14,7 +14,6 @@ import type {
   Meeting,
   MeetingCommitment,
   MeetingComment,
-  MeetingSpeakerAlias,
   MeetingTask,
   MeetingTopic,
   Project,
@@ -105,7 +104,7 @@ export async function POST(
     { comments: previousComments, error: historyError },
     { data: commitments },
     { data: tasks },
-    { data: aliases },
+    { data: transcriptParticipants },
     { data: topics },
     { data: insights },
     { data: project },
@@ -114,7 +113,10 @@ export async function POST(
     loadMeetingComments(id),
     supabaseAdmin.from("meeting_commitments").select("*").eq("meeting_id", id),
     supabaseAdmin.from("meeting_tasks").select("*").eq("meeting_id", id),
-    supabaseAdmin.from("meeting_speaker_aliases").select("*").eq("meeting_id", id),
+    supabaseAdmin
+      .from("transcript_segments")
+      .select("participant_name,speaker")
+      .eq("meeting_id", id),
     supabaseAdmin.from("meeting_topics").select("*").eq("meeting_id", id),
     supabaseAdmin.from("extracted_insights").select("*").eq("meeting_id", id),
     meeting.project_id
@@ -164,7 +166,10 @@ export async function POST(
     tasks: safeTasks,
     dependencies: (dependencies ?? []) as TaskDependency[],
     artifacts: (artifacts ?? []) as TaskArtifact[],
-    aliases: (aliases ?? []) as MeetingSpeakerAlias[],
+    transcriptParticipants: (transcriptParticipants ?? []) as Array<{
+      participant_name: string | null;
+      speaker: string | null;
+    }>,
     topics: (topics ?? []) as MeetingTopic[],
     insights: (insights ?? []) as ExtractedInsight[]
   });

@@ -1,6 +1,7 @@
 import { parseTaskCommentMetadata } from "@/lib/task-comment-metadata";
 import { loadMeetingTranscriptSegments, getSegmentIdsFromTopic } from "@/lib/transcript-segments";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getTranscriptSpeakerLabel } from "@/lib/transcript-speaker";
 import type { Meeting, MeetingTask, TaskComment } from "@/lib/types";
 
 export async function getAccessibleTask(taskId: string, userId: string) {
@@ -62,7 +63,7 @@ export async function getTaskTranscriptSnippets(task: MeetingTask) {
   if (error) return { snippets: [], error };
   return {
     snippets: segments.map((segment) => {
-      const speaker = segment.speaker?.trim() || "Unknown Speaker";
+      const speaker = getTranscriptSpeakerLabel(segment);
       const text = segment.text?.trim().replace(/\s+/g, " ") || "";
       return `${speaker}: ${text.slice(0, 600)}`;
     }),

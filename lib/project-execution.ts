@@ -266,7 +266,7 @@ export function collectProjectPeople(
 export function mergeProjectPeople(values: string[]) {
   const people = new Map<string, string>();
   for (const value of values) {
-    const trimmed = value.trim();
+    const trimmed = value.trim().replace(/\s+/g, " ");
     if (trimmed && !people.has(trimmed.toLowerCase())) {
       people.set(trimmed.toLowerCase(), trimmed);
     }

@@ -1,6 +1,6 @@
-import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
-import type { MeetingSpeakerAlias, TranscriptSegment } from "@/lib/types";
+import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
+import type { TranscriptSegment } from "@/lib/types";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -57,7 +57,8 @@ export async function loadMeetingTranscriptSegments(input: {
     const scoped = await baseQuery().in("id", segmentIds);
     if (!scoped.error && (scoped.data?.length ?? 0) > 0) {
       return {
-        segments: canonicalTranscriptOrder((scoped.data ?? []) as TranscriptSegment[]),
+        segments: canonicalTranscriptOrder((scoped.data ?? []) as TranscriptSegment[])
+          .map(normalizeTranscriptSpeaker),
         error: null as null
       };
     }
@@ -73,30 +74,8 @@ export async function loadMeetingTranscriptSegments(input: {
 
   const fallback = await baseQuery().limit(limit);
   return {
-    segments: canonicalTranscriptOrder((fallback.data ?? []) as TranscriptSegment[]),
+    segments: canonicalTranscriptOrder((fallback.data ?? []) as TranscriptSegment[])
+      .map(normalizeTranscriptSpeaker),
     error: fallback.error
-  };
-}
-
-export async function loadResolvedMeetingTranscriptSegments(input: {
-  meetingId: string;
-  segmentIds?: string[] | null;
-  limit?: number;
-}) {
-  const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const [{ segments, error: segmentsError }, { data: aliases, error: aliasesError }] =
-    await Promise.all([
-      loadMeetingTranscriptSegments(input),
-      supabaseAdmin
-        .from("meeting_speaker_aliases")
-        .select("*")
-        .eq("meeting_id", input.meetingId)
-    ]);
-
-  return {
-    segments: applySpeakerAliases(segments, (aliases ?? []) as MeetingSpeakerAlias[]),
-    aliases: (aliases ?? []) as MeetingSpeakerAlias[],
-    segmentsError,
-    aliasesError
   };
 }

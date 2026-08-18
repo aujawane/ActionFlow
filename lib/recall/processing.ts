@@ -4,15 +4,8 @@ import {
   getRecallTranscriptDiagnostics,
   parseRecallTranscriptToSegments
 } from "@/lib/recall/transcript";
-import {
-  buildSpeakerAliasMap,
-  getAmbiguousParticipantNames,
-  getMappedSpeakerName,
-  getRawSpeakerLabel,
-  getResolvedSpeakerName
-} from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MeetingSpeakerAlias } from "@/lib/types";
+import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 
 export type RecallMeetingProcessingResult =
   | {
@@ -45,48 +38,18 @@ export async function replaceMeetingTranscriptFromRecall({
     ...getRecallTranscriptDiagnostics(transcriptContent)
   });
   const parsedRows = parseRecallTranscriptToSegments(transcriptContent);
-  const { data: aliasRows, error: aliasesError } = await supabaseAdmin
-    .from("meeting_speaker_aliases")
-    .select("*")
-    .eq("meeting_id", meetingId);
-  if (aliasesError) {
-    throw new Error(aliasesError.message);
-  }
-
-  const aliases = (aliasRows ?? []) as MeetingSpeakerAlias[];
-  const aliasMap = buildSpeakerAliasMap(aliases);
-  const ambiguousParticipants = getAmbiguousParticipantNames(parsedRows);
-  const resolvedRows = parsedRows.map((row) => {
-    const rawSpeakerLabel = getRawSpeakerLabel(row);
-    const resolvedSpeaker = getMappedSpeakerName(rawSpeakerLabel, aliasMap);
-    return {
-      ...row,
-      resolved_speaker: resolvedSpeaker,
-      speaker: getResolvedSpeakerName(
-        { ...row, resolved_speaker: resolvedSpeaker },
-        aliasMap,
-        ambiguousParticipants
-      )
-    };
-  });
-  const sampleSpeakers = resolvedRows
+  const transcriptRows = parsedRows.map(normalizeTranscriptSpeaker);
+  const sampleSpeakers = transcriptRows
     .slice(0, 5)
-    .map((row) => row.speaker ?? row.participant_name ?? row.diarized_speaker ?? "Unknown Speaker");
+    .map((row) => row.speaker ?? "Unknown Speaker");
   const participantNames = Array.from(
     new Set(
-      resolvedRows
+      transcriptRows
         .map((row) => row.participant_name?.trim())
         .filter((name): name is string => Boolean(name))
     )
   ).slice(0, 5);
-  const diarizedSpeakers = Array.from(
-    new Set(
-      resolvedRows
-        .map((row) => row.diarized_speaker?.trim())
-        .filter((name): name is string => Boolean(name))
-    )
-  ).slice(0, 5);
-  const segmentCountBySpeaker = resolvedRows.reduce<Record<string, number>>((counts, row) => {
+  const segmentCountBySpeaker = transcriptRows.reduce<Record<string, number>>((counts, row) => {
     const speaker = row.speaker?.trim() || "Unknown Speaker";
     counts[speaker] = (counts[speaker] ?? 0) + 1;
     return counts;
@@ -94,16 +57,13 @@ export async function replaceMeetingTranscriptFromRecall({
 
   console.info("Recall transcript rows parsed", {
     bot_id: recallBotId,
-    transcript_entry_count: resolvedRows.length,
+    transcript_entry_count: transcriptRows.length,
     sample_speakers: sampleSpeakers,
     participant_names: participantNames,
-    diarized_speakers: diarizedSpeakers,
-    ambiguous_participants: Array.from(ambiguousParticipants),
-    preferred_diarized_labels: ambiguousParticipants.size > 0,
     segment_count_by_speaker: segmentCountBySpeaker
   });
 
-  if (resolvedRows.length === 0) {
+  if (transcriptRows.length === 0) {
     return { insertedCount: 0, parsedCount: 0, ready: false };
   }
 
@@ -118,13 +78,10 @@ export async function replaceMeetingTranscriptFromRecall({
   const { data: insertedRows, error: insertError } = await supabaseAdmin
     .from("transcript_segments")
     .insert(
-      resolvedRows.map((row) => ({
+      transcriptRows.map((row) => ({
         meeting_id: meetingId,
         speaker: row.speaker,
         participant_name: row.participant_name,
-        diarized_speaker: row.diarized_speaker,
-        resolved_speaker: row.resolved_speaker,
-        speaker_confidence: row.speaker_confidence,
         text: row.text,
         timestamp: row.timestamp,
         raw_payload: row.raw_payload
@@ -138,7 +95,7 @@ export async function replaceMeetingTranscriptFromRecall({
 
   return {
     insertedCount: insertedRows?.length ?? 0,
-    parsedCount: resolvedRows.length,
+    parsedCount: transcriptRows.length,
     ready: true
   };
 }

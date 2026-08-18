@@ -15,9 +15,6 @@ function segment(overrides: Partial<TranscriptSegment> = {}): TranscriptSegment 
     meeting_id: "meeting-1",
     speaker: "Unknown Speaker",
     participant_name: null,
-    diarized_speaker: null,
-    resolved_speaker: null,
-    speaker_confidence: null,
     text: `Segment text ${counter}`,
     timestamp: `2026-08-01T15:0${counter}:00Z`,
     raw_payload: {},
@@ -50,7 +47,7 @@ test("scoreTranscriptSegments: prioritizes segments containing message keywords"
   assert.equal(selected[0].id, pricingSegment.id);
 });
 
-test("scoreTranscriptSegments: boosts a segment whose resolved speaker is named in the message", () => {
+test("scoreTranscriptSegments: boosts a segment whose Recall speaker is named in the message", () => {
   const craigSegment = segment({ speaker: "Craig Lauer", text: "The account setup is straightforward." });
   const otherSegment = segment({
     speaker: "Aditya Ujawane",

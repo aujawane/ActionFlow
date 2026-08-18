@@ -596,6 +596,15 @@ test("person correction migration atomically updates only audited identity refer
   assert.doesNotMatch(sql, /source_quote\s*=/);
 });
 
+test("Project Brain person auditing no longer reads speaker-resolution aliases", async () => {
+  const [contextSource, schemaSource] = await Promise.all([
+    readFile(new URL("../lib/project-brain/context.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/project-brain/schemas.ts", import.meta.url), "utf8")
+  ]);
+  assert.doesNotMatch(contextSource, /meeting_speaker_aliases/);
+  assert.doesNotMatch(schemaSource, /speaker_alias|display_name/);
+});
+
 test("apply endpoint canonicalizes aliases, logs selected operations, and refreshes project data", async () => {
   const route = await readFile(
     new URL(

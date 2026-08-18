@@ -15,6 +15,7 @@ import {
   type TaskWorkspaceContext
 } from "@/lib/task-workspace";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getTranscriptSpeakerLabel } from "@/lib/transcript-speaker";
 import type { MeetingTask, TaskArtifact, TaskCategorizationMetadata } from "@/lib/types";
 
 export async function loadLatestDeliverableArtifact(taskId: string) {
@@ -58,7 +59,7 @@ export async function ensureTaskIsCategorized(
   const meetingContext = workspaceContext.segments
     .slice(0, 12)
     .map((segment) => {
-      const speaker = segment.speaker?.trim() || "Unknown speaker";
+      const speaker = getTranscriptSpeakerLabel(segment);
       return `${speaker}: ${segment.text.trim()}`;
     })
     .join("\n");

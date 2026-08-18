@@ -8,10 +8,12 @@ It copies only:
 
 - `meetings`
 - `transcript_segments`
-- `meeting_speaker_aliases` when present
+- legacy `meeting_speaker_aliases` when present, solely so historical staging fixtures remain reproducible
 
 It does not copy tasks, commitments, comments, artifacts, topics, or insights.
 Run the execution-intelligence analysis in staging to regenerate those tables.
+The launch application does not read these legacy aliases; a clean production
+baseline should omit the alias table.
 
 ## 1. Install the staging-only transaction helper
 
@@ -100,4 +102,3 @@ is replaced with the supplied staging user UUID.
 
 After copying, open the meeting in staging and trigger Analyze Meeting to
 generate topics, insights, commitments, and tasks with the new pipeline.
-

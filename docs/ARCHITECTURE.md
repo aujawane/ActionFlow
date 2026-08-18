@@ -40,7 +40,7 @@ Meetings remain source evidence and analysis history.
 ## Execution intelligence pipeline
 
 ```text
-Transcript + speaker aliases
+Recall transcript (`participant_name` / `speaker`)
   → topic segmentation
   → Conversation Events (chunked and linked)
   → responsibility extraction (chunked; no hierarchy)
@@ -97,8 +97,8 @@ Core tables:
 
 - `profiles`, `meetings` (+ `execution_graph_generation`, statuses including `transcript_ready`)
 - `projects`; nullable `project_id` on meetings/commitments/tasks
-- `transcript_segments` (speaker / diarized / resolved)
-- `meeting_speaker_aliases`, `meeting_topics`
+- `transcript_segments` (Recall participant/speaker attribution, text, timestamp, raw payload)
+- `meeting_topics`
 - `meeting_commitments`, `meeting_tasks` (+ `commitment_id`, overrides, evidence, `execution_classification`)
 - `task_comments`, `task_artifacts`, `meeting_artifacts`
 - `extracted_insights`, `generated_prompts`
@@ -158,7 +158,7 @@ Critical RPCs: `replace_meeting_execution_graph` (generation-safe merge), `assig
 - `lib/task-deliverable-service.ts`, `lib/task-categorization.ts`
 - `lib/ai/task-chat-patch.ts`
 - `lib/project-brain/{context,agent,schemas}.ts`
-- `lib/speaker-resolution.ts`, `lib/speaker-aliases.ts`
+- `lib/transcript-speaker.ts`, `lib/meeting-participants.ts`
 
 ## External integrations
 

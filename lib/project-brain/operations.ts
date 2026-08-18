@@ -276,7 +276,6 @@ export function collectProjectPersonReferences(input: {
   commitments: Array<Record<string, unknown>>;
   projectParticipants?: Array<Record<string, unknown>>;
   commitmentParticipants?: Array<Record<string, unknown>>;
-  speakerAliases?: Array<Record<string, unknown>>;
 }) {
   const references: ProjectPersonReference[] = [];
   for (const task of input.tasks) {
@@ -328,8 +327,7 @@ export function collectProjectPersonReferences(input: {
   }
   const namedRows = [
     ["project_participant", input.projectParticipants ?? [], "participant_name"],
-    ["commitment_participant", input.commitmentParticipants ?? [], "participant_name"],
-    ["speaker_alias", input.speakerAliases ?? [], "display_name"]
+    ["commitment_participant", input.commitmentParticipants ?? [], "participant_name"]
   ] as const;
   for (const [type, rows, field] of namedRows) {
     for (const row of rows) {
@@ -338,10 +336,7 @@ export function collectProjectPersonReferences(input: {
       references.push({
         type,
         id: String(row.id),
-        label:
-          type === "speaker_alias"
-            ? String(row.raw_speaker_label ?? name)
-            : String(row.label ?? name),
+        label: String(row.label ?? name),
         personName: name.trim(),
         fields: [field],
       });

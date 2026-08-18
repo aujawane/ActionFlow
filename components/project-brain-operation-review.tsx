@@ -461,8 +461,7 @@ function operationDetails(
       task: "Task assignment",
       commitment: "Commitment assignment",
       project_participant: "Project participant",
-      commitment_participant: "Commitment participant",
-      speaker_alias: "Speaker identity mapping"
+      commitment_participant: "Commitment participant"
     };
     return (
       <div className="space-y-3">

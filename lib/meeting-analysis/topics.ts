@@ -5,12 +5,11 @@ import {
   segmentMeetingTopicsWithOpenAI
 } from "@/lib/analysis";
 import type { ExecutionSourceContext } from "@/lib/execution-intelligence/stages";
-import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildCanonicalTranscriptWithSegmentIds, canonicalTranscriptOrder } from "@/lib/transcript-order";
+import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 import type {
   ExtractedInsight,
-  MeetingSpeakerAlias,
   MeetingTopic,
   Project,
   TranscriptSegment
@@ -90,8 +89,7 @@ export async function prepareMeetingAnalysis(
 ): Promise<PreparedMeetingAnalysis> {
   const [
     { data: meeting, error: meetingError },
-    { data: segments, error: segmentsError },
-    { data: aliases, error: aliasesError }
+    { data: segments, error: segmentsError }
   ] = await Promise.all([
     supabaseAdmin
       .from("meetings")
@@ -103,16 +101,11 @@ export async function prepareMeetingAnalysis(
       .from("transcript_segments")
       .select("*")
       .eq("meeting_id", meetingId)
-      .order("timestamp", { ascending: true }),
-    supabaseAdmin
-      .from("meeting_speaker_aliases")
-      .select("*")
-      .eq("meeting_id", meetingId)
+      .order("timestamp", { ascending: true })
   ]);
 
   if (meetingError || !meeting) throw new Error("Meeting not found.");
   if (segmentsError) throw new Error(`Failed to fetch transcript: ${segmentsError.message}`);
-  if (aliasesError) throw new Error(`Failed to fetch speaker aliases: ${aliasesError.message}`);
 
   const meetingProjectId =
     typeof meeting.project_id === "string" ? meeting.project_id : null;
@@ -156,10 +149,8 @@ export async function prepareMeetingAnalysis(
         { data: [] }
       ];
 
-  const safeSegments = applySpeakerAliases(
-    canonicalTranscriptOrder((segments ?? []) as TranscriptSegment[]),
-    (aliases ?? []) as MeetingSpeakerAlias[]
-  );
+  const safeSegments = canonicalTranscriptOrder((segments ?? []) as TranscriptSegment[])
+    .map(normalizeTranscriptSpeaker);
   const transcript = buildCleanTranscript(safeSegments);
   if (!transcript.trim() || safeSegments.length === 0) {
     throw new Error("No transcript available yet.");

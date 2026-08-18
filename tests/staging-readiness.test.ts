@@ -11,7 +11,6 @@ import {
   runExecutionGraphModel
 } from "../lib/execution-intelligence/model";
 import { buildExecutionSourcePayload } from "../lib/execution-intelligence/stages";
-import { replaceSpeakerOwnerFields } from "../lib/speaker-resolution";
 
 test("execution graph RPC is server-only and search_path protected", async () => {
   const sql = await readFile(
@@ -174,28 +173,6 @@ test("execution source payload sends each transcript, topic, and insight once", 
     "transcript",
     "transcript_segment_count"
   ]);
-});
-
-test("speaker alias replacement updates primary and task owners arrays", () => {
-  assert.deepEqual(
-    replaceSpeakerOwnerFields({
-      owner: "Speaker 1",
-      owners: ["Speaker 1", "Craig"],
-      rawSpeakerLabel: "Speaker 1",
-      displayName: "Aditya"
-    }),
-    { owner: "Aditya", owners: ["Aditya", "Craig"] }
-  );
-  assert.deepEqual(
-    replaceSpeakerOwnerFields({
-      owner: "Old Name",
-      owners: ["Old Name", "Craig"],
-      rawSpeakerLabel: "Speaker 1",
-      previousDisplayName: "Old Name",
-      displayName: "New Name"
-    }),
-    { owner: "New Name", owners: ["New Name", "Craig"] }
-  );
 });
 
 test("meeting task query falls back without hiding legacy tasks", async () => {

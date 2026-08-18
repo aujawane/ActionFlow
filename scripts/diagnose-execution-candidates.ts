@@ -10,11 +10,10 @@ import {
   generateChunkedExecutionCandidates,
   generateExecutionCandidates
 } from "../lib/execution-intelligence/stages";
-import { applySpeakerAliases } from "../lib/speaker-aliases";
 import { canonicalTranscriptOrder } from "../lib/transcript-order";
+import { normalizeTranscriptSpeaker } from "../lib/transcript-speaker";
 import type {
   ExtractedInsight,
-  MeetingSpeakerAlias,
   MeetingTopic,
   TranscriptSegment
 } from "../lib/types";
@@ -68,7 +67,6 @@ async function main() {
   const [
     meetingResult,
     segmentsResult,
-    aliasesResult,
     topicsResult,
     insightsResult
   ] = await Promise.all([
@@ -83,10 +81,6 @@ async function main() {
       .eq("meeting_id", meetingId)
       .order("timestamp", { ascending: true }),
     staging
-      .from("meeting_speaker_aliases")
-      .select("*")
-      .eq("meeting_id", meetingId),
-    staging
       .from("meeting_topics")
       .select("id, title, summary, segment_ids")
       .eq("meeting_id", meetingId),
@@ -99,7 +93,6 @@ async function main() {
   const failedRead = [
     ["meeting", meetingResult.error],
     ["transcript segments", segmentsResult.error],
-    ["speaker aliases", aliasesResult.error],
     ["topics", topicsResult.error],
     ["insights", insightsResult.error]
   ].find(([, error]) => error);
@@ -117,10 +110,9 @@ async function main() {
     throw new Error(`Staging meeting ${meetingId} does not exist.`);
   }
 
-  const segments = applySpeakerAliases(
-    canonicalTranscriptOrder((segmentsResult.data ?? []) as TranscriptSegment[]),
-    (aliasesResult.data ?? []) as MeetingSpeakerAlias[]
-  );
+  const segments = canonicalTranscriptOrder(
+    (segmentsResult.data ?? []) as TranscriptSegment[]
+  ).map(normalizeTranscriptSpeaker);
   if (segments.length === 0) {
     throw new Error(`Staging meeting ${meetingId} has no transcript segments.`);
   }

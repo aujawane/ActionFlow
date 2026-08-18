@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getOpenAIModel, openai } from "@/lib/openai";
+import { getTranscriptSpeakerLabel } from "@/lib/transcript-speaker";
 import type { InsightCategory } from "@/lib/types";
 
 const transcriptAnalysisSchema = z
@@ -101,11 +102,14 @@ const transcriptAnalysisJsonSchema: Record<string, unknown> = {
 };
 
 export function buildCleanTranscript(
-  segments: Array<{ speaker: string | null; text: string; timestamp: string }>
+  segments: Array<{ participant_name?: string | null; speaker: string | null; text: string; timestamp: string }>
 ) {
   return segments
     .map((segment) => {
-      const speaker = segment.speaker?.trim() || "Unknown Speaker";
+      const speaker = getTranscriptSpeakerLabel({
+        participant_name: segment.participant_name ?? null,
+        speaker: segment.speaker
+      });
       const time = new Date(segment.timestamp).toISOString();
       const text = segment.text.trim().replace(/\s+/g, " ");
       return `[${time}] ${speaker}: ${text}`;
@@ -115,11 +119,14 @@ export function buildCleanTranscript(
 }
 
 export function buildTranscriptWithSegmentIds(
-  segments: Array<{ id: string; speaker: string | null; text: string; timestamp: string }>
+  segments: Array<{ id: string; participant_name?: string | null; speaker: string | null; text: string; timestamp: string }>
 ) {
   return segments
     .map((segment) => {
-      const speaker = segment.speaker?.trim() || "Unknown Speaker";
+      const speaker = getTranscriptSpeakerLabel({
+        participant_name: segment.participant_name ?? null,
+        speaker: segment.speaker
+      });
       const time = new Date(segment.timestamp).toISOString();
       const text = segment.text.trim().replace(/\s+/g, " ");
       return `[${segment.id}] [${time}] ${speaker}: ${text}`;
@@ -409,4 +416,3 @@ export function buildInsightsPayload(input: {
     }))
   ];
 }
-

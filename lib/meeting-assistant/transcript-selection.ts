@@ -1,6 +1,6 @@
-import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
-import type { MeetingSpeakerAlias, TranscriptSegment } from "@/lib/types";
+import { getTranscriptSpeakerLabel, normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
+import type { TranscriptSegment } from "@/lib/types";
 
 /** Context routing (see brief section 7): a single deterministic decision -- does this message
  * plausibly need transcript evidence at all? Everything else (execution graph, people,
@@ -50,7 +50,7 @@ function significantWords(text: string): string[] {
 }
 
 /** Keyword-overlap scoring, no vector database (see brief section 25) -- a segment scores one
- * point per significant message word it contains, plus a large boost when its resolved speaker
+ * point per significant message word it contains, plus a large boost when its Recall speaker
  * is named in the message ("what did Craig say" should prioritize Craig's segments). Deterministic
  * and independently testable without any network call. */
 export function scoreTranscriptSegments(
@@ -67,10 +67,10 @@ export function scoreTranscriptSegments(
     for (const word of words) {
       if (text.includes(word)) score += 1;
     }
-    // Boost on a first- or last-name match, not just the full resolved name as one substring --
+    // Boost on a first- or last-name match, not just the full display name as one substring --
     // "What did Craig say" should boost "Craig Lauer"'s segments even though the message never
     // says "Craig Lauer" in full.
-    const speaker = (segment.speaker ?? "").toLowerCase().trim();
+    const speaker = getTranscriptSpeakerLabel(segment).toLowerCase();
     const speakerNameParts = speaker.split(/\s+/).filter((part) => part.length > 1);
     const speakerMentioned =
       speaker !== "" &&
@@ -107,21 +107,16 @@ export async function selectRelevantTranscriptSegments(input: {
   limit?: number;
 }): Promise<{ segments: TranscriptSegment[]; error: { message: string } | null }> {
   const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const [{ data: segmentRows, error: segmentsError }, { data: aliasRows }] = await Promise.all([
-    supabaseAdmin
-      .from("transcript_segments")
-      .select("*")
-      .eq("meeting_id", input.meetingId)
-      .order("timestamp", { ascending: true }),
-    supabaseAdmin.from("meeting_speaker_aliases").select("*").eq("meeting_id", input.meetingId)
-  ]);
+  const { data: segmentRows, error: segmentsError } = await supabaseAdmin
+    .from("transcript_segments")
+    .select("*")
+    .eq("meeting_id", input.meetingId)
+    .order("timestamp", { ascending: true });
   if (segmentsError) {
     return { segments: [], error: segmentsError };
   }
 
-  const resolved = applySpeakerAliases(
-    canonicalTranscriptOrder((segmentRows ?? []) as TranscriptSegment[]),
-    (aliasRows ?? []) as MeetingSpeakerAlias[]
-  );
-  return { segments: scoreTranscriptSegments(resolved, input.message, input.limit ?? 15), error: null };
+  const segments = canonicalTranscriptOrder((segmentRows ?? []) as TranscriptSegment[])
+    .map(normalizeTranscriptSpeaker);
+  return { segments: scoreTranscriptSegments(segments, input.message, input.limit ?? 15), error: null };
 }

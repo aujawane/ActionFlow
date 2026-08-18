@@ -8,6 +8,7 @@ import { loadMeetingParticipantOptions } from "@/lib/meeting-participants";
 import { buildCommitmentWorkspaceModel } from "@/lib/project-execution";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
+import { getTranscriptSpeakerLabel, normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 import type {
   CommitmentComment,
   CommitmentParticipant,
@@ -117,7 +118,8 @@ export default async function CommitmentPage({
         .in("id", model.evidenceSegmentIds)
         .order("timestamp", { ascending: true })
     : { data: [] };
-  const evidence = canonicalTranscriptOrder((evidenceRows ?? []) as TranscriptSegment[]);
+  const evidence = canonicalTranscriptOrder((evidenceRows ?? []) as TranscriptSegment[])
+    .map(normalizeTranscriptSpeaker);
 
   return (
     <section className="space-y-6">
@@ -173,10 +175,7 @@ export default async function CommitmentPage({
                 className="rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-700"
               >
                 <span className="mb-1 block text-xs font-semibold text-slate-500">
-                  {segment.resolved_speaker ||
-                    segment.participant_name ||
-                    segment.speaker ||
-                    "Unknown speaker"}
+                  {getTranscriptSpeakerLabel(segment)}
                 </span>
                 {segment.text}
               </blockquote>

@@ -22,12 +22,6 @@ export interface RecallTranscriptEntry {
   speaker?: { name?: string | null } | string | null;
   speaker_id?: string | number | null;
   speaker_name?: string | null;
-  speaker_label?: string | null;
-  diarized_speaker?: string | null;
-  diarized_speaker_label?: string | null;
-  channel?: string | number | null;
-  confidence?: number | null;
-  speaker_confidence?: number | null;
   text?: string | null;
   words?: RecallTranscriptWord[] | string | null;
   start_timestamp?: string | null;
@@ -38,9 +32,6 @@ export interface RecallTranscriptEntry {
 export interface ParsedTranscriptSegment {
   speaker: string | null;
   participant_name: string | null;
-  diarized_speaker: string | null;
-  resolved_speaker: string | null;
-  speaker_confidence: number | null;
   text: string;
   timestamp: string;
   raw_payload: unknown;
@@ -52,10 +43,6 @@ function asObject(value: unknown): JsonObject | null {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
-}
-
-function asNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function asTimestamp(value: unknown): string | null {
@@ -109,11 +96,9 @@ function extractSpeaker(utterance: JsonObject): string | null {
 
   return (
     extractParticipantName(utterance) ??
-    extractDiarizedSpeaker(utterance) ??
     asNonEmptyString(speaker?.name) ??
     asNonEmptyString(typedUtterance.speaker_name) ??
     asNonEmptyString(typedUtterance.speaker) ??
-    formatSpeakerLabel(typedUtterance.speaker_id) ??
     asNonEmptyString(typedUtterance.participant) ??
     null
   );
@@ -125,47 +110,6 @@ function extractParticipantName(utterance: JsonObject): string | null {
   return (
     asNonEmptyString(participant?.name) ??
     asNonEmptyString(typedUtterance.participant_name) ??
-    null
-  );
-}
-
-function formatSpeakerLabel(value: string | number | null | undefined) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return `Speaker ${value}`;
-  }
-
-  const label = asNonEmptyString(value);
-  if (!label) return null;
-  return /^speaker\s+/i.test(label) ? label : `Speaker ${label}`;
-}
-
-function extractDiarizedSpeaker(utterance: JsonObject): string | null {
-  const typedUtterance = utterance as RecallTranscriptEntry;
-  const speaker = asObject(typedUtterance.speaker);
-  const words = Array.isArray(typedUtterance.words) ? typedUtterance.words : [];
-  const firstWord = asObject(words[0]);
-
-  return (
-    formatSpeakerLabel(typedUtterance.diarized_speaker) ??
-    formatSpeakerLabel(typedUtterance.diarized_speaker_label) ??
-    formatSpeakerLabel(typedUtterance.speaker_label) ??
-    formatSpeakerLabel(typedUtterance.speaker_id) ??
-    formatSpeakerLabel(speaker?.label as string | number | null | undefined) ??
-    formatSpeakerLabel(speaker?.id as string | number | null | undefined) ??
-    formatSpeakerLabel(firstWord?.speaker as string | number | null | undefined) ??
-    formatSpeakerLabel(firstWord?.speaker_label as string | number | null | undefined) ??
-    formatSpeakerLabel(typedUtterance.channel) ??
-    null
-  );
-}
-
-function extractSpeakerConfidence(utterance: JsonObject): number | null {
-  const typedUtterance = utterance as RecallTranscriptEntry;
-  const speaker = asObject(typedUtterance.speaker);
-  return (
-    asNumber(typedUtterance.speaker_confidence) ??
-    asNumber(typedUtterance.confidence) ??
-    asNumber(speaker?.confidence) ??
     null
   );
 }
@@ -265,9 +209,6 @@ export function parseRecallTranscriptToSegments(payload: unknown): ParsedTranscr
     segments.push({
       speaker: extractSpeaker(utterance),
       participant_name: extractParticipantName(utterance),
-      diarized_speaker: extractDiarizedSpeaker(utterance),
-      resolved_speaker: null,
-      speaker_confidence: extractSpeakerConfidence(utterance),
       text,
       timestamp: extractTimestamp(utterance),
       raw_payload: utterance
@@ -280,8 +221,6 @@ export function parseRecallTranscriptToSegments(payload: unknown): ParsedTranscr
 export function getRecallTranscriptDiagnostics(payload: unknown) {
   const entries = pickUtteranceArray(payload);
   const participantNames = new Set<string>();
-  const diarizedSpeakerLabels = new Set<string>();
-  const parserDerivedDiarizedLabels = new Set<string>();
   const speakerIds = new Set<string>();
 
   for (const entry of entries.slice(0, 25)) {
@@ -289,38 +228,17 @@ export function getRecallTranscriptDiagnostics(payload: unknown) {
     if (!utterance) continue;
     const typedUtterance = utterance as RecallTranscriptEntry;
     const speaker = asObject(typedUtterance.speaker);
-    const words = Array.isArray(typedUtterance.words) ? typedUtterance.words : [];
-    const firstWord = asObject(words[0]);
     const participantName = extractParticipantName(utterance);
-    const explicitDiarizedSpeaker =
-      formatSpeakerLabel(typedUtterance.diarized_speaker) ??
-      formatSpeakerLabel(typedUtterance.diarized_speaker_label) ??
-      formatSpeakerLabel(typedUtterance.speaker_label) ??
-      formatSpeakerLabel(speaker?.label as string | number | null | undefined) ??
-      formatSpeakerLabel(firstWord?.speaker as string | number | null | undefined) ??
-      formatSpeakerLabel(
-        firstWord?.speaker_label as string | number | null | undefined
-      ) ??
-      formatSpeakerLabel(typedUtterance.channel);
-    const parserDerivedDiarizedSpeaker = extractDiarizedSpeaker(utterance);
     const speakerId =
       idToDiagnosticString(typedUtterance.speaker_id) ??
       idToDiagnosticString(speaker?.id);
     if (participantName) participantNames.add(participantName);
-    if (explicitDiarizedSpeaker) diarizedSpeakerLabels.add(explicitDiarizedSpeaker);
-    if (parserDerivedDiarizedSpeaker) {
-      parserDerivedDiarizedLabels.add(parserDerivedDiarizedSpeaker);
-    }
     if (speakerId) speakerIds.add(speakerId);
   }
 
   return {
     transcript_entry_count: entries.length,
     sample_participant_names: Array.from(participantNames).slice(0, 5),
-    sample_diarized_speaker_labels: Array.from(diarizedSpeakerLabels).slice(0, 5),
-    sample_parser_derived_diarized_labels: Array.from(
-      parserDerivedDiarizedLabels
-    ).slice(0, 5),
     sample_speaker_ids: Array.from(speakerIds).slice(0, 5),
     sample_raw_entry_keys: entries.slice(0, 3).map((entry) => {
       const object = asObject(entry);

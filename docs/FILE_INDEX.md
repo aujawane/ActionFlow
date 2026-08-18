@@ -36,7 +36,6 @@ App Router pages and API.
 - `meetings/[id]/analysis-status/route.ts` — job status
 - `meetings/[id]/sync-status/route.ts` — transcript sync
 - `meetings/[id]/transcript/route.ts` — transcript API
-- `meetings/[id]/speakers|speaker-aliases/route.ts` — speaker roster/aliases
 - `meetings/[id]/generate-prompts/route.ts` — prompt gen
 - `meetings/[id]/follow-up-emails/*` — follow-up drafts
 - `meetings/[id]/pin/route.ts` — pin meeting
@@ -136,7 +135,7 @@ Domain logic.
 - `project-execution.ts` — project progress, view models, next-best ranking
 - `meeting-follow-up-email-service.ts` / `meeting-follow-up-emails.ts`
 - `meeting-providers.ts` / `meeting-platform.ts` / `google-integration.ts`
-- `speaker-aliases.ts` / `speaker-resolution.ts`
+- `transcript-speaker.ts` / `meeting-participants.ts` — Recall attribution and participant choices
 - `manual-overrides.ts` — re-analysis override tracking
 - `meeting-task-query.ts` — legacy column fallback
 - `task-*` — categorization, deliverables, comments, workspace, display
@@ -171,7 +170,7 @@ Domain logic.
 - `background-analysis-jobs.test.ts` — enqueue/job semantics
 - `production-execution-safety.test.ts` / `staging-readiness.test.ts`
 - `task-*.test.ts` — comments/patches/deliverables
-- `recall-transcript.test.ts` / `speaker-aliases.test.ts` / `env-app-url.test.ts`
+- `recall-transcript.test.ts` / `transcript-speaker.test.ts` / `env-app-url.test.ts`
 - `fixtures/` — eval fixtures + live predictions JSON
 
 ## docs/

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { Meeting, TranscriptSegment } from "@/lib/types";
+import { getTranscriptSpeakerLabel } from "@/lib/transcript-speaker";
 
 const ACTIVE_STATUSES: Meeting["status"][] = ["joining", "recording", "processing"];
 const TERMINAL_SYNC_STATUSES: Meeting["status"][] = [
@@ -112,7 +113,7 @@ export function LiveTranscript({
               className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition hover:border-brand-200 hover:bg-brand-50/30"
             >
               <p className="text-xs font-medium text-slate-500">
-                {segment.speaker ?? "Unknown speaker"} •{" "}
+                {getTranscriptSpeakerLabel(segment)} •{" "}
                 {new Date(segment.timestamp).toLocaleTimeString()}
               </p>
               <p className="mt-1 text-sm text-slate-800">{segment.text}</p>

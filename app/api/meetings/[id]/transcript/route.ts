@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
-import { applySpeakerAliases } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
-import type { MeetingSpeakerAlias, TranscriptSegment } from "@/lib/types";
+import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
+import type { TranscriptSegment } from "@/lib/types";
 
 export async function GET(
   _request: Request,
@@ -27,17 +27,11 @@ export async function GET(
     return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
   }
 
-  const [{ data, error }, { data: aliases, error: aliasesError }] = await Promise.all([
-    supabaseAdmin
-      .from("transcript_segments")
-      .select("*")
-      .eq("meeting_id", id)
-      .order("timestamp", { ascending: true }),
-    supabaseAdmin
-      .from("meeting_speaker_aliases")
-      .select("*")
-      .eq("meeting_id", id)
-  ]);
+  const { data, error } = await supabaseAdmin
+    .from("transcript_segments")
+    .select("*")
+    .eq("meeting_id", id)
+    .order("timestamp", { ascending: true });
 
   if (error) {
     return NextResponse.json(
@@ -46,21 +40,12 @@ export async function GET(
     );
   }
 
-  if (aliasesError) {
-    return NextResponse.json(
-      { error: "Failed to fetch speaker aliases", details: aliasesError.message },
-      { status: 500 }
-    );
-  }
-
-  const resolvedSegments = applySpeakerAliases(
-    canonicalTranscriptOrder((data ?? []) as TranscriptSegment[]),
-    (aliases ?? []) as MeetingSpeakerAlias[]
-  );
+  const segments = canonicalTranscriptOrder((data ?? []) as TranscriptSegment[])
+    .map(normalizeTranscriptSpeaker);
 
   return NextResponse.json(
     {
-      segments: resolvedSegments,
+      segments,
       meeting: {
         id: meeting.id,
         status: meeting.status,

@@ -15,12 +15,10 @@ import { requireUser } from "@/lib/auth";
 import { loadMeetingParticipantOptions } from "@/lib/meeting-participants";
 import { computeCommitmentProgress } from "@/lib/project-execution";
 import {
-  resolveTaskOwner
-} from "@/lib/speaker-aliases";
-import {
   getSegmentIdsFromTopic,
-  loadResolvedMeetingTranscriptSegments
+  loadMeetingTranscriptSegments
 } from "@/lib/transcript-segments";
+import { getTranscriptSpeakerLabel } from "@/lib/transcript-speaker";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   MeetingCommitment,
@@ -114,17 +112,15 @@ export default async function TaskWorkspacePage({
     : { data: null };
 
   const typedTopic = topic as MeetingTopic | null;
-  const [
-    { segments, aliases, segmentsError },
-    meetingParticipantOptions
-  ] = await Promise.all([
-    loadResolvedMeetingTranscriptSegments({
+  const [transcriptResult, meetingParticipantOptions] = await Promise.all([
+    loadMeetingTranscriptSegments({
       meetingId: typedTask.meeting_id,
       segmentIds: getSegmentIdsFromTopic(typedTopic?.segment_ids),
       limit: 8
     }),
     loadMeetingParticipantOptions(typedTask.meeting_id)
   ]);
+  const { segments, error: segmentsError } = transcriptResult;
 
   if (segmentsError) {
     console.warn("[task workspace] Failed to load transcript context", {
@@ -134,11 +130,7 @@ export default async function TaskWorkspacePage({
     });
   }
 
-  const typedAliases = aliases;
-  const resolvedTask = {
-    ...typedTask,
-    owner: resolveTaskOwner(typedTask.owner, typedAliases)
-  };
+  const resolvedTask = typedTask;
   const { data: artifacts } = await supabaseAdmin
     .from("task_artifacts")
     .select("*")
@@ -236,7 +228,7 @@ export default async function TaskWorkspacePage({
                       {segments.map((segment) => (
                         <div key={segment.id} className="rounded-xl bg-white p-3 shadow-sm">
                           <p className="text-xs font-semibold text-slate-500">
-                            {segment.speaker || "Unknown speaker"} • {formatTime(segment.timestamp)}
+                            {getTranscriptSpeakerLabel(segment)} • {formatTime(segment.timestamp)}
                           </p>
                           <p className="mt-1 text-sm leading-6 text-slate-700">{segment.text}</p>
                         </div>

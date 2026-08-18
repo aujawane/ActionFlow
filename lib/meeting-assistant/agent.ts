@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { getOpenAIModel, openai } from "@/lib/openai";
 import type { MeetingAssistantExecutionContext } from "@/lib/meeting-assistant/context";
+import { getTranscriptSpeakerLabel } from "@/lib/transcript-speaker";
 import type { MeetingAssistantSource, MeetingComment } from "@/lib/types";
 import type { TranscriptSegment } from "@/lib/types";
 
@@ -160,7 +161,7 @@ export async function runMeetingAssistantAgent(input: {
 > {
   const transcriptExcerpt = input.transcriptSegments.map((segment) => ({
     id: segment.id,
-    speaker: segment.speaker?.trim() || "Unknown speaker",
+    speaker: getTranscriptSpeakerLabel(segment),
     // A short, human-readable time -- matches the convention already used for transcript
     // segments elsewhere (e.g. Task Workspace evidence), not an invented elapsed-time system.
     timestamp: new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(
@@ -232,7 +233,7 @@ export async function runMeetingAssistantAgent(input: {
       .filter((segment): segment is TranscriptSegment => Boolean(segment))
       .map((segment) => ({
         segment_id: segment.id,
-        speaker: segment.speaker?.trim() || "Unknown speaker",
+        speaker: getTranscriptSpeakerLabel(segment),
         timestamp: new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(
           new Date(segment.timestamp)
         )

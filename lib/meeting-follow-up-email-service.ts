@@ -5,9 +5,9 @@ import {
   toFollowUpTasks
 } from "@/lib/meeting-follow-up-emails";
 import { isCommittedWork, isTaskExecutable } from "@/lib/execution-display";
-import { applySpeakerAliasesToTasks } from "@/lib/speaker-aliases";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { loadResolvedMeetingTranscriptSegments } from "@/lib/transcript-segments";
+import { loadMeetingTranscriptSegments } from "@/lib/transcript-segments";
+import { getTranscriptSpeakerLabel } from "@/lib/transcript-speaker";
 import type {
   ExtractedInsight,
   FollowUpEmailMode,
@@ -140,7 +140,7 @@ async function loadGenerationContext(meetingId: string, userId: string) {
         .select("*")
         .eq("meeting_id", meetingId)
         .order("created_at", { ascending: true }),
-      loadResolvedMeetingTranscriptSegments({ meetingId, limit: 24 })
+      loadMeetingTranscriptSegments({ meetingId, limit: 24 })
     ]);
 
   if (tasksResult.error) {
@@ -152,20 +152,17 @@ async function loadGenerationContext(meetingId: string, userId: string) {
     };
   }
 
-  if (transcriptResult.segmentsError || transcriptResult.aliasesError) {
+  if (transcriptResult.error) {
     return {
       ok: false as const,
       status: 500,
       error: "Failed to load meeting context.",
       details:
-        transcriptResult.segmentsError?.message ?? transcriptResult.aliasesError?.message
+        transcriptResult.error.message
     };
   }
 
-  const tasks = applySpeakerAliasesToTasks(
-    (tasksResult.data ?? []) as MeetingTask[],
-    transcriptResult.aliases
-  );
+  const tasks = (tasksResult.data ?? []) as MeetingTask[];
   const participantNames = new Map<string, string>();
   for (const name of [
     ...transcriptResult.segments.map((segment) => segment.speaker),
@@ -190,7 +187,7 @@ async function loadGenerationContext(meetingId: string, userId: string) {
   const transcriptContext = transcriptResult.segments
     .map(
       (segment) =>
-        `${segment.speaker?.trim() || "Unknown speaker"}: ${segment.text.trim().replace(/\s+/g, " ")}`
+        `${getTranscriptSpeakerLabel(segment)}: ${segment.text.trim().replace(/\s+/g, " ")}`
     )
     .join("\n");
 
