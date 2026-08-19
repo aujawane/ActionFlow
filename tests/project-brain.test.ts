@@ -571,29 +571,34 @@ test("migration defines durable storage, RLS, versioning, atomic apply, and audi
   assert.match(sql, /status = 'superseded'/);
 });
 
-test("person correction migration atomically updates only audited identity references", async () => {
+test("Production alignment person correction atomically updates only launch identity references", async () => {
   const sql = await readFile(
     new URL(
-      "../supabase/migrations/20260814090000_add_project_person_correction_rpc.sql",
+      "../supabase/migrations/20260818231713_production_launch_alignment.sql",
       import.meta.url
     ),
     "utf8"
   );
-  assert.match(sql, /create or replace function public\.apply_project_person_correction/);
-  assert.match(sql, /project_row\.owner_id <> p_actor_id/);
-  assert.match(sql, /proposal_row\.base_graph_version/);
-  assert.match(sql, /update public\.meeting_tasks/);
-  assert.match(sql, /update public\.meeting_commitments/);
-  assert.match(sql, /update public\.project_participants/);
-  assert.match(sql, /update public\.commitment_participants/);
-  assert.match(sql, /update public\.meeting_speaker_aliases/);
-  assert.match(sql, /preserve_on_reanalysis = true/);
-  assert.match(sql, /manual_override_fields/);
-  assert.match(sql, /status = 'applied'/);
-  assert.match(sql, /proposal_not_applicable/);
-  assert.match(sql, /grant execute on function public\.apply_project_person_correction[\s\S]*service_role/);
-  assert.doesNotMatch(sql, /update public\.transcript_segments/);
-  assert.doesNotMatch(sql, /source_quote\s*=/);
+  const personSql = sql.match(
+    /-- Speaker-independent atomic project-person correction\.[\s\S]*?(?=-- Atomic dependency provenance wrapper\.)/
+  )?.[0];
+  assert.ok(personSql);
+  assert.match(personSql, /create or replace function public\.apply_project_person_correction/);
+  assert.match(personSql, /project_row\.owner_id <> p_actor_id/);
+  assert.match(personSql, /proposal_row\.base_graph_version/);
+  assert.match(personSql, /update public\.meeting_tasks/);
+  assert.match(personSql, /update public\.meeting_commitments/);
+  assert.match(personSql, /update public\.project_participants/);
+  assert.match(personSql, /update public\.commitment_participants/);
+  assert.match(personSql, /'task', 'commitment', 'project_participant', 'commitment_participant'/);
+  assert.doesNotMatch(personSql, /speaker_alias|meeting_speaker_aliases/);
+  assert.match(personSql, /preserve_on_reanalysis = true/);
+  assert.match(personSql, /manual_override_fields/);
+  assert.match(personSql, /status = 'applied'/);
+  assert.match(personSql, /proposal_not_applicable/);
+  assert.match(personSql, /grant execute on function public\.apply_project_person_correction[\s\S]*service_role/);
+  assert.doesNotMatch(personSql, /update public\.transcript_segments/);
+  assert.doesNotMatch(personSql, /source_quote\s*=/);
 });
 
 test("Project Brain person auditing no longer reads speaker-resolution aliases", async () => {
