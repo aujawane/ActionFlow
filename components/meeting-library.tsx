@@ -1,10 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 import { MeetingStatusBadge } from "@/components/meeting-status-badge";
 import { formatReadableDate } from "@/lib/format-date";
+import {
+  decideMutationOutcome,
+  removeMeetingById,
+  restoreMeetingIfMissing,
+  withMeetingPinned,
+  withMeetingReplaced
+} from "@/lib/meeting-library-state";
 import { meetingPlatformLabel } from "@/lib/meeting-platform";
 import type { Meeting } from "@/lib/types";
 
@@ -56,11 +64,19 @@ function groupByMonth(meetings: Meeting[]) {
 }
 
 export function MeetingLibrary({ initialMeetings }: { initialMeetings: Meeting[] }) {
+  const router = useRouter();
   const [meetings, setMeetings] = useState(initialMeetings);
   const [sortOption, setSortOption] = useState<SortOption>("newest");
   const [monthFilter, setMonthFilter] = useState("all");
   const [busyMeetingId, setBusyMeetingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  // router.refresh() re-renders the server parent with a fresh initialMeetings prop -- this
+  // syncs that server truth back into local state. Runs only when the prop reference itself
+  // changes (a new fetch), never from a local setMeetings call, so it can't loop.
+  useEffect(() => {
+    setMeetings(initialMeetings);
+  }, [initialMeetings]);
 
   const monthOptions = useMemo(() => {
     const sortedByNewest = sortMeetings(meetings, "newest");
@@ -84,11 +100,7 @@ export function MeetingLibrary({ initialMeetings }: { initialMeetings: Meeting[]
     setMessage(null);
 
     const nextPinned = !meeting.is_pinned;
-    setMeetings((current) =>
-      current.map((item) =>
-        item.id === meeting.id ? { ...item, is_pinned: nextPinned } : item
-      )
-    );
+    setMeetings((current) => withMeetingPinned(current, meeting.id, nextPinned));
 
     const response = await fetch(`/api/meetings/${meeting.id}/pin`, {
       method: "PATCH",
@@ -98,41 +110,44 @@ export function MeetingLibrary({ initialMeetings }: { initialMeetings: Meeting[]
     const result = (await response.json().catch(() => ({}))) as MeetingApiResponse;
     setBusyMeetingId(null);
 
-    if (!response.ok || !result.meeting) {
-      setMeetings((current) =>
-        current.map((item) =>
-          item.id === meeting.id ? { ...item, is_pinned: meeting.is_pinned } : item
-        )
-      );
-      setMessage(result.error || "Failed to update pinned state.");
+    const outcome = decideMutationOutcome(
+      response.ok && Boolean(result.meeting),
+      result.error,
+      "Failed to update pinned state."
+    );
+    if (outcome.kind === "restore") {
+      setMeetings((current) => withMeetingPinned(current, meeting.id, meeting.is_pinned));
+      setMessage(outcome.message);
       return;
     }
 
-    setMeetings((current) =>
-      current.map((item) => (item.id === result.meeting!.id ? result.meeting! : item))
-    );
+    setMeetings((current) => withMeetingReplaced(current, result.meeting!));
+    router.refresh();
   }
 
   async function deleteMeeting(meeting: Meeting) {
     const confirmed = window.confirm(
-      `Delete "${getMeetingTitle(meeting)}"? This hides it from your meeting library.`
+      `Are you sure you want to delete meeting: "${getMeetingTitle(meeting)}"`
     );
     if (!confirmed) return;
 
     setBusyMeetingId(meeting.id);
     setMessage(null);
 
-    const previousMeetings = meetings;
-    setMeetings((current) => current.filter((item) => item.id !== meeting.id));
+    setMeetings((current) => removeMeetingById(current, meeting.id));
 
     const response = await fetch(`/api/meetings/${meeting.id}`, { method: "DELETE" });
     const result = (await response.json().catch(() => ({}))) as { error?: string };
     setBusyMeetingId(null);
 
-    if (!response.ok) {
-      setMeetings(previousMeetings);
-      setMessage(result.error || "Failed to delete meeting.");
+    const outcome = decideMutationOutcome(response.ok, result.error, "Failed to delete meeting.");
+    if (outcome.kind === "restore") {
+      setMeetings((current) => restoreMeetingIfMissing(current, meeting));
+      setMessage(outcome.message);
+      return;
     }
+
+    router.refresh();
   }
 
   if (meetings.length === 0) {

@@ -6,6 +6,9 @@ import {
   buildPasswordResetCallbackUrl,
   completeAuthCallback,
   initiatePasswordReset,
+  recoveryErrorMessage,
+  recoveryErrorPath,
+  recoveryFailureReason,
   sanitizeInternalPath,
   updateRecoveryPassword,
   validateNewPassword
@@ -108,6 +111,46 @@ test("callback rejects missing, invalid, expired, and unsafe recovery inputs", a
   assert.equal(sanitizeInternalPath("https://evil.example/steal"), "/dashboard");
   assert.equal(sanitizeInternalPath("//evil.example/steal"), "/dashboard");
   assert.equal(sanitizeInternalPath("/account/reset-password"), "/account/reset-password");
+});
+
+test("recovery failure reason distinguishes a missing PKCE verifier cookie from an expired/invalid code", () => {
+  assert.equal(
+    recoveryFailureReason({
+      credentialKind: "code",
+      providerError: null,
+      errorName: "AuthPKCECodeVerifierMissingError"
+    }),
+    "verifier_missing"
+  );
+  assert.equal(
+    recoveryFailureReason({
+      credentialKind: "code",
+      providerError: null,
+      errorName: "AuthApiError"
+    }),
+    "invalid_or_expired"
+  );
+  assert.equal(
+    recoveryFailureReason({
+      credentialKind: "missing",
+      providerError: null,
+      errorName: undefined
+    }),
+    "missing_credentials"
+  );
+  assert.equal(
+    recoveryFailureReason({
+      credentialKind: "missing",
+      providerError: "access_denied",
+      errorName: undefined
+    }),
+    "invalid_or_expired"
+  );
+});
+
+test("verifier_missing reason round-trips through the error path and gets an actionable message", () => {
+  assert.equal(recoveryErrorPath("verifier_missing"), "/forgot-password?error=verifier_missing");
+  assert.match(recoveryErrorMessage("verifier_missing") ?? "", /same browser/i);
 });
 
 test("middleware admits a persisted recovery session and blocks an unauthenticated reset page", () => {

@@ -41,6 +41,7 @@ export function recoveryErrorPath(reason: string) {
   const safeReason = [
     "missing_credentials",
     "invalid_or_expired",
+    "verifier_missing",
     "recovery_session_required"
   ].includes(reason)
     ? reason
@@ -48,9 +49,28 @@ export function recoveryErrorPath(reason: string) {
   return `/forgot-password?error=${safeReason}`;
 }
 
+/**
+ * "verifier_missing" is split out from "invalid_or_expired" because it has a different root
+ * cause and fix: the PKCE code verifier cookie set during the reset request wasn't present on
+ * this callback request (opened in a different browser/device than the one the link was
+ * requested from, or a stale cookie from a prior Supabase project/env), not an expired code.
+ */
+export function recoveryFailureReason(input: {
+  credentialKind: "code" | "token_hash" | "missing";
+  providerError: string | null;
+  errorName: string | undefined;
+}): "missing_credentials" | "verifier_missing" | "invalid_or_expired" {
+  if (input.credentialKind === "missing" && !input.providerError) return "missing_credentials";
+  if (input.errorName === "AuthPKCECodeVerifierMissingError") return "verifier_missing";
+  return "invalid_or_expired";
+}
+
 export function recoveryErrorMessage(error: string | undefined) {
   if (error === "missing_credentials") {
     return "This reset link is incomplete. Request a new password-reset email.";
+  }
+  if (error === "verifier_missing") {
+    return "Open this link in the same browser and device you used to request the reset, then request a new one if it still doesn't work.";
   }
   if (error === "invalid_or_expired") {
     return "This reset link is invalid, expired, or has already been used. Request a new one.";

@@ -5,6 +5,7 @@ import {
   RECOVERY_COOKIE_NAME,
   completeAuthCallback,
   recoveryErrorPath,
+  recoveryFailureReason,
   sanitizeInternalPath
 } from "@/lib/password-recovery";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
@@ -27,11 +28,15 @@ export async function GET(request: NextRequest) {
     auth: supabase.auth
   });
   const authError = callback.error;
+  const reason = authError
+    ? recoveryFailureReason({
+        credentialKind: callback.credentialKind,
+        providerError,
+        errorName: authError.name
+      })
+    : null;
 
-  if (authError) {
-    const reason = callback.credentialKind === "missing" && !providerError
-      ? "missing_credentials"
-      : "invalid_or_expired";
+  if (authError && reason) {
     response.headers.set("location", new URL(recoveryErrorPath(reason), origin).toString());
   } else if (isRecoveryDestination) {
     response.cookies.set(RECOVERY_COOKIE_NAME, "active", {
@@ -44,16 +49,18 @@ export async function GET(request: NextRequest) {
   }
 
   if (process.env.NODE_ENV === "development") {
+    const verifierCookieNames = request.cookies
+      .getAll()
+      .filter(({ name }) => name.endsWith("-code-verifier"))
+      .map(({ name }) => name);
     console.info("[password-recovery] callback", {
       has_code: Boolean(code),
       has_token_hash: Boolean(tokenHash),
       has_recovery_type: type === "recovery",
+      had_verifier_cookie: verifierCookieNames.length > 0,
+      verifier_cookie_names: verifierCookieNames,
       session_established: !authError,
-      destination: authError ? recoveryErrorPath(
-        callback.credentialKind === "missing" && !providerError
-          ? "missing_credentials"
-          : "invalid_or_expired"
-      ) : next,
+      destination: reason ? recoveryErrorPath(reason) : next,
       error_name: authError?.name,
       error_message: authError?.message
     });
