@@ -4,20 +4,18 @@ import { z } from "zod";
 import { requireApiUser } from "@/lib/api-auth";
 import {
   detectMeetingPlatform,
-  getSupportedMeetingUrlMessage,
-  isSupportedMeetingUrl
+  getSupportedMeetingUrlMessage
 } from "@/lib/meeting-platform";
+import {
+  meetingTitleSchema,
+  supportedMeetingUrlSchema
+} from "@/lib/meeting-form-validation";
 import { createRecallBot } from "@/lib/recall/client";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const payloadSchema = z.object({
-  meetingUrl: z
-    .string()
-    .url()
-    .refine((value) => isSupportedMeetingUrl(value), {
-      message: getSupportedMeetingUrlMessage()
-    }),
-  title: z.string().trim().min(1).max(200).optional()
+  meetingUrl: supportedMeetingUrlSchema,
+  title: meetingTitleSchema.optional()
 });
 
 export async function GET() {

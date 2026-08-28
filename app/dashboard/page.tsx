@@ -1,5 +1,5 @@
 import { MeetingLibrary } from "@/components/meeting-library";
-import { StartMeetingPanel } from "@/components/start-meeting-panel";
+import { NewMeetingForm } from "@/components/new-meeting-form";
 import { requireUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getFirstName, getUserFullName } from "@/lib/user-profile";
@@ -81,7 +81,7 @@ export default async function DashboardPage() {
         </div>
       ) : null}
 
-      <StartMeetingPanel />
+      <NewMeetingForm />
 
       {error ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">

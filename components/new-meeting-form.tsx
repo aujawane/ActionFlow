@@ -4,35 +4,37 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
-  getSupportedMeetingUrlMessage,
-  isSupportedMeetingUrl
-} from "@/lib/meeting-platform";
+  hasNewMeetingFormErrors,
+  validateNewMeetingInput,
+  type NewMeetingFormErrors
+} from "@/lib/meeting-form-validation";
+
+const NO_FIELD_ERRORS: NewMeetingFormErrors = { title: null, meetingUrl: null };
 
 export function NewMeetingForm() {
   const router = useRouter();
   const [meetingUrl, setMeetingUrl] = useState("");
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<NewMeetingFormErrors>(NO_FIELD_ERRORS);
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setLoading(true);
     setError(null);
 
-    if (!isSupportedMeetingUrl(meetingUrl.trim())) {
-      setLoading(false);
-      setError("Please enter a valid Google Meet or Zoom URL.");
-      return;
-    }
+    const errors = validateNewMeetingInput({ title, meetingUrl });
+    setFieldErrors(errors);
+    if (hasNewMeetingFormErrors(errors)) return;
 
+    setLoading(true);
     const response = await fetch("/api/meetings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meetingUrl, title: title || undefined })
+      body: JSON.stringify({ meetingUrl: meetingUrl.trim(), title: title.trim() })
     });
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     setLoading(false);
 
     if (!response.ok) {
@@ -45,36 +47,32 @@ export function NewMeetingForm() {
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="premium-card max-w-2xl space-y-5 p-6"
-    >
+    <form onSubmit={onSubmit} className="premium-card max-w-2xl space-y-5 p-6">
       <div>
-        <h2 className="text-sm font-semibold text-slate-900">Meeting Setup</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Add a Meeting</h2>
         <p className="mt-1 text-xs leading-5 text-slate-500">
-          Paste a Google Meet or Zoom URL to create a meeting record.
+          Paste your meeting link and Parfait will join and capture the conversation.
         </p>
       </div>
 
       <div className="space-y-1">
         <label className="text-sm font-medium text-slate-700" htmlFor="title">
-          Meeting title (optional)
+          Meeting Title
         </label>
         <input
           id="title"
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          placeholder="Q3 Product Planning"
+          placeholder="Weekly Product Sync"
+          required
           className="premium-input"
         />
+        {fieldErrors.title ? <p className="text-xs text-rose-600">{fieldErrors.title}</p> : null}
       </div>
 
       <div className="space-y-1">
-        <label
-          className="text-sm font-medium text-slate-700"
-          htmlFor="meeting-url"
-        >
-          Meeting URL
+        <label className="text-sm font-medium text-slate-700" htmlFor="meeting-url">
+          Meeting Link
         </label>
         <input
           id="meeting-url"
@@ -82,18 +80,16 @@ export function NewMeetingForm() {
           required
           value={meetingUrl}
           onChange={(event) => setMeetingUrl(event.target.value)}
-          placeholder="https://meet.google.com/abc-defg-hij or https://zoom.us/j/123456789"
+          placeholder="https://zoom.us/j/... or https://meet.google.com/..."
           className="premium-input"
         />
-        <p className="text-xs text-slate-500">{getSupportedMeetingUrlMessage()}</p>
+        {fieldErrors.meetingUrl ? (
+          <p className="text-xs text-rose-600">{fieldErrors.meetingUrl}</p>
+        ) : null}
       </div>
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="premium-button"
-      >
-        {loading ? "Creating..." : "Create Meeting"}
+      <button type="submit" disabled={loading} className="premium-button">
+        {loading ? "Sending Parfait Bot..." : "Send Parfait Bot"}
       </button>
 
       {error ? <p className="text-sm text-rose-700">{error}</p> : null}

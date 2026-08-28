@@ -1,26 +1,9 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { revalidatePath } from "next/cache";
 
 import { requireApiUser } from "@/lib/api-auth";
+import { meetingProjectAssignmentSchema } from "@/lib/meeting-details";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-
-const assignmentSchema = z
-  .object({
-    project_id: z.string().uuid().nullable().optional(),
-    new_project: z
-      .object({
-        name: z.string().trim().min(1).max(160),
-        description: z.string().trim().max(2000).nullable().optional(),
-        goal: z.string().trim().max(2000).nullable().optional()
-      })
-      .strict()
-      .optional()
-  })
-  .strict()
-  .refine(
-    (value) => !(value.project_id && value.new_project),
-    "Choose an existing project or create a new one."
-  );
 
 export async function PATCH(
   request: Request,
@@ -29,7 +12,7 @@ export async function PATCH(
   const auth = await requireApiUser();
   if (auth.response) return auth.response;
   const { id } = await context.params;
-  const parsed = assignmentSchema.safeParse(
+  const parsed = meetingProjectAssignmentSchema.safeParse(
     await request.json().catch(() => null)
   );
   if (!parsed.success) {
@@ -39,13 +22,19 @@ export async function PATCH(
     );
   }
 
-  const { data: meeting } = await supabaseAdmin
+  const { data: meeting, error: meetingError } = await supabaseAdmin
     .from("meetings")
-    .select("id")
+    .select("id, project_id")
     .eq("id", id)
     .eq("user_id", auth.user.id)
     .is("deleted_at", null)
     .maybeSingle();
+  if (meetingError) {
+    return NextResponse.json(
+      { error: "Failed to load meeting.", details: meetingError.message },
+      { status: 500 }
+    );
+  }
   if (!meeting) {
     return NextResponse.json({ error: "Meeting not found." }, { status: 404 });
   }
@@ -71,12 +60,18 @@ export async function PATCH(
     projectId = project.id;
     createdProjectId = project.id;
   } else if (projectId) {
-    const { data: project } = await supabaseAdmin
+    const { data: project, error: projectError } = await supabaseAdmin
       .from("projects")
       .select("id")
       .eq("id", projectId)
       .eq("owner_id", auth.user.id)
       .maybeSingle();
+    if (projectError) {
+      return NextResponse.json(
+        { error: "Failed to load project.", details: projectError.message },
+        { status: 500 }
+      );
+    }
     if (!project) {
       return NextResponse.json({ error: "Project not found." }, { status: 404 });
     }
@@ -96,5 +91,31 @@ export async function PATCH(
     );
   }
 
-  return NextResponse.json({ project_id: projectId });
+  const { data: updatedMeeting, error: updatedMeetingError } = await supabaseAdmin
+    .from("meetings")
+    .select("*")
+    .eq("id", id)
+    .eq("user_id", auth.user.id)
+    .is("deleted_at", null)
+    .single();
+  if (updatedMeetingError || !updatedMeeting) {
+    return NextResponse.json(
+      {
+        error: "Project assigned, but failed to reload meeting.",
+        details: updatedMeetingError?.message
+      },
+      { status: 500 }
+    );
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath(`/meetings/${id}`);
+  revalidatePath("/projects");
+  if (meeting.project_id) revalidatePath(`/projects/${meeting.project_id}`);
+  if (projectId) revalidatePath(`/projects/${projectId}`);
+
+  return NextResponse.json(
+    { project_id: projectId, meeting: updatedMeeting },
+    { headers: { "Cache-Control": "no-store, max-age=0" } }
+  );
 }

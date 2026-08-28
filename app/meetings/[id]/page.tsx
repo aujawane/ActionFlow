@@ -3,18 +3,16 @@ import { notFound } from "next/navigation";
 import { CommitmentsPanel } from "@/components/commitments-panel";
 import { IdeasRequirementsPanel } from "@/components/ideas-requirements-panel";
 import { InsightsPanel } from "@/components/insights-panel";
-import { LiveMeetingStatusBadge } from "@/components/live-meeting-status-badge";
 import { LiveTranscript } from "@/components/live-transcript";
 import { MeetingActions } from "@/components/meeting-actions";
 import { MeetingAnalysisStatusPanel } from "@/components/meeting-analysis-status";
 import { MeetingAssistantPanel } from "@/components/meeting-assistant-panel";
-import { MeetingProjectAssignment } from "@/components/meeting-project-assignment";
+import { MeetingDetailsEditor } from "@/components/meeting-details-editor";
 import { StandaloneTasksPanel } from "@/components/standalone-tasks-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
 import { partitionExecutionGraph } from "@/lib/execution-display";
 import { formatReadableDate } from "@/lib/format-date";
-import { meetingPlatformLabel } from "@/lib/meeting-platform";
 import { getLatestMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
 import { buildMeetingParticipantOptions } from "@/lib/meeting-participants";
 import { loadMeetingTasksWithFallback } from "@/lib/meeting-task-query";
@@ -24,6 +22,7 @@ import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 import type {
   MeetingAnalysisJob,
   MeetingCommitment,
+  Meeting,
   MeetingTask,
   MeetingTopic,
   Project,
@@ -224,65 +223,12 @@ export default async function MeetingDetailPage({
       {/* 1. Meeting header -- title, status, human date, participants, project, technical
           details. Everything a normal user needs to orient themselves; nothing pipeline-
           oriented lives here anymore (see Meeting Intelligence at the bottom of the page). */}
-      <div className="premium-card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1 space-y-3">
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Meeting Detail
-              </p>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
-                {meeting.title ?? "Untitled meeting"}
-              </h1>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
-                <span className="badge-meta">{meetingPlatformLabel(meeting.platform)}</span>
-                {meetingDateLabel ? <span>{meetingDateLabel}</span> : null}
-              </div>
-            </div>
-
-            {participants.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Participants
-                </span>
-                {participants.map((participant) => (
-                  <span
-                    key={participant}
-                    className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
-                  >
-                    {participant}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-
-            <MeetingProjectAssignment
-              meetingId={meeting.id}
-              currentProjectId={
-                typeof meeting.project_id === "string" ? meeting.project_id : null
-              }
-              projects={(projects ?? []) as Project[]}
-            />
-
-            {meeting.meeting_url || meeting.recall_bot_id ? (
-              <details className="disclosure">
-                <summary>Technical details</summary>
-                <div className="mt-1.5 space-y-0.5 text-xs text-slate-500">
-                  <p className="break-all">{meeting.meeting_url}</p>
-                  {meeting.recall_bot_id ? (
-                    <p>
-                      Recall Bot ID: <span className="font-mono">{meeting.recall_bot_id}</span>
-                    </p>
-                  ) : null}
-                </div>
-              </details>
-            ) : null}
-          </div>
-          {/* Meeting completion status only -- separate from commitment/task completion,
-              which the execution summary and commitment cards below report on their own. */}
-          <LiveMeetingStatusBadge meetingId={meeting.id} initialStatus={meeting.status} />
-        </div>
-      </div>
+      <MeetingDetailsEditor
+        initialMeeting={meeting as Meeting}
+        projects={(projects ?? []) as Project[]}
+        meetingDateLabel={meetingDateLabel}
+        participants={participants}
+      />
 
       {meeting.status === "failed" ? (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
