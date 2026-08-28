@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { CommitmentCorrectionMenu } from "@/components/commitment-correction-menu";
 import { TaskCorrectionMenu } from "@/components/task-correction-menu";
@@ -23,6 +23,16 @@ export function IdeasRequirementsPanel({
 }) {
   const [commitments, setCommitments] = useState(initialCommitments);
   const [tasks, setTasks] = useState(initialTasks);
+
+  // router.refresh() after analysis completes re-renders the server parent with fresh
+  // commitments/tasks -- without this, this component's local state (needed for optimistic
+  // corrections) would silently keep showing the pre-analysis snapshot until a full page reload.
+  useEffect(() => {
+    setCommitments(initialCommitments);
+  }, [initialCommitments]);
+  useEffect(() => {
+    setTasks(initialTasks);
+  }, [initialTasks]);
 
   function handleCommitmentUpdated(updated: MeetingCommitment) {
     // Promoted commitments are active work now -- they belong on Meeting Detail's Commitments

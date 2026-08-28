@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { InferredTaskBadge } from "@/components/task-execution-badges";
 import { TaskCorrectionMenu } from "@/components/task-correction-menu";
@@ -22,6 +22,13 @@ export function StandaloneTasksPanel({
   meetingParticipantOptions: string[];
 }) {
   const [tasks, setTasks] = useState(initialTasks);
+
+  // router.refresh() after analysis completes re-renders the server parent with fresh tasks --
+  // without this, this component's local state (needed for optimistic corrections) would
+  // silently keep showing the pre-analysis snapshot until a full page reload.
+  useEffect(() => {
+    setTasks(initialTasks);
+  }, [initialTasks]);
 
   function handleTaskUpdated(updated: MeetingTask) {
     // A task that moved into a commitment or over to Future Scope is no longer standalone/active

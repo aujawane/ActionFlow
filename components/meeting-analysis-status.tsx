@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import type { MeetingAnalysisJob, MeetingAnalysisJobStatus } from "@/lib/types";
+import {
+  decideAnalysisCompletionRefresh,
+  shouldPollAnalysisStatus
+} from "@/lib/meeting-analysis-status-client";
+import type { MeetingAnalysisJob } from "@/lib/types";
 
 type AnalysisStatusResponse = {
   meetingId: string;
@@ -23,8 +27,6 @@ type AnalysisStatusResponse = {
     | "updated_at"
   > | null;
 };
-
-const ACTIVE_JOB_STATUSES: MeetingAnalysisJobStatus[] = ["queued", "running"];
 
 function formatStage(stage: string) {
   return stage.replaceAll("_", " ");
@@ -52,9 +54,7 @@ export function MeetingAnalysisStatusPanel({
 
   useEffect(() => {
     const jobStatus = job?.status ?? null;
-    const shouldPoll =
-      ACTIVE_JOB_STATUSES.includes(jobStatus ?? "queued") ||
-      (meetingStatus === "transcript_ready" && !jobStatus);
+    const shouldPoll = shouldPollAnalysisStatus({ jobStatus, meetingStatus });
 
     if (!shouldPoll) {
       return;
@@ -76,11 +76,13 @@ export function MeetingAnalysisStatusPanel({
         setJob(data.job as MeetingAnalysisJob | null);
         setError(null);
 
-        if (
-          data.job?.status === "completed" &&
-          refreshedForJobId.current !== data.job.id
-        ) {
-          refreshedForJobId.current = data.job.id;
+        const decision = decideAnalysisCompletionRefresh({
+          jobId: data.job?.id,
+          jobStatus: data.job?.status,
+          lastRefreshedJobId: refreshedForJobId.current
+        });
+        refreshedForJobId.current = decision.nextRefreshedJobId;
+        if (decision.shouldRefresh) {
           router.refresh();
         }
       } catch {

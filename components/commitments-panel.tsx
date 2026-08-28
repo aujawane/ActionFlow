@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CommitmentCorrectionMenu } from "@/components/commitment-correction-menu";
 import { commitmentProgress, isCommittedWork } from "@/lib/execution-display";
 import { getActiveChildTasks } from "@/lib/execution-corrections";
@@ -38,6 +38,14 @@ export function CommitmentsPanel({
   tasks: MeetingTask[];
 }) {
   const [commitments, setCommitments] = useState(initialCommitments);
+
+  // router.refresh() after analysis completes re-renders the server parent with fresh
+  // commitments -- without this, this component's local state (needed for optimistic
+  // corrections) would silently keep showing the pre-analysis snapshot until a full page reload.
+  useEffect(() => {
+    setCommitments(initialCommitments);
+  }, [initialCommitments]);
+
   const activeCommitments = useMemo(
     () => commitments.filter(isCommittedWork),
     [commitments]
