@@ -22,7 +22,16 @@
     "openai": "^4.104.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "workflow": "^4.8.5",
     "zod": "^3.25.76"
+  },
+  "overrides": {
+    "workflow": {
+      "undici": "7.29.0",
+      "@workflow/core": {
+        "nanoid": "5.1.16"
+      }
+    }
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

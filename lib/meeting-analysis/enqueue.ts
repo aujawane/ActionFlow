@@ -1,12 +1,12 @@
 import { after } from "next/server";
+import { start } from "workflow/api";
 
 import {
-  ANALYSIS_STAGE_ORDER,
   claimMeetingAnalysisJob,
   markAnalysisJobDispatchFailed
 } from "@/lib/meeting-analysis/jobs";
+import { meetingAnalysisWorkflow } from "@/lib/meeting-analysis/workflow";
 import type { MeetingAnalysisJobStatus } from "@/lib/types";
-import { getAppBaseUrl, requireEnv } from "@/lib/env";
 
 export type EnqueueAnalysisResult =
   | {
@@ -30,35 +30,14 @@ type StartWorker = (
 
 type MarkDispatchFailed = (input: { jobId: string; error: string }) => Promise<void>;
 
-async function defaultStartWorker(
-  meetingId: string,
-  jobId: string,
-  generation: number,
-  requestOrigin?: string
-) {
-  const internalSecret = requireEnv("RECALL_WEBHOOK_SECRET");
-  const baseUrl = getAppBaseUrl({ requestOrigin });
-  const response = await fetch(
-    `${baseUrl}/api/internal/meeting-analysis/worker`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-parfait-internal-secret": internalSecret
-      },
-      body: JSON.stringify({
-        meetingId,
-        jobId,
-        generation,
-        stage: ANALYSIS_STAGE_ORDER[0]
-      })
-    }
-  );
-
-  if (!response.ok && response.status !== 409) {
-    const text = await response.text();
-    throw new Error(text || `Worker returned HTTP ${response.status}`);
-  }
+/**
+ * Starts the durable Workflow SDK run for this job. Unlike the previous implementation, this
+ * makes no HTTP request to our own API at all -- start() enqueues the run through Vercel Queues,
+ * which is what eliminates the same-origin recursive self-dispatch that eventually tripped
+ * Vercel's INFINITE_LOOP_DETECTED protection (see lib/meeting-analysis/workflow.ts).
+ */
+async function defaultStartWorkflow(meetingId: string, jobId: string, generation: number) {
+  await start(meetingAnalysisWorkflow, [{ meetingId, jobId, generation }]);
 }
 
 /**
@@ -72,17 +51,16 @@ export async function enqueueMeetingAnalysis(
     startWorkflow?: StartWorker;
     startWorker?: StartWorker;
     markDispatchFailed?: MarkDispatchFailed;
+    /** No longer used -- start() doesn't make an HTTP request to our own app, so there's no
+     * self-request URL to build. Kept so existing callers (recall webhook, sync-status) don't
+     * need an unrelated signature change. */
     requestOrigin?: string;
   }
 ): Promise<EnqueueAnalysisResult> {
   const claimJob = options?.claimJob ?? claimMeetingAnalysisJob;
   const markDispatchFailed =
     options?.markDispatchFailed ?? markAnalysisJobDispatchFailed;
-  const startWorker =
-    options?.startWorker ??
-    options?.startWorkflow ??
-    ((id, jobId, generation) =>
-      defaultStartWorker(id, jobId, generation, options?.requestOrigin));
+  const startWorker = options?.startWorker ?? options?.startWorkflow ?? defaultStartWorkflow;
 
   const claimed = await claimJob(meetingId);
   if (!claimed.ok) {

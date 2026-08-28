@@ -6,5 +6,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"]
+  // Workflow SDK's internal dispatch path (.well-known/workflow/*) must bypass this middleware --
+  // intercepting it breaks step resumption. See node_modules/workflow/docs/getting-started/next.mdx.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|\\.well-known/workflow/).*)"]
 };
