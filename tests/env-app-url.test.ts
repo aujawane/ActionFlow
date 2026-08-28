@@ -3,12 +3,14 @@ import test from "node:test";
 
 import {
   DEFAULT_EXECUTION_INTELLIGENCE_TIMEOUT_MS,
+  MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS,
   getAppBaseUrl,
   getConfiguredOpenAIModel,
   getExecutionIntelligenceTimeoutMs,
   getGoogleRedirectUri,
   getPublicAppBaseUrl,
   getRecallWebhookUrl,
+  getV4StageTimeoutMs,
   parseExecutionIntelligenceTimeoutMs
 } from "../lib/env";
 
@@ -48,6 +50,37 @@ test("execution-intelligence timeout rejects unsafe env values", () => {
   assert.throws(() => parseExecutionIntelligenceTimeoutMs("999"));
   assert.throws(() => parseExecutionIntelligenceTimeoutMs("300001"));
   assert.throws(() => parseExecutionIntelligenceTimeoutMs("1250.5"));
+});
+
+test("execution-intelligence timeout is clamped so 2 model attempts can never exceed the worker's 300s budget", () => {
+  const previous = process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS;
+  try {
+    // A raw value is validly parseable up to 300_000ms (see the rejection test above), but 2
+    // attempts at that size would blow well past the worker's 300s maxDuration -- the getter must
+    // clamp what's actually used at runtime, independent of what's a "valid" input.
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS", "300000");
+    assert.equal(getExecutionIntelligenceTimeoutMs(), MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS);
+    assert.ok(2 * getExecutionIntelligenceTimeoutMs() < 300_000);
+
+    // Values already at or under the safe cap pass through unchanged.
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS", "45000");
+    assert.equal(getExecutionIntelligenceTimeoutMs(), 45_000);
+  } finally {
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS", previous);
+  }
+});
+
+test("per-V4-stage timeout overrides are clamped the same way as the global default", () => {
+  const previous = process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION;
+  try {
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION", "250000");
+    assert.equal(getV4StageTimeoutMs("global_correction"), MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS);
+
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION", undefined);
+    assert.equal(getV4StageTimeoutMs("global_correction"), getExecutionIntelligenceTimeoutMs());
+  } finally {
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION", previous);
+  }
 });
 
 test("OpenAI model configuration is explicit and defaults safely", () => {

@@ -72,6 +72,53 @@ export async function claimMeetingAnalysisJob(meetingId: string): Promise<
   };
 }
 
+/** A job can be abandoned mid-stage with no in-process chance to mark itself failed -- most
+ * notably a hard Vercel maxDuration kill (see MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS in lib/env.ts),
+ * which terminates the whole invocation with no JS error to catch. Rather than a cron/watchdog,
+ * staleness is derived lazily from the row's own `updated_at` (bumped by the
+ * meeting_analysis_jobs_set_updated_at trigger on every write) whenever a job is read for
+ * display, so the next status poll or page load self-heals it into a normal, retryable "failed"
+ * state -- no migration, no scheduler, and a genuinely active job (whose updated_at is fresh
+ * because every stage start/checkpoint bumps it) is never touched. */
+export const STALE_RUNNING_JOB_THRESHOLD_MS = 10 * 60 * 1000;
+
+export const STALE_RUNNING_JOB_MESSAGE =
+  "Analysis stalled with no progress and was marked failed. Use Analyze Meeting to retry.";
+
+export function isStaleRunningJob(
+  job: Pick<MeetingAnalysisJob, "status" | "updated_at">,
+  now: number = Date.now()
+): boolean {
+  if (job.status !== "running") return false;
+  const updatedAt = new Date(job.updated_at).getTime();
+  return Number.isFinite(updatedAt) && now - updatedAt >= STALE_RUNNING_JOB_THRESHOLD_MS;
+}
+
+async function reconcileStaleRunningJob(
+  job: MeetingAnalysisJob
+): Promise<MeetingAnalysisJob> {
+  if (!isStaleRunningJob(job)) return job;
+
+  try {
+    await markAnalysisJobTerminal({
+      jobId: job.id,
+      status: "failed",
+      stage: job.current_stage,
+      progress: job.progress,
+      error: STALE_RUNNING_JOB_MESSAGE
+    });
+  } catch (error) {
+    console.error("[meeting-analysis] Failed to reconcile a stale running job", {
+      job_id: job.id,
+      meeting_id: job.meeting_id,
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
+    return job;
+  }
+
+  return { ...job, status: "failed", error: STALE_RUNNING_JOB_MESSAGE };
+}
+
 export async function getLatestMeetingAnalysisJob(
   meetingId: string
 ): Promise<MeetingAnalysisJob | null> {
@@ -86,7 +133,8 @@ export async function getLatestMeetingAnalysisJob(
   if (error) {
     throw new Error(error.message);
   }
-  return (data as MeetingAnalysisJob | null) ?? null;
+  const job = (data as MeetingAnalysisJob | null) ?? null;
+  return job ? reconcileStaleRunningJob(job) : null;
 }
 
 export async function getMeetingAnalysisJob(

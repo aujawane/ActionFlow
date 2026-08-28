@@ -46,9 +46,26 @@ export function parseExecutionIntelligenceTimeoutMs(value: unknown) {
   return executionIntelligenceTimeoutSchema.parse(value);
 }
 
+/**
+ * Every execution-intelligence model call retries up to 2 attempts within a single
+ * /api/internal/meeting-analysis/worker invocation (EXECUTION_MODEL_MAX_ATTEMPTS in model.ts,
+ * MODEL_MAX_ATTEMPTS in work-item-model.ts), and that invocation has a hard Vercel maxDuration of
+ * 300s. The raw per-attempt timeout is validated up to 300_000ms (see
+ * executionIntelligenceTimeoutSchema), but a misconfigured override anywhere near that ceiling
+ * would make 2 attempts alone exceed the worker's own budget -- a hard platform-level kill that
+ * no in-process error handling can catch, leaving the job stuck in "running" forever. This caps
+ * the timeout actually used at runtime so 2 attempts plus backoff always stay comfortably under
+ * 300s, without touching attempt counts, model quality, or the input-validation range itself.
+ */
+export const MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS = 120_000;
+
+function clampToSafeAttemptTimeout(timeoutMs: number): number {
+  return Math.min(timeoutMs, MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS);
+}
+
 export function getExecutionIntelligenceTimeoutMs() {
-  return parseExecutionIntelligenceTimeoutMs(
-    readEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS")
+  return clampToSafeAttemptTimeout(
+    parseExecutionIntelligenceTimeoutMs(readEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS"))
   );
 }
 
@@ -109,11 +126,12 @@ export function getV4StageModel(stage: V4Stage): string {
   return readEnv(V4_STAGE_MODEL_ENV[stage]) ?? getConfiguredOpenAIModel();
 }
 
-/** Same override pattern as `getV4StageModel`, for per-stage timeouts. */
+/** Same override pattern as `getV4StageModel`, for per-stage timeouts. Clamped for the same
+ * worker-budget-safety reason as `getExecutionIntelligenceTimeoutMs` above. */
 export function getV4StageTimeoutMs(stage: V4Stage): number {
   const raw = readEnv(V4_STAGE_TIMEOUT_ENV[stage]);
   if (raw === undefined) return getExecutionIntelligenceTimeoutMs();
-  return parseExecutionIntelligenceTimeoutMs(raw);
+  return clampToSafeAttemptTimeout(parseExecutionIntelligenceTimeoutMs(raw));
 }
 
 const DEFAULT_TRANSCRIPT_NORMALIZATION_AUTO_THRESHOLD = 0.9;

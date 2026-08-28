@@ -2,11 +2,19 @@ import { after, NextResponse } from "next/server";
 
 import {
   ANALYSIS_STAGE_ORDER,
+  ANALYSIS_STAGES,
+  markAnalysisJobTerminal,
   StaleAnalysisError,
   type WorkerAnalysisStage
 } from "@/lib/meeting-analysis/jobs";
 import { runMeetingAnalysisStage } from "@/lib/meeting-analysis/worker";
 import { getAppBaseUrl, requireEnv } from "@/lib/env";
+
+/** Never logs full error objects/stacks (which can embed request payloads) -- only a short,
+ * human-readable message, matching what already gets returned to the client in the 500 body. */
+function sanitizedErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 /**
  * One analysis stage per invocation. Long meetings chain stages via after()
@@ -99,6 +107,10 @@ export async function POST(request: Request) {
     );
   }
 
+  const logContext = { job_id: jobId, meeting_id: meetingId, generation, stage };
+  const stageStartedAt = Date.now();
+  console.info("[meeting-analysis-worker] stage start", logContext);
+
   try {
     const result = await runMeetingAnalysisStage({
       meetingId,
@@ -106,6 +118,13 @@ export async function POST(request: Request) {
       generation,
       stage,
       retryCount: body.retryCount
+    });
+
+    console.info("[meeting-analysis-worker] stage success", {
+      ...logContext,
+      next_stage: result.nextStage,
+      done: result.done,
+      elapsed_ms: Date.now() - stageStartedAt
     });
 
     if (result.nextStage) {
@@ -128,18 +147,46 @@ export async function POST(request: Request) {
       done: result.done
     });
   } catch (error) {
+    const elapsedMs = Date.now() - stageStartedAt;
+
     if (error instanceof StaleAnalysisError || (error as Error)?.name === "StaleAnalysisError") {
+      // assertAnalysisJobStillCurrent() already persisted status="stale" before throwing --
+      // nothing further to mark here, and a stale generation must never be reported as "failed".
+      console.info("[meeting-analysis-worker] stage stale", { ...logContext, elapsed_ms: elapsedMs });
       return NextResponse.json(
         { ok: false, stale: true, error: (error as Error).message },
         { status: 409 }
       );
     }
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Analysis stage failed"
-      },
-      { status: 500 }
-    );
+
+    const message = sanitizedErrorMessage(error, "Analysis stage failed");
+    console.error("[meeting-analysis-worker] stage failure", {
+      ...logContext,
+      elapsed_ms: elapsedMs,
+      error: message
+    });
+
+    // runMeetingAnalysisStage() already marks the job failed for errors raised inside its own
+    // work (see lib/meeting-analysis/worker.ts), but assertAnalysisJobStillCurrent() and
+    // markAnalysisJobRunning() run before that try block, and a failure persisting *that* state
+    // would itself throw uncaught. This is a defensive, idempotent backstop: reusing the same
+    // terminal-state helper here guarantees the job is never left stuck in "running" no matter
+    // where in the stage the failure originated, without duplicating the update logic.
+    try {
+      await markAnalysisJobTerminal({
+        jobId,
+        status: "failed",
+        stage,
+        progress: ANALYSIS_STAGES[stage].progress,
+        error: message
+      });
+    } catch (persistError) {
+      console.error("[meeting-analysis-worker] failed to persist terminal failure state", {
+        ...logContext,
+        persist_error: sanitizedErrorMessage(persistError, "Unknown persistence error")
+      });
+    }
+
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
