@@ -1,4 +1,4 @@
-import type { JsonValue, MeetingCommitment, MeetingTask } from "@/lib/types";
+import type { JsonValue, Meeting, MeetingCommitment, MeetingTask } from "@/lib/types";
 
 /**
  * The single source of truth for "is this row from the meeting's current analysis generation."
@@ -22,6 +22,30 @@ function extractAnalysisGeneration(metadata: JsonValue | null | undefined): numb
     if (typeof value === "number") return value;
   }
   return null;
+}
+
+/**
+ * The generation number every read/display consumer (Meeting Detail, Project execution
+ * aggregation, Project Brain, meeting-level dashboards) should compare row stamps against --
+ * NOT `meetings.execution_graph_generation` directly.
+ *
+ * `execution_graph_generation` is incremented the instant "Analyze Meeting" is claimed (see
+ * claim_meeting_analysis_job), before that run has persisted anything. A run can take minutes or
+ * fail entirely. Comparing against it directly means an in-flight (or stuck) analysis makes the
+ * previously-complete, fully-persisted execution graph look entirely stale for the run's whole
+ * duration -- rows don't disappear from the database, they just fail every "is this current"
+ * check until the new generation finishes (see 20260818231713_production_launch_alignment.sql's
+ * `last_persisted_execution_generation` column, which only advances on successful persistence).
+ *
+ * This is display/read semantics only -- it must never be used for worker/job staleness
+ * decisions (see assertAnalysisJobStillCurrent in lib/meeting-analysis/jobs.ts, which correctly
+ * keeps comparing against the eagerly-incremented execution_graph_generation so a superseded
+ * in-flight run still detects it's been superseded).
+ */
+export function getEffectiveDisplayGeneration(
+  meeting: Pick<Meeting, "execution_graph_generation" | "last_persisted_execution_generation">
+): number | null {
+  return meeting.last_persisted_execution_generation ?? meeting.execution_graph_generation ?? null;
 }
 
 export function isCommitmentCurrentGeneration(

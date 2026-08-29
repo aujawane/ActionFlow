@@ -12,6 +12,7 @@ import { StandaloneTasksPanel } from "@/components/standalone-tasks-panel";
 import { TopicResults } from "@/components/topic-results";
 import { requireUser } from "@/lib/auth";
 import { partitionExecutionGraph } from "@/lib/execution-display";
+import { getEffectiveDisplayGeneration } from "@/lib/execution-generation";
 import { formatReadableDate } from "@/lib/format-date";
 import { getLatestMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
 import { buildMeetingParticipantOptions } from "@/lib/meeting-participants";
@@ -175,7 +176,7 @@ export default async function MeetingDetailPage({
   const partitioned = partitionExecutionGraph({
     commitments: activeCommitments,
     tasks: safeTasks,
-    currentGeneration: meeting.execution_graph_generation ?? null
+    currentGeneration: getEffectiveDisplayGeneration(meeting)
   });
 
   // Cheap, bounded lookup solely to decide which "Ask Parfait" suggestion chips are relevant --

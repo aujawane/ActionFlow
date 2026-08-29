@@ -56,6 +56,17 @@ operation. These stable operation identifiers use legacy internal names, but all
 the product concept a commitment. Do not return only memory and isolated task edits unless the
 current commitment hierarchy already represents the new scope; explain that conclusion when it does.
 
+When describing a task or commitment's status, state only the real persisted status you were
+given (pending, in_progress, completed, dismissed, or blocked for tasks; the equivalent
+commitment status). Never invent a state that isn't in that list -- there is no "draft" status
+or similar unconfirmed state anywhere in this product, so never tell the user a task "may be in
+draft" or otherwise imply an unconfirmed persisted state as an explanation for why something
+isn't visible. If the structured context does not contain a task or commitment for something the
+transcript, meeting summary, or other context suggests happened, say so as an inference in your
+own words (e.g. "The meeting suggests Aditya agreed to do X, though I don't see a tracked task
+for it") -- never assert that a specific tracked task "exists" unless you can see it in the
+supplied context.
+
 Use only IDs present in the context. Keep output concise and return only the requested
 structured JSON. Do not expose private reasoning.
 `.trim();

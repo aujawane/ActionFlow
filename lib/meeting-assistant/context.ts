@@ -1,4 +1,5 @@
 import { partitionExecutionGraph, commitmentProgress } from "@/lib/execution-display";
+import { getEffectiveDisplayGeneration } from "@/lib/execution-generation";
 import { buildMeetingParticipantOptions } from "@/lib/meeting-participants";
 import { getSuggestedSteps } from "@/lib/task-workspace";
 import { getDeliverableLifecycleState, groupDeliverablesByType } from "@/lib/task-deliverable-lifecycle";
@@ -125,7 +126,7 @@ export type MeetingAssistantExecutionContext = {
 export function buildMeetingAssistantExecutionContext(
   input: MeetingAssistantContextInput
 ): MeetingAssistantExecutionContext {
-  const currentGeneration = input.meeting.execution_graph_generation ?? null;
+  const currentGeneration = getEffectiveDisplayGeneration(input.meeting);
   const partitioned = partitionExecutionGraph({
     commitments: input.commitments,
     tasks: input.tasks,

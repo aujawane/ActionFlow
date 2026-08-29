@@ -4,6 +4,7 @@ import {
   type ProjectExecutionModel
 } from "@/lib/project-execution";
 import { partitionExecutionGraph } from "@/lib/execution-display";
+import { getEffectiveDisplayGeneration } from "@/lib/execution-generation";
 import type { Meeting, MeetingCommitment, MeetingTask, Project } from "@/lib/types";
 
 const DAY_MS = 86_400_000;
@@ -282,7 +283,7 @@ export function buildRecentMeetingImpact(input: {
       const partitioned = partitionExecutionGraph({
         commitments: input.commitmentsByMeetingId.get(meeting.id) ?? [],
         tasks: input.tasksByMeetingId.get(meeting.id) ?? [],
-        currentGeneration: meeting.execution_graph_generation ?? null
+        currentGeneration: getEffectiveDisplayGeneration(meeting)
       });
       return {
         meeting,

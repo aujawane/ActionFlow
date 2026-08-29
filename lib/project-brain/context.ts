@@ -1,4 +1,8 @@
-import { isCommitmentCurrentGeneration, isTaskCurrentGeneration } from "@/lib/execution-generation";
+import {
+  getEffectiveDisplayGeneration,
+  isCommitmentCurrentGeneration,
+  isTaskCurrentGeneration
+} from "@/lib/execution-generation";
 import { getOwnedProject } from "@/lib/project-access";
 import { computeProjectProgress } from "@/lib/project-execution";
 import { collectProjectPersonReferences } from "@/lib/project-brain/operations";
@@ -103,7 +107,7 @@ export async function buildProjectBrainContext(
       .limit(200),
     supabaseAdmin
       .from("meetings")
-      .select("id,title,created_at,status,execution_graph_generation")
+      .select("id,title,created_at,status,execution_graph_generation,last_persisted_execution_generation")
       .eq("project_id", projectId)
       .eq("user_id", userId)
       .is("deleted_at", null)
@@ -147,7 +151,7 @@ export async function buildProjectBrainContext(
   // create_milestone) are legacy/compatible and stay visible, per isCommitmentCurrentGeneration's
   // existing semantics.
   const currentGenerationByMeetingId = new Map(
-    safeMeetings.map((meeting) => [meeting.id, meeting.execution_graph_generation ?? null])
+    safeMeetings.map((meeting) => [meeting.id, getEffectiveDisplayGeneration(meeting)])
   );
   const allCommitments = (commitments ?? []) as MeetingCommitment[];
   const allTasks = (tasks ?? []) as MeetingTask[];
@@ -167,7 +171,7 @@ export async function buildProjectBrainContext(
   ] = await Promise.all([
     supabaseAdmin
       .from("meetings")
-      .select("id,execution_graph_generation")
+      .select("id,execution_graph_generation,last_persisted_execution_generation")
       .eq("project_id", projectId)
       .eq("user_id", userId)
       .is("deleted_at", null),
@@ -190,7 +194,7 @@ export async function buildProjectBrainContext(
   const identityGenerationByMeetingId = new Map(
     (identityMeetings ?? []).map((meeting) => [
       meeting.id,
-      meeting.execution_graph_generation ?? null
+      getEffectiveDisplayGeneration(meeting)
     ])
   );
   const currentIdentityCommitments = ((identityCommitments ?? []) as MeetingCommitment[]).filter(

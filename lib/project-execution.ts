@@ -1,5 +1,9 @@
 import { isCommittedWork, isTaskCountedForProgress } from "@/lib/execution-display";
-import { isCommitmentCurrentGeneration, isTaskCurrentGeneration } from "@/lib/execution-generation";
+import {
+  getEffectiveDisplayGeneration,
+  isCommitmentCurrentGeneration,
+  isTaskCurrentGeneration
+} from "@/lib/execution-generation";
 import type {
   CommitmentParticipant,
   Meeting,
@@ -395,7 +399,7 @@ export function buildProjectExecutionModel(input: {
   // generation -- look each row's generation currency up against its own meeting so a stale
   // generation from one meeting can't leak into the project view alongside a newer one.
   const currentGenerationByMeetingId = new Map(
-    input.meetings.map((meeting) => [meeting.id, meeting.execution_graph_generation ?? null])
+    input.meetings.map((meeting) => [meeting.id, getEffectiveDisplayGeneration(meeting)])
   );
   const commitments = input.commitments.filter(
     (commitment) =>
