@@ -238,6 +238,7 @@ export interface MeetingTask {
   source_quote: string | null;
   confidence: number | null;
   status: MeetingTaskStatus;
+  completed_at?: string | null;
   due_date?: string | null;
   due_date_text?: string | null;
   source_segment_ids?: string[] | JsonValue;

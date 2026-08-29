@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
+import { useRouter } from "next/navigation";
 import {
   createContext,
   useContext,
@@ -18,9 +19,10 @@ import { TaskOwnerSelect } from "@/components/task-owner-select";
 import { normalizeSuggestedSteps } from "@/lib/ai/task-chat-patch";
 import { formatReadableDate } from "@/lib/format-date";
 import { formatStatusLabel, statusBadgeClassName } from "@/lib/status-badge";
+import { TASK_STATUS_LABELS, TASK_WORKSPACE_STATUS_OPTIONS } from "@/lib/task-status";
 import { getCategoryDisplayLabel, getTaskCategorization } from "@/lib/task-deliverables";
 import { isInferredTask } from "@/lib/task-execution-display";
-import type { MeetingTask } from "@/lib/types";
+import type { MeetingTask, MeetingTaskStatus } from "@/lib/types";
 
 type TaskWorkspaceState = {
   task: MeetingTask;
@@ -81,8 +83,13 @@ export function TaskWorkspaceHeader({
    * lib/meeting-participants.ts. Powers the owner-assignment dropdown below. */
   meetingParticipantOptions: string[];
 }) {
+  const router = useRouter();
   const { task, setTask } = useTaskWorkspaceState();
   const dueLabel = formatReadableDate(task.due_date ?? null);
+  const completedLabel = task.completed_at ? formatReadableDate(task.completed_at) : null;
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const isCompleted = task.status === "completed";
 
   async function saveOwner(owner: string | null) {
     const response = await fetch(`/api/tasks/${task.id}`, {
@@ -92,6 +99,39 @@ export function TaskWorkspaceHeader({
     });
     const result = await response.json().catch(() => ({}));
     if (response.ok && result.task) setTask(result.task);
+  }
+
+  async function saveStatus(nextStatus: MeetingTaskStatus) {
+    if (nextStatus === task.status) return;
+    const previousTask = task;
+    setStatusError(null);
+    setSavingStatus(true);
+    // Optimistic: reflect the chosen status (and its completed_at side effect) immediately.
+    setTask({
+      ...task,
+      status: nextStatus,
+      completed_at: nextStatus === "completed" ? new Date().toISOString() : null
+    });
+    try {
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: nextStatus })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.task) {
+        setTask(previousTask);
+        setStatusError(result.error || "Failed to update task status.");
+        return;
+      }
+      setTask(result.task as MeetingTask);
+      router.refresh();
+    } catch {
+      setTask(previousTask);
+      setStatusError("Network error while updating task status.");
+    } finally {
+      setSavingStatus(false);
+    }
   }
 
   return (
@@ -119,8 +159,24 @@ export function TaskWorkspaceHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
-          <span className={`badge-state ${statusBadgeClassName(task.status)}`}>
-            {formatStatusLabel(task.status)}
+          <span className="flex items-center gap-1.5">
+            <span className="text-slate-500">Status&nbsp;</span>
+            <select
+              aria-label="Task status"
+              className={`badge-state cursor-pointer border ${statusBadgeClassName(task.status)}`}
+              value={task.status}
+              disabled={savingStatus}
+              onChange={(event) => void saveStatus(event.target.value as MeetingTaskStatus)}
+            >
+              {TASK_WORKSPACE_STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {TASK_STATUS_LABELS[status]}
+                </option>
+              ))}
+            </select>
+            {isCompleted && completedLabel ? (
+              <span className="text-xs text-slate-500">Completed {completedLabel}</span>
+            ) : null}
           </span>
           <span className="flex items-center text-slate-600">
             <span className="text-slate-500">Owner&nbsp;</span>
@@ -149,6 +205,10 @@ export function TaskWorkspaceHeader({
           <TaskCategoryBadge task={task} />
           {isInferredTask(task) ? <InferredTaskBadge /> : null}
         </div>
+
+        {statusError ? (
+          <p className="text-xs text-rose-600">{statusError}</p>
+        ) : null}
 
         {parentCommitment ? (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm">
@@ -198,7 +258,7 @@ export function TaskWorkspaceSuggestedSteps() {
  * confidence) -- deliberately reactive (context-driven) rather than static props, since Ask
  * Parfait can patch task_type/rationale/supporting_context and this must stay in sync without a
  * reload. Meant to be rendered inside the page's Context & Evidence disclosure, not as its own
- * card, so it never competes visually with the task-completion workflow above it. */
+ * card, so it never competes visually with the status control and actions in the header above. */
 export function TaskWorkspaceClassificationEvidence() {
   const { task } = useTaskWorkspaceState();
   const categorization = getTaskCategorization(task);

@@ -1,26 +1,10 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { mergeManualOverrideFields } from "@/lib/manual-overrides";
 import { getOwnedTask } from "@/lib/project-access";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-
-const updateTaskSchema = z
-  .object({
-    task: z.string().trim().min(1).max(500).optional(),
-    workspace_summary: z.string().trim().max(4000).nullable().optional(),
-    owner: z.string().trim().max(160).nullable().optional(),
-    owners: z.array(z.string().trim().min(1).max(160)).optional(),
-    due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-    due_date_text: z.string().trim().max(300).nullable().optional(),
-    priority: z.enum(["low", "medium", "high"]).optional(),
-    status: z
-      .enum(["pending", "in_progress", "completed", "dismissed", "blocked"])
-      .optional(),
-    position: z.number().int().min(0).optional()
-  })
-  .strict();
+import { deriveCompletedAtPatch, updateTaskSchema } from "@/lib/task-status";
 
 export async function PATCH(
   request: Request,
@@ -46,6 +30,7 @@ export async function PATCH(
     .from("meeting_tasks")
     .update({
       ...parsed.data,
+      ...deriveCompletedAtPatch(parsed.data.status),
       preserve_on_reanalysis: true,
       manual_override_fields: mergeManualOverrideFields(
         task.manual_override_fields,

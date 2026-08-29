@@ -186,8 +186,16 @@ test("owner selection reuses the existing, unmodified task-owner update route --
   // exactly as every other Phase 6 correction does.
   assert.match(routeSource, /preserve_on_reanalysis: true/);
   assert.match(routeSource, /mergeManualOverrideFields/);
+  // The update schema now lives in lib/task-status.ts (extracted alongside the status dropdown's
+  // own schema/logic so it's directly testable without exporting a non-handler name from a
+  // route.ts file) -- the route still imports and uses it unchanged.
+  assert.match(routeSource, /import \{ deriveCompletedAtPatch, updateTaskSchema \} from "@\/lib\/task-status";/);
+  const schemaSource = await readFile(
+    new URL("../lib/task-status.ts", import.meta.url),
+    "utf8"
+  );
   // owner remains nullable in the schema (the dropdown's Unassigned option depends on this).
-  assert.match(routeSource, /owner: z\.string\(\)\.trim\(\)\.max\(160\)\.nullable\(\)\.optional\(\)/);
+  assert.match(schemaSource, /owner: z\.string\(\)\.trim\(\)\.max\(160\)\.nullable\(\)\.optional\(\)/);
 });
 
 // ============================================================
