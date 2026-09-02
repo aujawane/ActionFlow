@@ -33,7 +33,7 @@ export function AuthForm() {
             password,
             options: {
               data: { full_name: fullName.trim() || undefined },
-              emailRedirectTo: `${window.location.origin}/api/auth/callback`
+              emailRedirectTo: `${window.location.origin}/api/auth/callback?next=/account`
             }
           });
 
