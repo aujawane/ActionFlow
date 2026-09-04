@@ -3,12 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { isSyncStatusRecoverable, type MeetingStatus } from "@/lib/recall/webhook-events";
+
 export function MeetingActions({
   meetingId,
+  meetingStatus,
   showDevReimport = false,
   onAnalysisQueued
 }: {
   meetingId: string;
+  meetingStatus: MeetingStatus;
   showDevReimport?: boolean;
   onAnalysisQueued?: () => void;
 }) {
@@ -151,14 +155,19 @@ export function MeetingActions({
         </button>
         {/* Explicit manual recovery (asks Recall directly for the bot's authoritative status) --
             safe for any user to click any time, unlike Reimport Transcript below. Not gated to
-            dev: this is the normal-user fallback for a meeting whose webhook was missed. */}
-        <button
-          onClick={syncStatus}
-          disabled={busy !== null}
-          className="secondary-button px-3 py-2 text-xs"
-        >
-          {busy === "sync" ? "Syncing..." : "Sync Status"}
-        </button>
+            dev: this is the normal-user fallback for a meeting whose webhook was missed. Only
+            shown for in-flight statuses (joining/recording/processing) where a missed webhook
+            could actually leave the meeting stuck -- a completed meeting has nothing left to
+            reconcile, so the button would just be visual noise there. */}
+        {isSyncStatusRecoverable(meetingStatus) ? (
+          <button
+            onClick={syncStatus}
+            disabled={busy !== null}
+            className="secondary-button px-3 py-2 text-xs"
+          >
+            {busy === "sync" ? "Syncing..." : "Sync Status"}
+          </button>
+        ) : null}
         {showDevReimport ? (
           <button
             onClick={reimportTranscript}

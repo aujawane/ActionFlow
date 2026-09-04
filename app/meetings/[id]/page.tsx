@@ -263,6 +263,7 @@ export default async function MeetingDetailPage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <MeetingActions
           meetingId={meeting.id}
+          meetingStatus={meeting.status}
           showDevReimport={process.env.NODE_ENV === "development"}
         />
         <MeetingAnalysisStatusPanel

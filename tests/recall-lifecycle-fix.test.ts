@@ -255,20 +255,81 @@ test("Analyze distinguishes a still-processing meeting, a failed meeting, and ge
 // UI: Sync Status is a normal user-facing recovery action; Reimport Transcript stays dev-only.
 // ---------------------------------------------------------------------------
 
-test("Sync Status is not gated behind showDevReimport; Reimport Transcript still is", async () => {
+test("Sync Status is gated by meeting status via isSyncStatusRecoverable, never by showDevReimport/NODE_ENV; Reimport Transcript stays dev-only", async () => {
   const source = await readSource("components/meeting-actions.tsx");
+  assert.match(
+    source,
+    /import \{ isSyncStatusRecoverable, type MeetingStatus \} from "@\/lib\/recall\/webhook-events";/
+  );
+  const syncGateIndex = source.indexOf("isSyncStatusRecoverable(meetingStatus) ? (");
   const syncButtonIndex = source.indexOf('{busy === "sync" ? "Syncing..." : "Sync Status"}');
   const showDevReimportGateIndex = source.indexOf("showDevReimport ? (");
   const reimportButtonIndex = source.indexOf('{busy === "reimport" ? "Reimporting..." : "Reimport Transcript"}');
-  assert.ok(syncButtonIndex > -1 && showDevReimportGateIndex > -1 && reimportButtonIndex > -1);
   assert.ok(
-    syncButtonIndex < showDevReimportGateIndex,
-    "Sync Status must be rendered outside/before the showDevReimport-gated block"
+    syncGateIndex > -1 && syncButtonIndex > -1 && showDevReimportGateIndex > -1 && reimportButtonIndex > -1
+  );
+  assert.ok(
+    syncGateIndex < syncButtonIndex && syncButtonIndex < showDevReimportGateIndex,
+    "Sync Status must be gated by isSyncStatusRecoverable, and rendered outside the showDevReimport-gated block"
   );
   assert.ok(
     showDevReimportGateIndex < reimportButtonIndex,
     "Reimport Transcript must remain inside the showDevReimport-gated block"
   );
+  // Never conditioned on NODE_ENV/showDevReimport for the sync button specifically.
+  const syncBlock = source.slice(syncGateIndex, source.indexOf(") : null}", syncGateIndex));
+  assert.doesNotMatch(syncBlock, /NODE_ENV/);
+  assert.doesNotMatch(syncBlock, /showDevReimport/);
+});
+
+test("the meeting detail page passes the real meeting status into MeetingActions", async () => {
+  const source = await readSource("app/meetings/[id]/page.tsx");
+  const componentBlock = source.match(/<MeetingActions[\s\S]*?\/>/);
+  assert.ok(componentBlock, "expected a <MeetingActions ... /> element");
+  assert.match(componentBlock![0], /meetingStatus=\{meeting\.status\}/);
+});
+
+test("[required] isSyncStatusRecoverable is true for joining, recording, and processing", async () => {
+  const { isSyncStatusRecoverable } = await import("../lib/recall/webhook-events");
+  assert.equal(isSyncStatusRecoverable("joining"), true);
+  assert.equal(isSyncStatusRecoverable("recording"), true);
+  assert.equal(isSyncStatusRecoverable("processing"), true);
+});
+
+test("[required] isSyncStatusRecoverable is false for pending, transcript_ready, completed, and failed", async () => {
+  const { isSyncStatusRecoverable } = await import("../lib/recall/webhook-events");
+  for (const status of ["pending", "transcript_ready", "completed", "failed"] as const) {
+    assert.equal(isSyncStatusRecoverable(status), false, status);
+  }
+});
+
+test("[required] a meeting stuck at status=recording with zero transcript segments WILL render Sync Status in production", async () => {
+  const { isSyncStatusRecoverable } = await import("../lib/recall/webhook-events");
+  // The button's visibility depends only on meeting status (isSyncStatusRecoverable), never on
+  // transcript_segments count or NODE_ENV -- so this exact production incident (status=recording,
+  // 0 segments) renders it regardless of environment.
+  assert.equal(isSyncStatusRecoverable("recording"), true);
+});
+
+test("[required] Sync Status click behavior: calls the existing sync-status route, disables while syncing, refreshes on success", async () => {
+  const source = await readSource("components/meeting-actions.tsx");
+  const fnMatch = source.match(/async function syncStatus\(\) \{[\s\S]*?\n  \}\n/);
+  assert.ok(fnMatch, "expected a syncStatus function");
+  const fn = fnMatch![0];
+  assert.match(fn, /setBusy\("sync"\);/);
+  assert.match(fn, /fetch\(`\/api\/meetings\/\$\{meetingId\}\/sync-status`, \{\s*method: "POST"/);
+  assert.match(fn, /router\.refresh\(\);/);
+  assert.match(fn, /setMessage\(/);
+  // No second/duplicate endpoint or reimplemented Recall reconciliation logic.
+  assert.doesNotMatch(source, /\/api\/meetings\/\$\{meetingId\}\/(?!sync-status|analyze)/);
+});
+
+test("[required] the disabled={busy !== null} guard applies to the Sync Status button, preventing duplicate clicks while syncing", async () => {
+  const source = await readSource("components/meeting-actions.tsx");
+  const syncGateIndex = source.indexOf("isSyncStatusRecoverable(meetingStatus) ? (");
+  const syncBlockEnd = source.indexOf(") : null}", syncGateIndex);
+  const syncBlock = source.slice(syncGateIndex, syncBlockEnd);
+  assert.match(syncBlock, /disabled=\{busy !== null\}/);
 });
 
 // ---------------------------------------------------------------------------

@@ -71,6 +71,16 @@ export function shouldSkipDuplicateCompletion(status: MeetingStatus): boolean {
   return status === "transcript_ready" || status === "completed";
 }
 
+/** Statuses where the manual "Sync Status" recovery action (POST /api/meetings/[id]/sync-status)
+ * is meaningful: the meeting is still in-flight on Recall's side and could be stuck because a
+ * webhook was missed. A meeting that already has its transcript (transcript_ready/completed) has
+ * nothing left to reconcile, and "pending"/"failed" aren't in-flight states a bot-status check can
+ * move forward, so the action is hidden for those to avoid suggesting it does something useful
+ * there. Shared by the meeting detail page so this list has one definition. */
+export function isSyncStatusRecoverable(status: MeetingStatus): boolean {
+  return status === "joining" || status === "recording" || status === "processing";
+}
+
 /**
  * CANONICAL bot lifecycle mapping, keyed by Recall's current documented top-level `event` names
  * (docs.recall.ai "Bot Webhooks"). A `null` value means "recognized, but intentionally no
