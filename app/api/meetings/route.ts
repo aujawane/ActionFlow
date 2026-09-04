@@ -98,7 +98,10 @@ export async function POST(request: Request) {
       .from("meetings")
       .update({
         recall_bot_id: bot.id,
-        status: "recording"
+        // Bot creation succeeding only means Recall accepted the join request -- the bot hasn't
+        // joined the call yet, let alone started recording. "recording" is only set once a
+        // bot.status_change webhook reports data.status.code === "in_call_recording".
+        status: "joining"
       })
       .eq("id", meeting.id)
       .select("*")

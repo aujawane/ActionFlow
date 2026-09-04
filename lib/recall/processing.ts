@@ -4,12 +4,21 @@ import {
   getRecallTranscriptDiagnostics,
   parseRecallTranscriptToSegments
 } from "@/lib/recall/transcript";
+import { allowedPriorStatuses, shouldSkipDuplicateCompletion } from "@/lib/recall/webhook-events";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
+import type { Meeting } from "@/lib/types";
 
 export type RecallMeetingProcessingResult =
   | {
-      status: "recording";
+      status: "already_processed";
+      insertedCount: 0;
+      parsedCount: 0;
+      analysisStatus: "not_started";
+      message: string;
+    }
+  | {
+      status: "processing";
       insertedCount: 0;
       parsedCount: 0;
       analysisStatus: "not_started";
@@ -24,6 +33,29 @@ export type RecallMeetingProcessingResult =
       generation?: number;
       message: string;
     };
+
+/**
+ * Forward-only, idempotent meeting status write: the update only applies if the meeting's current
+ * status is still one Supabase can see as "earlier" than `status` (see allowedPriorStatuses), so a
+ * duplicate/out-of-order webhook delivery can never regress an already-advanced meeting. Returns
+ * whether the write actually applied (false means the meeting had already moved past `status`).
+ */
+export async function applyGuardedMeetingStatus(
+  meetingId: string,
+  status: Meeting["status"]
+): Promise<boolean> {
+  const priorStatuses = allowedPriorStatuses(status);
+  if (priorStatuses.length === 0) return false;
+
+  const { data, error } = await supabaseAdmin
+    .from("meetings")
+    .update({ status })
+    .eq("id", meetingId)
+    .in("status", priorStatuses)
+    .select("id");
+  if (error) throw new Error(error.message);
+  return (data?.length ?? 0) > 0;
+}
 
 export async function replaceMeetingTranscriptFromRecall({
   meetingId,
@@ -109,13 +141,29 @@ export async function processCompletedRecallMeeting({
   recallBotId: string;
   requestOrigin?: string;
 }): Promise<RecallMeetingProcessingResult> {
-  const { error: processingStatusError } = await supabaseAdmin
+  const { data: existingMeeting, error: fetchError } = await supabaseAdmin
     .from("meetings")
-    .update({ status: "processing" })
-    .eq("id", meetingId);
-  if (processingStatusError) {
-    throw new Error(processingStatusError.message);
+    .select("status")
+    .eq("id", meetingId)
+    .single();
+  if (fetchError || !existingMeeting) {
+    throw new Error(fetchError?.message ?? "Meeting not found before transcript import.");
   }
+
+  // A transcript.done/recording.done redelivery (Recall retries non-2xx deliveries, and duplicate
+  // deliveries are otherwise possible) must not re-import or re-enqueue analysis for a meeting
+  // whose transcript is already persisted.
+  if (shouldSkipDuplicateCompletion(existingMeeting.status as Meeting["status"])) {
+    return {
+      status: "already_processed",
+      insertedCount: 0,
+      parsedCount: 0,
+      analysisStatus: "not_started",
+      message: "Transcript already imported for this meeting; skipping duplicate completion event."
+    };
+  }
+
+  await applyGuardedMeetingStatus(meetingId, "processing");
 
   const transcriptResult = await replaceMeetingTranscriptFromRecall({
     meetingId,
@@ -123,29 +171,19 @@ export async function processCompletedRecallMeeting({
   });
 
   if (!transcriptResult.ready) {
-    const { error: recordingStatusError } = await supabaseAdmin
-      .from("meetings")
-      .update({ status: "recording" })
-      .eq("id", meetingId);
-    if (recordingStatusError) {
-      throw new Error(recordingStatusError.message);
-    }
+    // Stay in "processing", never fall back to "recording" -- the call has already ended by the
+    // time this path runs; the transcript artifact just isn't downloadable yet.
+    await applyGuardedMeetingStatus(meetingId, "processing");
     return {
-      status: "recording",
+      status: "processing",
       insertedCount: 0,
       parsedCount: 0,
       analysisStatus: "not_started",
-      message: "Transcript not ready yet."
+      message: "Meeting ended; the transcript artifact is not downloadable yet."
     };
   }
 
-  const { error: transcriptReadyError } = await supabaseAdmin
-    .from("meetings")
-    .update({ status: "transcript_ready" })
-    .eq("id", meetingId);
-  if (transcriptReadyError) {
-    throw new Error(transcriptReadyError.message);
-  }
+  await applyGuardedMeetingStatus(meetingId, "transcript_ready");
 
   const enqueued = await enqueueMeetingAnalysis(meetingId, { requestOrigin });
   if (!enqueued.ok) {

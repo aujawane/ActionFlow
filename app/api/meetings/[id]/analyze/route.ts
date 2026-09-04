@@ -34,7 +34,7 @@ export async function POST(
 
   let meetingQuery = supabaseAdmin
     .from("meetings")
-    .select("id")
+    .select("id, status")
     .eq("id", id)
     .is("deleted_at", null);
   if (userId) {
@@ -59,6 +59,35 @@ export async function POST(
   }
 
   if (!count || count < 1) {
+    // This route only reads persisted transcript_segments -- it never fetches/imports from Recall
+    // itself (that stays the webhook/sync-status job). The meeting's own status is enough to tell
+    // "still processing" apart from "genuinely nothing available" without expanding this route's
+    // scope.
+    if (meeting.status === "failed") {
+      return NextResponse.json(
+        {
+          error: "Meeting processing failed",
+          details:
+            "Recall reported a failure before a transcript could be produced. Use Sync Status to re-check, or re-add the meeting."
+        },
+        { status: 400 }
+      );
+    }
+    if (
+      meeting.status === "processing" ||
+      meeting.status === "recording" ||
+      meeting.status === "joining" ||
+      meeting.status === "pending"
+    ) {
+      return NextResponse.json(
+        {
+          error: "Transcript is still processing",
+          details:
+            "Recall has not finished preparing the transcript yet. Try again shortly, or use Sync Status to check for updates."
+        },
+        { status: 400 }
+      );
+    }
     return NextResponse.json(
       { error: "No transcript available yet" },
       { status: 400 }

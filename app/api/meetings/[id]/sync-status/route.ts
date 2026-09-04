@@ -2,41 +2,18 @@ import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { fetchRecallBotStatus } from "@/lib/recall/client";
-import { processCompletedRecallMeeting } from "@/lib/recall/processing";
+import { applyGuardedMeetingStatus, processCompletedRecallMeeting } from "@/lib/recall/processing";
+import { mapBotLifecycleCodeToMeetingStatus } from "@/lib/recall/webhook-events";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
- * Syncs Recall bot lifecycle and imports transcript when ready.
- * Analysis runs independently as a background job after import.
+ * Explicit, user-initiated recovery: asks Recall directly for a bot's authoritative status and
+ * imports the transcript when ready. This is a manual action (a button click), not a poller --
+ * Parfait does not call this automatically on a timer or on page load. Normal lifecycle updates
+ * come from /api/recall/webhook; this exists only to recover a meeting if a webhook was missed.
  */
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-function isRecallDone(status: string) {
-  const normalized = status.toLowerCase();
-  return (
-    normalized.includes("done") ||
-    normalized.includes("complete") ||
-    normalized.includes("completed") ||
-    normalized.includes("ended") ||
-    normalized.includes("finished")
-  );
-}
-
-function isRecallFailed(status: string) {
-  const normalized = status.toLowerCase();
-  return normalized.includes("fail") || normalized.includes("error") || normalized.includes("fatal");
-}
-
-function isRecallActive(status: string) {
-  const normalized = status.toLowerCase();
-  return (
-    normalized.includes("call") ||
-    normalized.includes("record") ||
-    normalized.includes("join") ||
-    normalized.includes("active")
-  );
-}
 
 export async function POST(
   request: Request,
@@ -63,18 +40,18 @@ export async function POST(
   }
 
   const recallStatus = await fetchRecallBotStatus(meeting.recall_bot_id);
+  const mappedStatus = mapBotLifecycleCodeToMeetingStatus(recallStatus.status);
+
   console.info("[sync-status] Recall bot status", {
     meeting_id: id,
     recall_bot_id: meeting.recall_bot_id,
     recall_status: recallStatus.status,
+    mapped_status: mappedStatus,
     transcript_exists: recallStatus.transcriptAvailable
   });
 
-  if (isRecallFailed(recallStatus.status)) {
-    await supabaseAdmin
-      .from("meetings")
-      .update({ status: "failed" })
-      .eq("id", id);
+  if (mappedStatus === "failed") {
+    await supabaseAdmin.from("meetings").update({ status: "failed" }).eq("id", id);
     return NextResponse.json({
       status: "failed",
       recallStatus: recallStatus.status,
@@ -83,23 +60,26 @@ export async function POST(
     });
   }
 
-  if (isRecallDone(recallStatus.status) || recallStatus.transcriptAvailable) {
+  const shouldAttemptImport = recallStatus.transcriptAvailable || mappedStatus === "processing";
+
+  if (shouldAttemptImport) {
     const result = await processCompletedRecallMeeting({
       meetingId: id,
       recallBotId: meeting.recall_bot_id,
       requestOrigin: new URL(request.url).origin
     });
-    if (result.status === "recording") {
+
+    if (result.status === "processing" || result.status === "already_processed") {
       return NextResponse.json(
         {
           status: result.status,
           recallStatus: recallStatus.status,
-          transcriptExists: false,
+          transcriptExists: result.status === "already_processed",
           insertedSegments: result.insertedCount,
           analysisStatus: result.analysisStatus,
           message: result.message
         },
-        { status: 202 }
+        { status: result.status === "processing" ? 202 : 200 }
       );
     }
 
@@ -124,14 +104,23 @@ export async function POST(
     });
   }
 
-  const nextStatus = isRecallActive(recallStatus.status) ? "recording" : "joining";
-  await supabaseAdmin.from("meetings").update({ status: nextStatus }).eq("id", id);
+  if (mappedStatus) {
+    const applied = await applyGuardedMeetingStatus(id, mappedStatus);
+    return NextResponse.json({
+      status: mappedStatus,
+      recallStatus: recallStatus.status,
+      transcriptExists: recallStatus.transcriptAvailable,
+      insertedSegments: 0,
+      applied
+    });
+  }
 
   return NextResponse.json({
-    status: nextStatus,
+    status: "unchanged",
     recallStatus: recallStatus.status,
     transcriptExists: recallStatus.transcriptAvailable,
-    insertedSegments: 0
+    insertedSegments: 0,
+    message: "No new updates from Recall yet."
   });
 }
 

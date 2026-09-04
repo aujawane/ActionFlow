@@ -149,23 +149,24 @@ export function MeetingActions({
         >
           {busy === "analyze" ? "Queueing..." : "Analyze Meeting"}
         </button>
+        {/* Explicit manual recovery (asks Recall directly for the bot's authoritative status) --
+            safe for any user to click any time, unlike Reimport Transcript below. Not gated to
+            dev: this is the normal-user fallback for a meeting whose webhook was missed. */}
+        <button
+          onClick={syncStatus}
+          disabled={busy !== null}
+          className="secondary-button px-3 py-2 text-xs"
+        >
+          {busy === "sync" ? "Syncing..." : "Sync Status"}
+        </button>
         {showDevReimport ? (
-          <>
-            <button
-              onClick={syncStatus}
-              disabled={busy !== null}
-              className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {busy === "sync" ? "Syncing..." : "Sync Status"}
-            </button>
-            <button
-              onClick={reimportTranscript}
-              disabled={busy !== null}
-              className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {busy === "reimport" ? "Reimporting..." : "Reimport Transcript"}
-            </button>
-          </>
+          <button
+            onClick={reimportTranscript}
+            disabled={busy !== null}
+            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy === "reimport" ? "Reimporting..." : "Reimport Transcript"}
+          </button>
         ) : null}
       </div>
       {message ? (
