@@ -35,6 +35,7 @@ import {
   StaleAnalysisError,
   type WorkerAnalysisStage
 } from "@/lib/meeting-analysis/jobs";
+import { normalizeMeetingTranscriptForAnalysis } from "@/lib/meeting-analysis/normalization";
 import {
   prepareMeetingAnalysis,
   type PreparedMeetingAnalysis
@@ -50,6 +51,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
  */
 type AnalysisCheckpoint = {
   engine?: ExecutionIntelligenceEngine;
+  /** Summary only (counts), for observability -- the actual normalized text/corrections are
+   * persisted directly onto transcript_segments, not carried through the checkpoint. */
+  normalization?: Awaited<ReturnType<typeof normalizeMeetingTranscriptForAnalysis>>;
   prepared?: PreparedMeetingAnalysis;
   state?: DurableExecutionState;
   v4State?: V4ExecutionState;
@@ -83,12 +87,26 @@ export async function runMeetingAnalysisStage(input: {
   const checkpoint = asCheckpoint(job.checkpoint);
 
   try {
+    if (input.stage === "transcript_normalization") {
+      // Persists normalized_text/normalization_corrections/normalized_at directly onto
+      // transcript_segments -- topic_extraction's ordinary re-query of that table picks up the
+      // result automatically, so nothing besides a small summary needs to travel through the
+      // checkpoint. A no-op (fast) when TRANSCRIPT_NORMALIZATION_ENABLED is off; a failed model
+      // call degrades to leaving raw text in place, it never fails this stage or blocks the job.
+      const normalization = await normalizeMeetingTranscriptForAnalysis(input.meetingId);
+      await saveAnalysisJobCheckpoint({
+        jobId: input.jobId,
+        checkpoint: { ...checkpoint, normalization }
+      });
+      return { nextStage: nextWorkerStage(input.stage), done: false };
+    }
+
     if (input.stage === "topic_extraction") {
       const prepared = await prepareMeetingAnalysis(input.meetingId);
       const engine = getExecutionIntelligenceEngine();
       await saveAnalysisJobCheckpoint({
         jobId: input.jobId,
-        checkpoint: { prepared, engine }
+        checkpoint: { ...checkpoint, prepared, engine }
       });
       return { nextStage: nextWorkerStage(input.stage), done: false };
     }

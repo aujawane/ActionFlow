@@ -149,7 +149,13 @@ export async function prepareMeetingAnalysis(
         { data: [] }
       ];
 
+  // Reasoning (topics/insights/execution-intelligence/commitments) reads normalized_text when
+  // normalization has run for a segment, falling back to the immutable raw text otherwise --
+  // transcript_segments.text itself is never overwritten. This is the single point where every
+  // downstream consumer of prepareMeetingAnalysis picks up normalization's result; no other
+  // stage needs to know normalization happened.
   const safeSegments = canonicalTranscriptOrder((segments ?? []) as TranscriptSegment[])
+    .map((segment) => ({ ...segment, text: segment.normalized_text ?? segment.text }))
     .map(normalizeTranscriptSpeaker);
   const transcript = buildCleanTranscript(safeSegments);
   if (!transcript.trim() || safeSegments.length === 0) {

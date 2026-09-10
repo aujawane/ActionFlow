@@ -25,10 +25,51 @@ export interface TranscriptSegment {
   meeting_id: string;
   speaker: string | null;
   participant_name: string | null;
+  /** Immutable raw transcript text exactly as Recall returned it. Never overwritten. */
   text: string;
   timestamp: string;
   raw_payload: JsonValue;
   created_at: string;
+  /** Corrected text for this segment, set only when normalization actually changed it. Downstream
+   * readers should use `normalized_text ?? text`. */
+  normalized_text?: string | null;
+  /** Every correction proposed for this segment (including below-threshold ones never applied). */
+  normalization_corrections?: TranscriptCorrectionRecord[] | null;
+  /** When normalization last SUCCEEDED for this segment; null means never attempted OR the most
+   * recent attempt failed (see normalization_failed_at) -- either way, eligible for retry. */
+  normalized_at?: string | null;
+  /** When a normalization attempt for this segment most recently failed. Cleared on a later
+   * success. Distinguishes "attempted but failed" from "successfully checked, nothing to fix". */
+  normalization_failed_at?: string | null;
+}
+
+export interface TranscriptCorrectionRecord {
+  original_token: string;
+  replacement: string;
+  confidence: number;
+  reason: string;
+  /** "deterministic" (pre-LLM alias match against approved vocabulary) or "model" (LLM-proposed). */
+  source: "deterministic" | "model";
+  applied: boolean;
+}
+
+export type ProjectVocabularyTermType = "tool" | "person" | "acronym" | "term" | "other";
+export type ProjectVocabularySource = "user_added" | "ai_suggested";
+export type ProjectVocabularyStatus = "approved" | "suggested" | "rejected";
+
+export interface ProjectVocabularyTerm {
+  id: string;
+  project_id: string;
+  canonical_term: string;
+  aliases: string[];
+  term_type: ProjectVocabularyTermType;
+  source: ProjectVocabularySource;
+  status: ProjectVocabularyStatus;
+  confidence: number;
+  evidence_meeting_id: string | null;
+  evidence_segment_ids: string[];
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ExtractedInsight {

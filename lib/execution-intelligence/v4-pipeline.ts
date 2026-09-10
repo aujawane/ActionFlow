@@ -29,14 +29,15 @@ import {
   type CommitmentReconciliationDecision,
   type StandaloneReconciliationDecision
 } from "./final-reconciliation";
-import { normalizeTranscriptSafely, type NormalizationResult } from "./transcript-normalization";
+import { isTranscriptNormalizationEnabled } from "@/lib/env";
+import type { NormalizationResult } from "./transcript-normalization";
 import {
   extractTopicWorkItems,
   runGlobalCorrectionPass,
   runGroupingPass,
   runGroupingVerificationPass
 } from "./work-item-stages";
-import { participantMap, type ExecutionSourceContext } from "./stages";
+import type { ExecutionSourceContext } from "./stages";
 import type {
   ExecutionTree,
   GlobalWorkItemAddition,
@@ -50,12 +51,6 @@ import type { ExecutionGraph } from "./schemas";
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? "").trim();
-}
-
-function buildProjectGlossary(source: ExecutionSourceContext): string[] {
-  const glossary = new Set<string>();
-  if (source.project?.name) glossary.add(source.project.name);
-  return Array.from(glossary);
 }
 
 /**
@@ -193,26 +188,32 @@ export async function runV4WorkItemExtraction(input: {
 }): Promise<V4ExecutionState> {
   const metrics = createExecutionMetrics(input.source.meetingId, input.fallbackUsed);
 
-  // Phase 0: optional, non-blocking transcript normalization. Never blocks or fails the run --
-  // any problem falls back to the untouched raw transcript.
-  const normalization = await normalizeTranscriptSafely({
-    meetingId: input.source.meetingId,
-    meetingDate: input.source.meetingDate,
-    transcript: input.source.transcript,
-    participants: participantMap(input.source.transcript).map((participant) => participant.name),
-    projectGlossary: buildProjectGlossary(input.source)
-  });
-  metrics.openAiLatencyMs.transcriptNormalization = normalization.latencyMs;
-  if (normalization.usage) metrics.openAiUsage.transcriptNormalization = normalization.usage;
-  const normalizedSource: ExecutionSourceContext = {
-    ...input.source,
-    transcript: normalization.normalizedTranscript
+  // Transcript normalization now runs exactly once, upstream of both execution-intelligence
+  // engines, as its own analysis stage (lib/meeting-analysis/normalization.ts,
+  // ANALYSIS_STAGE_ORDER's "transcript_normalization") -- by the time this function runs,
+  // input.source.transcript already reflects any applied corrections (persisted onto
+  // transcript_segments and re-read by prepareMeetingAnalysis). Calling
+  // normalizeTranscriptSafely a second time here would be a wasted duplicate model call against
+  // already-normalized text; this stub preserves the NormalizationResult shape the rest of this
+  // module and its debug trace/tests expect, without making a second call.
+  const normalization: NormalizationResult = {
+    enabled: isTranscriptNormalizationEnabled(),
+    normalizedTranscript: input.source.transcript,
+    corrections: [],
+    appliedCorrections: [],
+    failed: false,
+    failureReason: null,
+    latencyMs: 0,
+    usage: null
   };
+  metrics.openAiLatencyMs.transcriptNormalization = normalization.latencyMs;
+  const normalizedSource: ExecutionSourceContext = input.source;
   logExecutionStage(metrics, "v4_transcript_normalized", {
     enabled: normalization.enabled,
     failed: normalization.failed,
     proposed_corrections: normalization.corrections.length,
-    applied_corrections: normalization.appliedCorrections.length
+    applied_corrections: normalization.appliedCorrections.length,
+    ran_at_this_stage: false
   });
 
   const extracted = await extractTopicWorkItems(normalizedSource);

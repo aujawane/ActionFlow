@@ -254,8 +254,23 @@ export const transcriptCorrectionSchema = z
   .strict();
 export type TranscriptCorrection = z.infer<typeof transcriptCorrectionSchema>;
 
+/** A possible new project term the model noticed while normalizing -- never auto-trusted; always
+ * stored as an unapproved suggestion (see lib/project-vocabulary.ts). */
+export const vocabularyCandidateSchema = z
+  .object({
+    canonical_term: z.string().min(1),
+    observed_alias: z.string().min(1),
+    confidence: z.number().min(0).max(1),
+    evidence_segment_ids: z.array(z.string().uuid())
+  })
+  .strict();
+export type VocabularyCandidate = z.infer<typeof vocabularyCandidateSchema>;
+
 export const transcriptNormalizationOutputSchema = z
-  .object({ corrections: z.array(transcriptCorrectionSchema) })
+  .object({
+    corrections: z.array(transcriptCorrectionSchema),
+    vocabulary_candidates: z.array(vocabularyCandidateSchema)
+  })
   .strict();
 export type TranscriptNormalizationOutput = z.infer<typeof transcriptNormalizationOutputSchema>;
 
@@ -469,6 +484,13 @@ const transcriptCorrectionProperties = {
   evidence: { type: ["string", "null"] }
 } as const;
 
+const vocabularyCandidateProperties = {
+  canonical_term: { type: "string" },
+  observed_alias: { type: "string" },
+  confidence: { type: "number", minimum: 0, maximum: 1 },
+  evidence_segment_ids: { type: "array", items: { type: "string" } }
+} as const;
+
 export const transcriptNormalizationJsonSchema: Record<string, unknown> = {
   type: "object",
   additionalProperties: false,
@@ -481,9 +503,18 @@ export const transcriptNormalizationJsonSchema: Record<string, unknown> = {
         properties: transcriptCorrectionProperties,
         required: Object.keys(transcriptCorrectionProperties)
       }
+    },
+    vocabulary_candidates: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: vocabularyCandidateProperties,
+        required: Object.keys(vocabularyCandidateProperties)
+      }
     }
   },
-  required: ["corrections"]
+  required: ["corrections", "vocabulary_candidates"]
 };
 
 const taskConsolidationProposalProperties = {

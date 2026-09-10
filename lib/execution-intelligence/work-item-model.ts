@@ -16,6 +16,7 @@ import {
   transcriptNormalizationJsonSchema,
   verificationJsonSchema,
   verifiedGroupSchema,
+  vocabularyCandidateSchema,
   workItemExtractionJsonSchema,
   type GlobalWorkItemAddition,
   type GlobalWorkItemCorrection,
@@ -23,7 +24,8 @@ import {
   type RawWorkItem,
   type TaskConsolidationProposal,
   type TranscriptCorrection,
-  type VerifiedGroup
+  type VerifiedGroup,
+  type VocabularyCandidate
 } from "./work-item-schemas";
 
 const MODEL_MAX_OUTPUT_TOKENS = 16_000;
@@ -44,7 +46,7 @@ type StructuredResponse = {
     total_tokens?: number | null;
   } | null;
 };
-type CreateStructuredResponse = (signal: AbortSignal) => Promise<StructuredResponse>;
+export type CreateStructuredResponse = (signal: AbortSignal) => Promise<StructuredResponse>;
 
 function extractUsage(response: StructuredResponse): TokenUsage | null {
   if (!response.usage) return null;
@@ -355,7 +357,14 @@ export async function runGroupingVerificationModel(input: {
 }
 
 export type TranscriptNormalizationModelResult =
-  | { ok: true; corrections: TranscriptCorrection[]; latencyMs: number; salvagedItems: number; usage: TokenUsage | null }
+  | {
+      ok: true;
+      corrections: TranscriptCorrection[];
+      vocabularyCandidates: VocabularyCandidate[];
+      latencyMs: number;
+      salvagedItems: number;
+      usage: TokenUsage | null;
+    }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
 export async function runTranscriptNormalizationModel(input: {
@@ -374,11 +383,17 @@ export async function runTranscriptNormalizationModel(input: {
   });
   if (!result.ok) return result;
   const corrections = salvageArray(result.raw, "corrections", transcriptCorrectionSchema);
+  const vocabularyCandidates = salvageArray(
+    result.raw,
+    "vocabulary_candidates",
+    vocabularyCandidateSchema
+  );
   return {
     ok: true,
     corrections: corrections.items,
+    vocabularyCandidates: vocabularyCandidates.items,
     latencyMs: result.latencyMs,
-    salvagedItems: corrections.dropped,
+    salvagedItems: corrections.dropped + vocabularyCandidates.dropped,
     usage: result.usage
   };
 }
