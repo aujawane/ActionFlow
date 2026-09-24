@@ -10,7 +10,7 @@ import {
   reviewProjectVocabularyTerm,
   type ReviewVocabularyTermDependencies,
   type UpdateSuggestedVocabularyTerm
-} from "../app/api/projects/[id]/vocabulary/[termId]/route";
+} from "../lib/project-vocabulary-review";
 import type { ProjectVocabularyTerm } from "../lib/types";
 
 async function readSource(relativePath: string) {
@@ -35,6 +35,7 @@ function term(overrides: Partial<ProjectVocabularyTerm> = {}): ProjectVocabulary
 }
 
 const ROUTE_PATH = "app/api/projects/[id]/vocabulary/[termId]/route.ts";
+const REVIEW_MODULE_PATH = "lib/project-vocabulary-review.ts";
 
 // ---------------------------------------------------------------------------
 // Pure grouping/display logic
@@ -81,36 +82,59 @@ test("vocabularyEvidenceLabel reports no evidence when meeting/segments are miss
 });
 
 // ---------------------------------------------------------------------------
-// API route: source-level sanity checks on the real (non-injected) implementation
+// Route shape: route.ts must export ONLY supported Next.js route fields (this is exactly what
+// broke `next build` previously -- a Next.js route module may not export an arbitrary helper like
+// reviewProjectVocabularyTerm, even one used only by tests). The real logic now lives in
+// lib/project-vocabulary-review.ts; route.ts is a thin PATCH handler that imports and calls it.
+// ---------------------------------------------------------------------------
+
+test("route.ts exports only the PATCH handler -- no other export (e.g. a test-only helper) that next build's route validation would reject", async () => {
+  const source = await readSource(ROUTE_PATH);
+  const topLevelExports = [...source.matchAll(/^export\s+(?:async\s+)?(?:function|const|class|type|interface)\s+(\w+)/gm)].map(
+    (match) => match[1]
+  );
+  assert.deepEqual(topLevelExports, ["PATCH"]);
+  assert.doesNotMatch(source, /export\s+.*reviewProjectVocabularyTerm/);
+});
+
+test("route.ts imports the review logic from lib/project-vocabulary-review rather than implementing it inline", async () => {
+  const source = await readSource(ROUTE_PATH);
+  assert.match(source, /import \{ reviewProjectVocabularyTerm \} from "@\/lib\/project-vocabulary-review";/);
+  assert.match(source, /return reviewProjectVocabularyTerm\(\{ projectId: id, termId, body \}\);/);
+});
+
+// ---------------------------------------------------------------------------
+// lib/project-vocabulary-review.ts: source-level sanity checks on the real (non-injected)
+// implementation
 // ---------------------------------------------------------------------------
 
 test("the default dependencies wire the real requireApiUser/getOwnedProject/Supabase update -- production never uses a fake", async () => {
-  const source = await readSource(ROUTE_PATH);
+  const source = await readSource(REVIEW_MODULE_PATH);
   assert.match(source, /requireApiUser,\s*\n\s*getOwnedProject,\s*\n\s*updateSuggestedTerm: updateSuggestedTermInSupabase/);
 });
 
-test("the vocabulary review route only accepts status \"approved\" or \"rejected\" -- never \"suggested\" or an arbitrary field", async () => {
-  const source = await readSource(ROUTE_PATH);
+test("the vocabulary review logic only accepts status \"approved\" or \"rejected\" -- never \"suggested\" or an arbitrary field", async () => {
+  const source = await readSource(REVIEW_MODULE_PATH);
   assert.match(source, /z\s*\.\s*enum\(\["approved", "rejected"\]\)/);
   assert.match(source, /\.strict\(\)/);
 });
 
 test("the real Supabase update is scoped to the term id, the project id, AND the current status -- all three are enforced in one atomic query", async () => {
-  const source = await readSource(ROUTE_PATH);
+  const source = await readSource(REVIEW_MODULE_PATH);
   assert.match(source, /\.eq\("id", termId\)/);
   assert.match(source, /\.eq\("project_id", projectId\)/);
   assert.match(source, /\.eq\("status", "suggested"\)/);
 });
 
-test("the route never hardcodes an approval at the actual mutation call site -- the persisted status always comes from the parsed, user-submitted body", async () => {
-  const source = await readSource(ROUTE_PATH);
+test("the review logic never hardcodes an approval at the actual mutation call site -- the persisted status always comes from the parsed, user-submitted body", async () => {
+  const source = await readSource(REVIEW_MODULE_PATH);
   assert.match(source, /status: parsed\.data\.status/);
   assert.doesNotMatch(source, /\.update\(\{\s*status:\s*"approved"\s*\}\)/);
   assert.doesNotMatch(source, /\.update\(\{\s*status:\s*"rejected"\s*\}\)/);
 });
 
-test("the vocabulary review route reuses the existing project_vocabulary table -- no second vocabulary table/route pattern is introduced", async () => {
-  const source = await readSource(ROUTE_PATH);
+test("the vocabulary review logic reuses the existing project_vocabulary table -- no second vocabulary table/route pattern is introduced", async () => {
+  const source = await readSource(REVIEW_MODULE_PATH);
   assert.match(source, /from\("project_vocabulary"\)/);
 });
 
