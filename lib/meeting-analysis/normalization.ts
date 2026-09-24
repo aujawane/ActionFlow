@@ -62,6 +62,170 @@ export function applyTokenReplacement(text: string, originalToken: string, repla
   return text.replace(originalToken, replacement);
 }
 
+/**
+ * ---------------------------------------------------------------------------
+ * Correction safety guards -- deterministic backstops applied ON TOP OF the model's own
+ * confidence score, never a substitute for it. Both guards below can only ever turn an
+ * otherwise-eligible correction into `applied: false` (a recorded-but-unapplied suggestion, kept
+ * for observability); they can never cause normalized_text to contain something the model didn't
+ * already propose, and they never touch transcript_segments.text.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Rejects a correction that would expand a short, independently-valid spoken word/name into a
+ * longer participant/speaker identifier (a concatenated full name, username, handle, or
+ * slug-like label) purely because that fuller string happens to appear in this meeting's
+ * participant list. Real failure this guards against: a speaker literally says "craig" (a
+ * complete, valid word/name on its own), and the model -- seeing "craiglauer" as a participant
+ * label in the same window -- "completes" the short word into that longer identifier. Normalizing
+ * corrects MIS-TRANSCRIBED entity names; it must never complete a correctly-heard short name into
+ * a longer identifier just because a longer string containing it exists in participant metadata.
+ *
+ * Deliberately generic (not name-specific): compares the alphanumeric-only, lowercased forms of
+ * `originalToken` and `replacement`. A correction is rejected only when the replacement is a
+ * strict extension of the original token (same leading characters, then MORE characters) and that
+ * extended form matches a participant/speaker label from this meeting -- not merely a
+ * capitalization or spacing fix (e.g. "cameron" -> "Cameron" is unaffected: same length after
+ * normalization, so it is never treated as an expansion). This intentionally does NOT gate the
+ * separate, human-approved-vocabulary deterministic pass (applyDeterministicAliasCorrections) --
+ * an approved alias->canonical mapping is a human decision, not an ungrounded model inference from
+ * raw metadata, and remains the strongest, most-trusted correction path (see project-vocabulary.ts).
+ */
+export function isParticipantIdentifierExpansion(
+  originalToken: string,
+  replacement: string,
+  participants: readonly string[]
+): boolean {
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normalizedOriginal = normalize(originalToken);
+  const normalizedReplacement = normalize(replacement);
+  if (!normalizedOriginal || normalizedReplacement.length <= normalizedOriginal.length) {
+    return false;
+  }
+  if (!normalizedReplacement.startsWith(normalizedOriginal)) return false;
+  return participants.some((participant) => normalize(participant) === normalizedReplacement);
+}
+
+const MAX_CORRECTION_SPAN_WORDS = 10;
+const MAX_CORRECTION_SPAN_LENGTH = 80;
+
+/**
+ * Personal pronouns. On their own these are NOT disqualifying -- a real entity name can contain
+ * one ("Will Smith" contains no pronoun, but nothing rules out e.g. a band or product using a
+ * pronoun-like word) -- they only become a meaningful signal when an auxiliary/modal verb from
+ * MODAL_AUX_WORDS also appears elsewhere in the same span (see isCorrectionSpanSafe).
+ */
+const PRONOUN_WORDS = new Set([
+  "i", "you", "we", "he", "she", "it", "they", "me", "us", "him", "her", "them"
+]);
+
+/**
+ * Auxiliary/modal verbs. Also NOT disqualifying alone -- "Will" is a common first name, "Was"
+ * appears in real titles -- but paired with a pronoun elsewhere in the span (see below), the
+ * combination is strong, generic evidence of a finite clause ("we will deploy") rather than a
+ * noun-phrase entity name.
+ */
+const MODAL_AUX_WORDS = new Set([
+  "will", "would", "can", "could", "should", "must", "shall", "may", "might",
+  "is", "are", "was", "were", "am", "do", "does", "did", "have", "has", "had"
+]);
+
+/**
+ * Contractions that fuse a pronoun and an auxiliary/modal verb into a single token ("I'll",
+ * "don't", "we're"). Each one alone is as strong a clause signal as the pronoun+modal pair above --
+ * this practically never appears as, or inside, a real entity name.
+ */
+const PRONOUN_MODAL_CONTRACTIONS = new Set([
+  "i'll", "we'll", "you'll", "he'll", "she'll", "they'll",
+  "i'd", "we'd", "you'd", "he'd", "she'd", "they'd",
+  "i'm", "we're", "you're", "they're",
+  "don't", "doesn't", "didn't", "won't", "can't", "couldn't", "wouldn't", "shouldn't",
+  "isn't", "aren't", "wasn't", "weren't"
+]);
+
+/** Strips everything except letters/apostrophes so "I'll" and "don't" survive intact while
+ * surrounding punctuation (a trailing period, a leading/trailing comma, an ampersand token) does
+ * not affect word matching either way. */
+function normalizeSpanWord(word: string): string {
+  return word.toLowerCase().replace(/[^a-z']/g, "");
+}
+
+/**
+ * Deterministic backstop against a correction span (checked on BOTH `original_token` and
+ * `replacement`) that reads as a clause or sentence rather than an entity name -- WITHOUT assuming
+ * a valid entity name can't contain ordinary punctuation or common words. Real entity names
+ * routinely contain a dot ("example.com"), a hyphen or ampersand ("Coca-Cola", "Barnes & Noble"),
+ * an apostrophe ("Trader Joe's"), or ordinary words like "of"/"The"/"and" ("University of North
+ * Carolina", "The Ohio State University", "Ben & Jerry's"). None of those are disqualifying here.
+ * The production prompt already restricts corrections to entity names; this is a defense-in-depth
+ * backstop against a non-compliant or hallucinating model response, not a grammar parser.
+ *
+ * The exact rule -- any ONE of the following disqualifies the span:
+ *   1. Contains `!` or `?` anywhere -- essentially never part of a real entity name, and unlike
+ *      `.` `,` `-` `'` `/` `&` carries almost no legitimate-entity false-positive risk.
+ *   2. Contains a pronoun+modal CONTRACTION ("I'll", "don't", "we're", ...) -- fuses a subject and
+ *      a finite verb into one token, which practically never happens inside an entity name.
+ *   3. Contains a personal pronoun (I/you/we/he/she/it/they/...) AND, elsewhere in the same span,
+ *      an auxiliary/modal verb (will/would/can/is/are/...). Neither alone is disqualifying, but
+ *      their CO-OCCURRENCE is strong, generic evidence of a clause ("we will deploy") rather than
+ *      a noun-phrase entity name.
+ *   4. More than 10 words, or more than 80 characters -- a generous but still bounded backstop
+ *      against a long hallucinated clause/paragraph that happens to avoid signals 1-3 entirely;
+ *      comfortably above any real multi-word entity name seen in practice.
+ */
+export function isCorrectionSpanSafe(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/[!?]/.test(trimmed)) return false;
+  if (trimmed.length > MAX_CORRECTION_SPAN_LENGTH) return false;
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > MAX_CORRECTION_SPAN_WORDS) return false;
+
+  let hasPronoun = false;
+  let hasModal = false;
+  for (const rawWord of words) {
+    const word = normalizeSpanWord(rawWord);
+    if (PRONOUN_MODAL_CONTRACTIONS.has(word)) return false;
+    if (PRONOUN_WORDS.has(word)) hasPronoun = true;
+    if (MODAL_AUX_WORDS.has(word)) hasModal = true;
+  }
+  return !(hasPronoun && hasModal);
+}
+
+/**
+ * Collapses overlapping-batch duplicate proposals for the same segment before they're persisted.
+ * The 5-segment batch overlap (see chunkSegmentsForNormalization) means the SAME correction is
+ * routinely proposed twice by two different LLM calls for a segment near a batch boundary --
+ * harmless for the actually-applied text (applyTokenReplacement is a safe no-op on the second
+ * application), but without this, both proposals were persisted as separate entries in
+ * normalization_corrections, doubling the audit trail for no reason. A duplicate is identified by
+ * the (source, original_token, replacement) triple exactly as given -- deliberately NOT
+ * case-normalized or fuzzy, so two proposals that genuinely differ (even subtly) are always both
+ * kept. When duplicates disagree on confidence, the highest-confidence proposal wins (a tie keeps
+ * whichever was encountered first); output order is the input's first-occurrence order, which is
+ * itself deterministic because the batch loop that produces `corrections` always runs in the same
+ * fixed order.
+ */
+export function dedupeCorrections(
+  corrections: readonly TranscriptCorrectionRecord[]
+): TranscriptCorrectionRecord[] {
+  const bestByKey = new Map<string, TranscriptCorrectionRecord>();
+  const order: string[] = [];
+  for (const correction of corrections) {
+    const key = `${correction.source}::${correction.original_token}::${correction.replacement}`;
+    const existing = bestByKey.get(key);
+    if (!existing) {
+      order.push(key);
+      bestByKey.set(key, correction);
+    } else if (correction.confidence > existing.confidence) {
+      bestByKey.set(key, correction);
+    }
+  }
+  return order.map((key) => bestByKey.get(key)!);
+}
+
 export type SegmentNormalizationOutcome = {
   normalizedText: string | null;
   corrections: TranscriptCorrectionRecord[];
@@ -288,7 +452,16 @@ export async function normalizeMeetingTranscriptForAnalysis(
         confidence: correction.confidence,
         reason: correction.reason,
         source: "model",
-        applied: correction.confidence >= threshold
+        // Confidence alone is not sufficient to trust an auto-apply: a correction must also be a
+        // safely-scoped entity-name span (isCorrectionSpanSafe) and must not be expanding a short
+        // spoken word into a longer participant identifier (isParticipantIdentifierExpansion).
+        // Either guard failing degrades the correction to a recorded-but-unapplied suggestion --
+        // it is never dropped, and normalized_text is never touched by it.
+        applied:
+          correction.confidence >= threshold &&
+          isCorrectionSpanSafe(correction.original_token) &&
+          isCorrectionSpanSafe(correction.replacement) &&
+          !isParticipantIdentifierExpansion(correction.original_token, correction.replacement, participants)
       };
       const existing = proposedBySegment.get(correction.segment_id) ?? [];
       existing.push(record);
@@ -314,7 +487,10 @@ export async function normalizeMeetingTranscriptForAnalysis(
   await Promise.all(
     ordered.map(async (segment) => {
       const deterministicList = deterministic.corrections.get(segment.id) ?? [];
-      const modelList = proposedBySegment.get(segment.id) ?? [];
+      // Overlapping batches routinely propose the identical correction twice for a segment near a
+      // batch boundary (see chunkSegmentsForNormalization's 5-segment overlap) -- deduped here,
+      // once, right before it becomes part of the persisted audit trail.
+      const modelList = dedupeCorrections(proposedBySegment.get(segment.id) ?? []);
       deterministicCorrectionCount += deterministicList.length;
       modelCorrectionCount += modelList.length;
 

@@ -18,7 +18,18 @@ platforms, domains, and acronyms. You may never:
 - resolve an ordinary English word into a project entity just because the entity's name happens to
   sound similar (e.g. never turn a literal, ordinary use of "recall" the verb into "Recall.ai"
   unless the surrounding sentence is unmistakably about that product) -- when in doubt, this is not
-  high confidence, leave it unchanged.
+  high confidence, leave it unchanged;
+- expand a short, correctly-heard word or name into a longer participant/speaker identifier,
+  username, handle, or slug just because that fuller string appears in the participant list or
+  segment metadata (e.g. hearing "Craig" and turning it into "craiglauer" or "Craig Lauer" purely
+  because that longer identifier is present in participant data) -- a participant name may help you
+  confirm how a name is spelled or cased, never license extending or completing it into something
+  longer than what was actually said.
+
+A correction's original_token and replacement must each be a single entity name or a short,
+coherent multi-word entity name (for example "Claude Code", "Visual Studio Code", "San Diego State
+University") -- never a clause, a phrase containing a verb, or a sentence. If what actually needs
+fixing is not a self-contained name, do not propose a correction for it.
 
 Set confidence honestly for every correction -- it determines whether the correction auto-applies
 downstream (only near-certain corrections should score high) or is only recorded as a suggestion
