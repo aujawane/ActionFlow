@@ -94,11 +94,46 @@ A statement can be grammatically "I'll ..." and still be personal_logistics ("I'
 17th") or informational in spirit if it carries no project deliverable -- judge execution_scope and
 work_item_role by what the statement actually produces, not by its grammar.
 
+VOLUNTARY PROMISE PRINCIPLE: a speaker voluntarily stating that they (or a clearly identified group
+they speak for) will perform a concrete future action is itself a promise -- accepted, open,
+project_work, role=action -- regardless of whether anyone else requested it first. "I'll send you
+that article" is an active promise even if nobody asked for it; do not withhold acceptance just
+because no prior request exists in the transcript. This is a semantic pattern to recognize in
+whatever words a speaker actually uses ("I'll ...", "I will ...", "I'm going to ...", "I can
+definitely ...", "we are going to ...", and equivalents) -- not a fixed phrase list, and it never
+overrides the surrounding-context checks below (personal logistics, informational content, a
+hypothetical/illustrative example, or a genuinely conditional "maybe"/"could" still take precedence
+when the context actually is one of those).
+
+CURRENT_SCOPE VS FUTURE_SCOPE: these are NOT "past vs future" or "will happen after the meeting vs
+during it" -- almost everything worth extracting will execute after the meeting ends. The distinction
+is whether the work is presently agreed to:
+- current_scope: the work is accepted, active, assigned, or committed as a direct result of THIS
+  conversation, even though it will necessarily be carried out later ("I'll send you the article
+  tomorrow", "I'll finish this and confirm the drops work", "we're going to test this build and send
+  feedback" are all current_scope -- the timing is future, the commitment is now).
+- future_scope: the work is speculative, backlog, deferred, next-version, or not yet activated
+  ("maybe we should add voice support eventually", "we could do that in the next version", "that's
+  something we might build later" -- future_scope unless the conversation clearly turns it into
+  accepted current work with an owner and a concrete outcome).
+A future-tense verb is not itself evidence of future_scope, and an immediate timeframe is not itself
+evidence of current_scope -- judge only whether the transcript shows the work as presently agreed.
+
+A hypothetical, illustrative, or example scenario used to explain a concept or workflow (e.g. "let's
+say a user had to do X", "for example, if someone needed Y") describes a fictional situation, not
+real accepted work for a real participant -- role=idea or reference, execution_scope=informational,
+acceptance_state=none, no matter how concrete or task-like the illustrative action sounds.
+
 Rules:
 - First-person accepted future work such as "I'll contact", "I'm going to test", and an acceptance
   after a request is accepted, open, project_work, role=action -- even when the sentence also reads
   like it is recording a decision. Do not classify an "I'll ..." acceptance as a bare decision
-  merely because it resolves a discussion.
+  merely because it resolves a discussion. See VOLUNTARY PROMISE PRINCIPLE above -- this applies
+  identically whether or not a prior request exists.
+- When the transcript explicitly names more than one person jointly performing the work ("Sam and
+  I are going to test this with Priya"), list every named participant in owners -- do not collapse a
+  clearly multi-person commitment down to a single name or drop the others because one person is
+  speaking.
 - A request without acceptance is request/non_execution, acceptance_state=requested.
 - Completed work stays completed_work/completed, acceptance_state=none. Current work stays
   in_progress/in_progress.
@@ -137,6 +172,18 @@ Topic-scoped extraction sees only one slice of the meeting at a time and sometim
 scope, role, or recall wrong because of that narrow view, and it cannot see a later statement that
 changes an earlier item's scope. Your job is to fix both, now that the whole meeting is visible.
 
+CURRENT_SCOPE VS FUTURE_SCOPE: these are NOT "past vs future" or "will happen after the meeting vs
+during it" -- almost everything worth tracking executes after the meeting ends. The distinction is
+whether the work is presently agreed to:
+- current_scope: accepted, active, assigned, or committed as a direct result of the conversation,
+  even though execution necessarily happens later ("I'll send you the article tomorrow", "I'll
+  finish this and confirm the drops work", "we're going to test this build and send feedback").
+- future_scope: speculative, backlog, deferred, next-version, or not yet activated work ("maybe we
+  should add voice support eventually", "we could do that in the next version" without a clear
+  commitment, "that's something we might build later").
+A future-tense verb is never itself evidence of future_scope, and an immediate timeframe is never
+itself evidence of current_scope -- correct any item where topic-scoped extraction confused the two.
+
 You may only:
 - correct an existing work item's classification, status, acceptance_state, execution_scope,
   scope_state, work_item_role, owner, owners, and evidence when the transcript clearly supports a
@@ -145,6 +192,15 @@ You may only:
   segment IDs;
 - mark personal logistics and informational content with the correct execution_scope/scope_state so
   they are correctly excluded downstream.
+
+COMPLETENESS SCAN: you see the full transcript and the entire merged ledger -- use both. Actively
+scan the whole transcript for concrete accepted promises, assignments, or actions that are simply
+absent from the ledger (most often because a voluntary promise had no preceding request for
+topic-scoped extraction to anchor on, or because the accepting statement and its supporting context
+fall in different topic regions that were extracted separately and never reconciled). Add any such
+item you find, grounded in its own exact quote and real segment IDs -- never invent one without that
+evidence. A missing item is exactly the kind of mistake this pass exists to catch; do not limit
+yourself to only correcting items that already exist in the ledger.
 
 You may not create groups, clusters, or commitments of any kind, and you may not touch a work item
 you have no correction for -- omit it from your corrections list entirely rather than re-stating it
@@ -191,15 +247,22 @@ Common correction patterns, illustrative, not exhaustive:
   inherently forbidden -- apply this evidence-and-accountability test to whatever the transcript
   actually contains.
 
-COMPLETED-IN-MEETING RULE: if the transcript shows the exchange itself happening during the meeting
--- a phone number read aloud and written down, contact information stated and acknowledged, a
-document shared and confirmed received, a question asked and directly answered on the call -- that
-item is completed_work/completed, acceptance_state=none, not an open future task. It already
-happened; the meeting was the delivery. Never leave it as accepted/open merely because a request
-phrase ("can you share...") appears somewhere nearby -- check whether the transcript shows the
-requested thing being provided in the same exchange. Correct topic-scoped extraction's mistake when
-you see this pattern, and add the item as completed if extraction missed it, so it is visibly
-excluded rather than silently absent.
+TEMPORAL COMPLETION RULE: for every accepted or requested-then-accepted item, look FORWARD through
+the rest of the transcript, in chronological order, and ask "does the meeting go on to actually
+perform this action?" This covers both an immediate same-exchange completion (a phone number read
+aloud and written down, contact information stated and acknowledged, a document shared and confirmed
+received, a question asked and directly answered) AND an extended completion later in the meeting (an
+accepted request to "show us the demo" followed, however much later, by the meeting actually walking
+through the demo; an accepted request to explain something followed by the actual explanation being
+given). Either way, that item is completed_work/completed, acceptance_state=none, not an open future
+task -- the meeting itself was the delivery, no matter how long the fulfilling activity ran or how
+many segments later it appears. Never leave it as accepted/open merely because a request phrase
+("can you show us...", "can you share...") appears somewhere nearby -- check whether the transcript
+actually goes on to show the requested thing happening, immediately or later, and correct the item
+(or add it as completed if extraction missed it) whenever it does. This is strictly forward-looking:
+a later promise must never be marked complete because an earlier, similar-sounding topic was merely
+discussed -- only genuine subsequent performance of the SAME accepted action counts, tracked by
+transcript order and shared evidence, never by topic similarity alone.
 
 COMMUNICATION-PROCESS RULE: a statement that establishes how future communication will happen ("if
 I have questions I'll text you", "let's just email back and forth", "I'll message the group when
@@ -221,11 +284,42 @@ transcript but the evidence does not clearly resolve which one accepted, prefer 
 unclear (correct it to null with reconciliation_reason explaining the ambiguity) over confidently
 assigning the wrong person -- a missing owner is recoverable, a wrong one is not.
 
+DUPLICATE COMPLETION EVENT RECONCILIATION: the same real-world action often appears in the ledger
+more than once -- as a request, an assignment, an accepted_request, and a promise, each extracted
+independently by topic-scoped passes that could not see each other's output. These are different
+conversational representations of ONE completion event, not separate pieces of work. When you find
+two or more ledger items whose evidence (overlapping or adjacent segment IDs, the same actor, the
+same concrete outcome) shows they describe the same accepted action, keep exactly ONE as the
+canonical active representation and correct every other one to scope_state=superseded, with
+superseded_item_refs naming the canonical item and superseding_segment_ids set to the evidence that
+establishes they are the same event. If the TEMPORAL COMPLETION RULE above also applies to the
+canonical item (the action was subsequently performed), correct the canonical item itself to
+completed_work/completed rather than leaving any copy open -- the result must never be that
+duplicate representations independently reach eligibility, and never that a completed action survives
+under one ref while an open duplicate survives under another.
+
 UNSUPPORTED-SCOPE RULE: never add or imply implementation scope beyond what the transcript directly
 states. A person's email address being mentioned is not evidence of any email-infrastructure work
 (hosting, migration, mailbox creation, DNS/MX changes, provider setup) -- do not add such an item and
 correct one back to non-execution/informational if topic-scoped extraction invented it. Only correct
 or add scope that traces to an actual quote.
+
+TRUE-NEGATIVE REMINDER: this pass exists to recover missed work and fix wrong state, not to turn more
+of the meeting into work. Confirm (or correct back to) non-active state for: hypothetical or
+illustrative examples describing a fictional scenario, not a real participant's real work; product
+demonstrations or discussion that merely describes or references old/existing work; general opinions,
+brainstorming, and feature ideas with no acceptance; "maybe"/"could"/"would be cool" phrasing with no
+clear owner and no clear commitment; plain status updates about something already in motion; work
+already completed in the past tense; a request nobody accepted; questions; purely informational
+statements; and personal logistics with no project deliverable attached. None of these become active
+current-scope work merely because they contain a future-tense verb or a technical-sounding noun
+phrase.
+
+OWNER PRESERVATION: when the transcript explicitly names more than one person jointly doing the work
+("Sam and I are going to test this with Priya"), correct owners to include every one of them if
+extraction dropped any -- do not collapse a clearly multi-person commitment down to whichever single
+name is easiest to state, and do not invent a literal "Team" owner where the transcript actually names
+individuals.
 
 For every correction and every addition, state classification_reason precisely (what shows
 acceptance vs its absence, project relevance vs its absence) and reconciliation_reason specifically
