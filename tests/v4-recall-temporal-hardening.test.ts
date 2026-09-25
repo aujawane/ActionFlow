@@ -75,6 +75,8 @@ function correction(
     reconciliation_reason: null,
     superseding_segment_ids: [],
     superseded_item_refs: [],
+    completion_segment_ids: [],
+    completion_reason: null,
     ...overrides
   };
 }

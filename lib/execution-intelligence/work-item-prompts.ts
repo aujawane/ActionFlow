@@ -288,6 +288,24 @@ never by topic similarity alone. Check every ref you were given for this, even o
 unrelated to each other at first glance -- do not stop looking for completion evidence after finding
 it for one ref.
 
+COMPLETION EVIDENCE FIELDS (required precision for any status=completed / classification=completed_work
+decision): whenever you propose that a ref was completed during this meeting, you MUST populate
+completion_segment_ids with the specific segment ID(s) -- occurring STRICTLY AFTER this ref's own
+existing evidence -- that show the SAME action actually being performed, and completion_reason
+explaining precisely what those segments show. A later demo, a later discussion of the same
+product/topic, someone describing their overall progress, or the conversation simply moving into
+implementation details are NEVER sufficient completion_segment_ids on their own -- they must show the
+specific promised action itself happening ("I sent it", "here, I just shared the link", "I restarted
+it, let's see if that fixed it", "I took the screenshot and saved it"), not merely a related topic
+being discussed. If you cannot point to segments that meet this bar, do not propose completion --
+leave completion_segment_ids empty and keep the ref's prior status/classification. This is enforced
+programmatically downstream regardless of what you write here: an empty completion_segment_ids array,
+a segment ID from before this ref's own evidence, or a segment ID absent from this transcript will
+cause the completion to be rejected and the ref kept exactly as it was. completion_segment_ids and
+completion_reason are unrelated to superseding_segment_ids (which is for duplicate-representation
+reconciliation, not completion) -- leave completion_segment_ids empty and completion_reason null for
+every review that is not itself proposing completion.
+
 COMMUNICATION-PROCESS RULE: a statement that establishes how future communication will happen ("if
 I have questions I'll text you", "let's just email back and forth", "I'll message the group when
 it's ready") is execution_scope=informational, work_item_role=status_update -- it describes a
@@ -353,6 +371,48 @@ were not given. For every review, state classification_reason precisely (what sh
 its absence, project relevance vs its absence) and reconciliation_reason specifically for any
 scope_state/work_item_role/completion change (what later statement, if any, controls the decision;
 null when nothing changed). Return only schema-valid JSON with exactly one review per given ref.
+`.trim();
+
+/**
+ * Targeted completion verifier (temporal-completion precision hardening, generation-8 staging
+ * benchmark follow-up). Called only for a single work item whose lifecycle review already proposed
+ * completion AND already passed the programmatic evidence/chronology gate (see
+ * validateCompletionEvidence in work-item-stages.ts) -- this prompt's only job is the remaining
+ * semantic judgment neither of those structural checks can make: does the cited evidence actually
+ * show the SAME action, not just a related topic. Deliberately narrow: no extraction, no scope
+ * repair, no owner repair, no duplicate reasoning -- one question, one answer.
+ */
+export const COMPLETION_VERIFICATION_PROMPT = `
+You are the targeted completion verifier. You are given one work item (its title, owner, and the
+original evidence establishing the commitment/request/acceptance), a later piece of proposed
+completion evidence (specific segment IDs and the reason another pass believes they show this item
+was completed), and a small window of surrounding transcript lines for context. Nothing else about
+this meeting is visible to you, and that is intentional -- you are not re-extracting work, not
+repairing scope, not repairing an owner, and not reasoning about duplicates. You have exactly one
+job.
+
+Answer exactly one question: does the proposed completion evidence demonstrate that this SAME
+real-world action was actually performed, after the commitment was made, during this meeting?
+
+Same topic or entity is NOT the same action. Confirm=true only for evidence like: an explicit
+statement that the specific promised thing was done ("I sent it", "here, I just shared the link",
+"I restarted it, let's see if that fixed it", "I took the screenshot and saved it", "I already did
+that"), or an unambiguous transcript continuation that directly shows the requested action being
+carried out (the demo actually being walked through after someone accepted a request to demo
+something; the specific document actually being shared after someone promised to share it).
+
+Confirm=false for anything short of that, including: the same product or topic being discussed or
+demonstrated for an unrelated reason; a status update about progress or general activity; someone
+restating or repeating their intent to still do the thing; a related but different action being
+performed (e.g. sharing a screen when the commitment was to send a specific file); vague reassurance
+("it looks better now", "we're on it") with no explicit statement that the specific promised action
+happened. When in doubt, confirm=false -- a real outstanding commitment being kept open costs a user
+a moment's review; wrongly closing it out silently deletes real work with no easy way to notice.
+
+Return schema-valid JSON: confirmed (boolean), reasoning (a precise sentence naming exactly what the
+evidence does or does not show), and supporting_segment_ids (the subset of the segment IDs you were
+given -- from either the original evidence or the proposed completion evidence -- that most directly
+support your answer; an empty array is acceptable when confirmed is false).
 `.trim();
 
 export const GROUPING_PROMPT = `

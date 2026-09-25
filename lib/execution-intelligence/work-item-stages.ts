@@ -1,6 +1,7 @@
 import { getV4StageTimeoutMs } from "@/lib/env";
 import {
   COMPLETENESS_RECOVERY_PROMPT,
+  COMPLETION_VERIFICATION_PROMPT,
   GROUPING_PROMPT,
   GROUPING_VERIFICATION_PROMPT,
   LIFECYCLE_RECONCILIATION_PROMPT,
@@ -8,6 +9,7 @@ import {
 } from "./work-item-prompts";
 import {
   runCompletenessRecoveryModel,
+  runCompletionVerificationModel,
   runGroupingModel,
   runGroupingVerificationModel,
   runLifecycleReconciliationModel,
@@ -415,6 +417,251 @@ export function validateLifecycleReviewCoverage(
   return { covered, missingRefs: requestedRefs.filter((ref) => !seen.has(ref)) };
 }
 
+/**
+ * ===========================================================================
+ * Temporal-completion precision (generation-8 staging benchmark follow-up).
+ *
+ * Generation 8 showed the lifecycle model can mark a genuinely still-open item completed on the
+ * basis of unrelated later discussion (a demo of the same product, "ongoing discussion") -- the
+ * broad lifecycle-reconciliation judgment alone is not a high-precision enough signal to actually
+ * flip status=completed/classification=completed_work. This section adds a programmatic gate (no
+ * completion without non-empty, meeting-valid, strictly-later evidence) plus a narrow, separate
+ * targeted verifier call for exactly that one semantic question, fully isolated to this pass --
+ * applyGlobalCorrections and everything downstream of it is untouched.
+ * ===========================================================================
+ */
+
+/** Chronological position of every segment ID in this transcript, by order of first appearance --
+ * the transcript is already speaker-turn-ordered, so this is a correct, dependency-free proxy for
+ * "when did this happen" without needing a separate persisted ordering field. */
+export function buildTranscriptPositionIndex(transcript: string): Map<string, number> {
+  const index = new Map<string, number>();
+  transcriptSourceSegmentIds(transcript).forEach((id, position) => {
+    if (!index.has(id)) index.set(id, position);
+  });
+  return index;
+}
+
+/** A review "proposes completion" if it sets EITHER field that would remove the item from
+ * isExecutionEligible's ELIGIBLE_STATUSES/ELIGIBLE_CLASSIFICATIONS via completion -- checking both
+ * independently (not just the well-formed pairing) is exactly what closes the generation-8 gap,
+ * where status flipped to "completed" while classification stayed "promise". */
+export function isCompletionDecision(correction: GlobalWorkItemCorrection): boolean {
+  return correction.status === "completed" || correction.classification === "completed_work";
+}
+
+export type CompletionEvidenceRejectionReason = "missing_evidence" | "invalid_segment" | "chronology";
+
+/**
+ * Programmatic gate a completion decision must pass before it is even eligible for the targeted
+ * verifier call: non-empty completion_segment_ids, every one of them a real segment ID in this
+ * meeting's transcript, and every one of them strictly later than the LATEST segment already
+ * backing this item's own existing evidence. Never trusted on prompt wording alone -- this runs
+ * regardless of what the model claims in completion_reason.
+ */
+export function validateCompletionEvidence(input: {
+  originalItem: WorkItem;
+  correction: GlobalWorkItemCorrection;
+  transcriptPositionIndex: Map<string, number>;
+}): { ok: true } | { ok: false; reason: CompletionEvidenceRejectionReason } {
+  const { originalItem, correction, transcriptPositionIndex } = input;
+  if (correction.completion_segment_ids.length === 0) {
+    return { ok: false, reason: "missing_evidence" };
+  }
+  const completionPositions = correction.completion_segment_ids.map((id) => transcriptPositionIndex.get(id));
+  if (completionPositions.some((position) => position === undefined)) {
+    return { ok: false, reason: "invalid_segment" };
+  }
+  const originPositions = originalItem.source_segment_ids.map((id) => transcriptPositionIndex.get(id));
+  if (originPositions.length === 0 || originPositions.some((position) => position === undefined)) {
+    // Cannot safely establish when this item's own commitment/acceptance evidence occurred.
+    return { ok: false, reason: "chronology" };
+  }
+  const originPosition = Math.max(...(originPositions as number[]));
+  const earliestCompletionPosition = Math.min(...(completionPositions as number[]));
+  if (!(earliestCompletionPosition > originPosition)) {
+    return { ok: false, reason: "chronology" };
+  }
+  return { ok: true };
+}
+
+/**
+ * Fail-closed rewrite: when a completion decision is rejected (by the evidence gate or the
+ * targeted verifier), the ref's status/classification/acceptance_state revert to whatever they
+ * were BEFORE this lifecycle pass ran -- not whatever else the model proposed alongside the
+ * rejected completion -- so a malformed completion attempt can never leave the item stranded in an
+ * inconsistent state (e.g. acceptance_state=none with a non-completed status). Every other field
+ * the model proposed (owner, scope_state, superseding/duplicate fields, evidence quote) is left
+ * untouched, since this gate is scoped to completion safety only, not a general veto.
+ */
+export function revertCompletionFields(
+  correction: GlobalWorkItemCorrection,
+  originalItem: WorkItem,
+  reason: string
+): GlobalWorkItemCorrection {
+  return {
+    ...correction,
+    status: originalItem.status,
+    classification: originalItem.classification,
+    acceptance_state: originalItem.acceptance_state,
+    completion_segment_ids: [],
+    completion_reason: null,
+    reconciliation_reason: reason
+  };
+}
+
+const COMPLETION_VERIFICATION_CONCURRENCY = 2;
+
+async function runTargetedCompletionVerification(input: {
+  source: ExecutionSourceContext;
+  originalItem: WorkItem;
+  correction: GlobalWorkItemCorrection;
+  createResponse?: CreateStructuredResponse;
+}) {
+  const contextTurns = neighboringTranscriptTurns(
+    input.source.transcript,
+    [...input.originalItem.source_segment_ids, ...input.correction.completion_segment_ids],
+    1
+  );
+  return runCompletionVerificationModel({
+    systemPrompt: COMPLETION_VERIFICATION_PROMPT,
+    timeoutMs: Math.max(getV4StageTimeoutMs("completion_verification"), 60_000),
+    createResponse: input.createResponse,
+    context: {
+      meeting_id: input.source.meetingId,
+      work_item: {
+        ref: input.originalItem.ref,
+        title: input.originalItem.title,
+        owner: input.originalItem.owner,
+        classification: input.originalItem.classification
+      },
+      originating_evidence: {
+        source_quote: input.originalItem.source_quote,
+        source_segment_ids: input.originalItem.source_segment_ids
+      },
+      proposed_completion_evidence: {
+        completion_reason: input.correction.completion_reason,
+        completion_segment_ids: input.correction.completion_segment_ids
+      },
+      context_turns: contextTurns
+    }
+  });
+}
+
+export type CompletionSafetyCounts = {
+  completionProposals: number;
+  completionVerified: number;
+  completionRejectedMissingEvidence: number;
+  completionRejectedChronology: number;
+  completionRejectedVerifier: number;
+};
+
+/**
+ * Applies the temporal-completion precision gate to a batch of already-covered lifecycle reviews.
+ * Every review that isn't a completion decision passes through unchanged. Every review that IS a
+ * completion decision must pass the programmatic evidence/chronology gate (no model call) and then
+ * the targeted verifier (one focused model call) before the completion is allowed to stand; failing
+ * either reverts that ref's completion fields via revertCompletionFields, keeping the item exactly
+ * as it was before this pass ran. A verifier call failure (timeout, malformed response) is treated
+ * as non-confirmation, not a pipeline failure -- ambiguous/malformed/missing always means "keep the
+ * item open," never "propagate an error."
+ */
+async function applyCompletionSafety(input: {
+  source: ExecutionSourceContext;
+  reviews: GlobalWorkItemCorrection[];
+  itemsByRef: Map<string, WorkItem>;
+  createVerificationResponse?: CreateStructuredResponse;
+}): Promise<{ reviews: GlobalWorkItemCorrection[]; counts: CompletionSafetyCounts; usages: Array<TokenUsage | null> }> {
+  const transcriptPositionIndex = buildTranscriptPositionIndex(input.source.transcript);
+  const passthrough: GlobalWorkItemCorrection[] = [];
+  const structurallyRejected: GlobalWorkItemCorrection[] = [];
+  const structurallyValid: GlobalWorkItemCorrection[] = [];
+  const counts: CompletionSafetyCounts = {
+    completionProposals: 0,
+    completionVerified: 0,
+    completionRejectedMissingEvidence: 0,
+    completionRejectedChronology: 0,
+    completionRejectedVerifier: 0
+  };
+
+  for (const review of input.reviews) {
+    if (!isCompletionDecision(review)) {
+      passthrough.push(review);
+      continue;
+    }
+    counts.completionProposals += 1;
+    const originalItem = input.itemsByRef.get(review.ref);
+    if (!originalItem) {
+      // Defensive only -- coverage validation already restricts reviews to known candidate refs.
+      passthrough.push(review);
+      continue;
+    }
+    const evidenceCheck = validateCompletionEvidence({ originalItem, correction: review, transcriptPositionIndex });
+    if (!evidenceCheck.ok) {
+      if (evidenceCheck.reason === "missing_evidence") counts.completionRejectedMissingEvidence += 1;
+      else counts.completionRejectedChronology += 1;
+      structurallyRejected.push(
+        revertCompletionFields(
+          review,
+          originalItem,
+          `Lifecycle proposed completion (${review.classification}/${review.status}) but completion evidence failed programmatic validation (${evidenceCheck.reason}); kept at its prior state.`
+        )
+      );
+      continue;
+    }
+    structurallyValid.push(review);
+  }
+
+  const usages: Array<TokenUsage | null> = [];
+  const verifiedResults: GlobalWorkItemCorrection[] = new Array(structurallyValid.length);
+  let next = 0;
+  async function verifierWorker() {
+    while (next < structurallyValid.length) {
+      const index = next++;
+      const review = structurallyValid[index];
+      const originalItem = input.itemsByRef.get(review.ref)!;
+      const verification = await runTargetedCompletionVerification({
+        source: input.source,
+        originalItem,
+        correction: review,
+        createResponse: input.createVerificationResponse
+      });
+      if (verification.ok) {
+        usages.push(verification.usage);
+        if (verification.confirmed) {
+          counts.completionVerified += 1;
+          verifiedResults[index] = review;
+          continue;
+        }
+        counts.completionRejectedVerifier += 1;
+        verifiedResults[index] = revertCompletionFields(
+          review,
+          originalItem,
+          `Targeted completion verifier did not confirm this action was actually performed: ${verification.reasoning}`
+        );
+      } else {
+        counts.completionRejectedVerifier += 1;
+        verifiedResults[index] = revertCompletionFields(
+          review,
+          originalItem,
+          `Targeted completion verifier call failed (${verification.error}); kept at its prior state rather than trusting the unverified completion.`
+        );
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(COMPLETION_VERIFICATION_CONCURRENCY, structurallyValid.length) }, () =>
+      verifierWorker()
+    )
+  );
+
+  return {
+    reviews: [...passthrough, ...structurallyRejected, ...verifiedResults],
+    counts,
+    usages
+  };
+}
+
 async function requestLifecycleReviews(input: {
   source: ExecutionSourceContext;
   itemsByRef: Map<string, WorkItem>;
@@ -441,14 +688,14 @@ async function requestLifecycleReviews(input: {
 }
 
 export type LifecycleReconciliationPassResult =
-  | {
+  | ({
       ok: true;
       reviews: GlobalWorkItemCorrection[];
       missingRefsAfterRetry: string[];
       latencyMs: number;
       salvagedItems: number;
       usage: TokenUsage | null;
-    }
+    } & CompletionSafetyCounts)
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
 /**
@@ -467,6 +714,7 @@ export async function runLifecycleReconciliationPass(input: {
   source: ExecutionSourceContext;
   workItems: WorkItem[];
   createResponse?: CreateStructuredResponse;
+  createVerificationResponse?: CreateStructuredResponse;
 }): Promise<LifecycleReconciliationPassResult> {
   const startedAt = Date.now();
   const itemsByRef = new Map(input.workItems.map((item) => [item.ref, item]));
@@ -479,7 +727,12 @@ export async function runLifecycleReconciliationPass(input: {
       missingRefsAfterRetry: [],
       latencyMs: Date.now() - startedAt,
       salvagedItems: 0,
-      usage: null
+      usage: null,
+      completionProposals: 0,
+      completionVerified: 0,
+      completionRejectedMissingEvidence: 0,
+      completionRejectedChronology: 0,
+      completionRejectedVerifier: 0
     };
   }
 
@@ -537,13 +790,22 @@ export async function runLifecycleReconciliationPass(input: {
     }
   }
 
+  const completionSafety = await applyCompletionSafety({
+    source: input.source,
+    reviews,
+    itemsByRef,
+    createVerificationResponse: input.createVerificationResponse
+  });
+  usages.push(...completionSafety.usages);
+
   return {
     ok: true,
-    reviews,
+    reviews: completionSafety.reviews,
     missingRefsAfterRetry,
     latencyMs: Date.now() - startedAt,
     salvagedItems,
-    usage: sumUsage(usages)
+    usage: sumUsage(usages),
+    ...completionSafety.counts
   };
 }
 

@@ -16,6 +16,15 @@ export type ExecutionMetrics = {
   validationFailures: number;
   salvagedItems: number;
   databaseFailures: number;
+  /** Temporal-completion precision (generation-8 staging benchmark follow-up): how many lifecycle
+   * reviews proposed status=completed/classification=completed_work, and how each was resolved.
+   * completionVerified + completionRejectedMissingEvidence + completionRejectedChronology +
+   * completionRejectedVerifier should always sum to completionProposals. */
+  completionProposals: number;
+  completionVerified: number;
+  completionRejectedMissingEvidence: number;
+  completionRejectedChronology: number;
+  completionRejectedVerifier: number;
   openAiLatencyMs: Record<string, number>;
   /** Populated only for stages that returned OpenAI usage on their response; used for replay/eval
    * cost reporting (`scripts/eval-v4.ts`). Absent entries mean the SDK/mock did not report usage. */
@@ -44,6 +53,11 @@ export function createExecutionMetrics(
     validationFailures: 0,
     salvagedItems: 0,
     databaseFailures: 0,
+    completionProposals: 0,
+    completionVerified: 0,
+    completionRejectedMissingEvidence: 0,
+    completionRejectedChronology: 0,
+    completionRejectedVerifier: 0,
     openAiLatencyMs: {},
     openAiUsage: {}
   };

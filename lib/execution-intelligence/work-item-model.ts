@@ -5,6 +5,8 @@ import { openai } from "@/lib/openai";
 import { logExecutionModelEvent } from "./observability";
 import {
   completenessRecoveryJsonSchema,
+  completionVerificationJsonSchema,
+  completionVerificationSchema,
   globalWorkItemAdditionSchema,
   globalWorkItemCorrectionSchema,
   groupingJsonSchema,
@@ -332,6 +334,56 @@ export async function runLifecycleReconciliationModel(input: {
     reviews: reviews.items,
     latencyMs: result.latencyMs,
     salvagedItems: reviews.dropped,
+    usage: result.usage
+  };
+}
+
+export type CompletionVerificationModelResult =
+  | {
+      ok: true;
+      confirmed: boolean;
+      reasoning: string;
+      supportingSegmentIds: string[];
+      latencyMs: number;
+      usage: TokenUsage | null;
+    }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+/** Targeted completion verifier: one work item, one question, one schema-valid object -- not an
+ * array, so no salvageArray here. A malformed response is treated as a hard failure by the caller
+ * (work-item-stages.ts's runLifecycleReconciliationPass), which fails closed (keeps the item open)
+ * rather than propagating the failure as a whole-meeting error. */
+export async function runCompletionVerificationModel(input: {
+  systemPrompt: string;
+  context: unknown;
+  timeoutMs?: number;
+  createResponse?: CreateStructuredResponse;
+}): Promise<CompletionVerificationModelResult> {
+  const result = await requestStructuredJson({
+    stage: "completion_verification",
+    systemPrompt: input.systemPrompt,
+    context: input.context,
+    jsonSchema: completionVerificationJsonSchema,
+    timeoutMs: input.timeoutMs,
+    createResponse: input.createResponse
+  });
+  if (!result.ok) return result;
+  const parsed = completionVerificationSchema.safeParse(result.raw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: "OpenAI returned invalid completion_verification JSON.",
+      details: JSON.stringify(result.raw).slice(0, 500),
+      latencyMs: result.latencyMs,
+      validationFailure: true
+    };
+  }
+  return {
+    ok: true,
+    confirmed: parsed.data.confirmed,
+    reasoning: parsed.data.reasoning,
+    supportingSegmentIds: parsed.data.supporting_segment_ids,
+    latencyMs: result.latencyMs,
     usage: result.usage
   };
 }

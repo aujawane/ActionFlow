@@ -93,6 +93,7 @@ export type V4Stage =
   | "work_item_extraction"
   | "completeness_recovery"
   | "lifecycle_reconciliation"
+  | "completion_verification"
   | "grouping"
   | "grouping_verification"
   | "task_consolidation";
@@ -102,6 +103,7 @@ const V4_STAGE_MODEL_ENV: Record<V4Stage, string> = {
   work_item_extraction: "OPENAI_MODEL_V4_EXTRACTION",
   completeness_recovery: "OPENAI_MODEL_V4_COMPLETENESS_RECOVERY",
   lifecycle_reconciliation: "OPENAI_MODEL_V4_LIFECYCLE_RECONCILIATION",
+  completion_verification: "OPENAI_MODEL_V4_COMPLETION_VERIFICATION",
   grouping: "OPENAI_MODEL_V4_GROUPING",
   grouping_verification: "OPENAI_MODEL_V4_VERIFICATION",
   task_consolidation: "EXECUTION_TASK_CONSOLIDATION_MODEL"
@@ -112,6 +114,7 @@ const V4_STAGE_TIMEOUT_ENV: Record<V4Stage, string> = {
   work_item_extraction: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION",
   completeness_recovery: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETENESS_RECOVERY",
   lifecycle_reconciliation: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_LIFECYCLE_RECONCILIATION",
+  completion_verification: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETION_VERIFICATION",
   grouping: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_GROUPING",
   grouping_verification: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_VERIFICATION",
   task_consolidation: "EXECUTION_TASK_CONSOLIDATION_TIMEOUT_MS"

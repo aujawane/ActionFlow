@@ -223,7 +223,17 @@ export const globalWorkItemCorrectionSchema = z
     classification_reason: z.string().min(1),
     reconciliation_reason: z.string().nullable(),
     superseding_segment_ids: z.array(z.string().uuid()),
-    superseded_item_refs: z.array(z.string())
+    superseded_item_refs: z.array(z.string()),
+    /** Evidence that this SPECIFIC action was actually performed, distinct from
+     * superseding_segment_ids (which is about duplicate-representation reconciliation, not
+     * completion). Required (may be empty) so the model must always take a position: a review
+     * proposing status=completed/classification=completed_work with an empty array here is
+     * programmatically rejected -- see validateCompletionEvidence in work-item-stages.ts. Never
+     * trusted on its own; only a necessary precondition for the targeted completion verifier. */
+    completion_segment_ids: z.array(z.string().uuid()),
+    /** Why the cited completion_segment_ids demonstrate the same action was performed; null when
+     * this review does not propose completion. */
+    completion_reason: z.string().nullable()
   })
   .strict();
 export type GlobalWorkItemCorrection = z.infer<typeof globalWorkItemCorrectionSchema>;
@@ -251,6 +261,21 @@ export const lifecycleReviewOutputSchema = z
   .object({ reviews: z.array(globalWorkItemCorrectionSchema) })
   .strict();
 export type LifecycleReviewOutput = z.infer<typeof lifecycleReviewOutputSchema>;
+
+/**
+ * Targeted completion verifier (temporal-completion precision hardening). One call, one work
+ * item, one question: does the cited later evidence demonstrate the SAME real-world action was
+ * actually performed? No extraction, no scope repair, no owner repair, no duplicate reasoning --
+ * a single object, not a batch, since this is deliberately narrow.
+ */
+export const completionVerificationSchema = z
+  .object({
+    confirmed: z.boolean(),
+    reasoning: z.string().min(1),
+    supporting_segment_ids: z.array(z.string().uuid())
+  })
+  .strict();
+export type CompletionVerification = z.infer<typeof completionVerificationSchema>;
 
 // --- Phase 0: transcript normalization ---
 
@@ -458,7 +483,9 @@ const globalWorkItemCorrectionProperties = {
   classification_reason: { type: "string" },
   reconciliation_reason: { type: ["string", "null"] },
   superseding_segment_ids: { type: "array", items: { type: "string" } },
-  superseded_item_refs: { type: "array", items: { type: "string" } }
+  superseded_item_refs: { type: "array", items: { type: "string" } },
+  completion_segment_ids: { type: "array", items: { type: "string" } },
+  completion_reason: { type: ["string", "null"] }
 } as const;
 
 export const completenessRecoveryJsonSchema: Record<string, unknown> = {
@@ -493,6 +520,19 @@ export const lifecycleReviewJsonSchema: Record<string, unknown> = {
     }
   },
   required: ["reviews"]
+};
+
+const completionVerificationProperties = {
+  confirmed: { type: "boolean" },
+  reasoning: { type: "string" },
+  supporting_segment_ids: { type: "array", items: { type: "string" } }
+} as const;
+
+export const completionVerificationJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: completionVerificationProperties,
+  required: Object.keys(completionVerificationProperties)
 };
 
 const transcriptCorrectionProperties = {

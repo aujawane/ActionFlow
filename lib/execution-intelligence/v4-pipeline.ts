@@ -322,9 +322,23 @@ export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4
   }
   if (passB.usage) state.metrics.openAiUsage.lifecycleReconciliation = passB.usage;
   state.metrics.salvagedItems += passB.salvagedItems ?? 0;
+  state.metrics.completionProposals += passB.completionProposals;
+  state.metrics.completionVerified += passB.completionVerified;
+  state.metrics.completionRejectedMissingEvidence += passB.completionRejectedMissingEvidence;
+  state.metrics.completionRejectedChronology += passB.completionRejectedChronology;
+  state.metrics.completionRejectedVerifier += passB.completionRejectedVerifier;
   if (passB.missingRefsAfterRetry.length > 0) {
     logExecutionStage(state.metrics, "v4_lifecycle_reconciliation_incomplete", {
       missing_refs: passB.missingRefsAfterRetry
+    });
+  }
+  if (passB.completionProposals > 0) {
+    logExecutionStage(state.metrics, "v4_lifecycle_completion_safety", {
+      completion_proposals: passB.completionProposals,
+      completion_verified: passB.completionVerified,
+      completion_rejected_missing_evidence: passB.completionRejectedMissingEvidence,
+      completion_rejected_chronology: passB.completionRejectedChronology,
+      completion_rejected_verifier: passB.completionRejectedVerifier
     });
   }
 

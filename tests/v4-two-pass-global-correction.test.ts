@@ -104,6 +104,8 @@ function correction(
     reconciliation_reason: null,
     superseding_segment_ids: [],
     superseded_item_refs: [],
+    completion_segment_ids: [],
+    completion_reason: null,
     ...overrides
   };
 }
@@ -358,15 +360,24 @@ test("[L1] an accepted request whose action is completed later in the meeting is
           acceptance_state: "none",
           source_quote: "sure, I'll share my screen",
           source_segment_ids: [seg(2), seg(3)],
-          reconciliation_reason: "The demo was subsequently walked through in seg 3."
+          reconciliation_reason: "The demo was subsequently walked through in seg 3.",
+          completion_segment_ids: [seg(3)],
+          completion_reason: "The meeting goes on to actually walk through the demo in seg 3."
         })
       ]
+    }),
+    createVerificationResponse: fakeModelResponse({
+      confirmed: true,
+      reasoning: "Seg 3 shows the demo actually being walked through, the same action that was accepted.",
+      supporting_segment_ids: [seg(3)]
     })
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.reviews.length, 1);
   assert.deepEqual(result.missingRefsAfterRetry, []);
+  assert.equal(result.completionProposals, 1);
+  assert.equal(result.completionVerified, 1);
 
   const merged = applyGlobalCorrections({ workItems: [demo], corrections: result.reviews, additions: [], transcript });
   assert.equal(merged[0].status, "completed");
@@ -393,13 +404,21 @@ test("[L2] a distinct accepted action (e.g. restarting something) that is later 
           acceptance_state: "none",
           source_quote: "yep, restarting it now",
           source_segment_ids: [seg(2), seg(3)],
-          reconciliation_reason: "Confirmed back up in seg 3."
+          reconciliation_reason: "Confirmed back up in seg 3.",
+          completion_segment_ids: [seg(3)],
+          completion_reason: "Seg 3 confirms the restart happened and fixed the issue."
         })
       ]
+    }),
+    createVerificationResponse: fakeModelResponse({
+      confirmed: true,
+      reasoning: "Seg 3 explicitly confirms the restart was performed and resolved the issue.",
+      supporting_segment_ids: [seg(3)]
     })
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
+  assert.equal(result.completionVerified, 1);
   const merged = applyGlobalCorrections({ workItems: [restart], corrections: result.reviews, additions: [], transcript });
   assert.equal(isExecutionEligible(merged[0]), false);
 });
@@ -407,21 +426,22 @@ test("[L2] a distinct accepted action (e.g. restarting something) that is later 
 test("[L3] completion evidence for one ref is never misattached to a different, merely similar-sounding ref", async () => {
   const transcript = [
     transcriptLine(seg(1), "Person A", "can you take a screenshot?"),
-    transcriptLine(seg(2), "Person B", "done, here's the screenshot"),
-    transcriptLine(seg(3), "Person A", "can you send that to the team too?"),
-    transcriptLine(seg(4), "Person B", "sure, I'll send it over")
+    transcriptLine(seg(2), "Person B", "yeah, I'll take one"),
+    transcriptLine(seg(3), "Person B", "done, here's the screenshot"),
+    transcriptLine(seg(4), "Person A", "can you send that to the team too?"),
+    transcriptLine(seg(5), "Person B", "sure, I'll send it over")
   ].join("\n");
   const takeScreenshot = lifecycleCandidate({
     ref: "wi_1",
     title: "Take a screenshot",
-    source_quote: "done, here's the screenshot",
+    source_quote: "yeah, I'll take one",
     source_segment_ids: [seg(2)]
   });
   const sendScreenshot = lifecycleCandidate({
     ref: "wi_2",
     title: "Send the screenshot to the team",
     source_quote: "sure, I'll send it over",
-    source_segment_ids: [seg(4)]
+    source_segment_ids: [seg(5)]
   });
 
   const result = await runLifecycleReconciliationPass({
@@ -434,9 +454,11 @@ test("[L3] completion evidence for one ref is never misattached to a different, 
           classification: "completed_work",
           status: "completed",
           acceptance_state: "none",
-          source_quote: "done, here's the screenshot",
-          source_segment_ids: [seg(2)],
-          reconciliation_reason: "The screenshot itself was taken in seg 2."
+          source_quote: "yeah, I'll take one",
+          source_segment_ids: [seg(2), seg(3)],
+          reconciliation_reason: "The screenshot itself was taken in seg 3.",
+          completion_segment_ids: [seg(3)],
+          completion_reason: "Seg 3 shows the screenshot was actually taken."
         }),
         correction({
           ref: "wi_2",
@@ -444,14 +466,21 @@ test("[L3] completion evidence for one ref is never misattached to a different, 
           status: "open",
           acceptance_state: "accepted",
           source_quote: "sure, I'll send it over",
-          source_segment_ids: [seg(4)],
+          source_segment_ids: [seg(5)],
           reconciliation_reason: null
         })
       ]
+    }),
+    createVerificationResponse: fakeModelResponse({
+      confirmed: true,
+      reasoning: "Seg 3 explicitly shows the screenshot being taken, the same action wi_1 promised.",
+      supporting_segment_ids: [seg(3)]
     })
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
+  assert.equal(result.completionProposals, 1, "only wi_1 proposed completion -- wi_2's review is a plain echo");
+  assert.equal(result.completionVerified, 1);
   const merged = applyGlobalCorrections({
     workItems: [takeScreenshot, sendScreenshot],
     corrections: result.reviews,
@@ -602,9 +631,16 @@ test("[L7] duplicate representations where the canonical action is later complet
           acceptance_state: "none",
           source_quote: "great, go ahead and share your screen then",
           source_segment_ids: [seg(3), seg(4)],
-          reconciliation_reason: "Walked through in seg 4."
+          reconciliation_reason: "Walked through in seg 4.",
+          completion_segment_ids: [seg(4)],
+          completion_reason: "Seg 4 shows the demo actually being walked through."
         })
       ]
+    }),
+    createVerificationResponse: fakeModelResponse({
+      confirmed: true,
+      reasoning: "Seg 4 shows the demo actually being walked through, the same action that was accepted.",
+      supporting_segment_ids: [seg(4)]
     })
   });
   assert.equal(result.ok, true);
