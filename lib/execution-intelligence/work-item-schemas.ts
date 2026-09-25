@@ -201,9 +201,11 @@ export type GroupingOutput = z.infer<typeof groupingOutputSchema>;
 export type VerificationOutput = z.infer<typeof verificationOutputSchema>;
 
 /**
- * The one global, meeting-wide scope/role reconciliation pass. Work items only -- never groups.
- * Sees the full transcript and can resolve current-vs-future scope using later sequencing
- * statements, in addition to everything the original correction stage already did.
+ * Per-ref lifecycle review (Pass B: EXHAUSTIVE LIFECYCLE RECONCILIATION). Work items only -- never
+ * groups. Sees the full transcript and can resolve current-vs-future scope, temporal completion,
+ * duplicate-representation supersession, and owner attribution using later sequencing statements,
+ * for every ref it is asked to review. Same shape the original single-pass global correction used
+ * for its "corrections" array -- reused as-is, not a new taxonomy.
  */
 export const globalWorkItemCorrectionSchema = z
   .object({
@@ -226,17 +228,29 @@ export const globalWorkItemCorrectionSchema = z
   .strict();
 export type GlobalWorkItemCorrection = z.infer<typeof globalWorkItemCorrectionSchema>;
 
-/** A work item the topic-scoped extraction pass missed entirely. Same shape as extraction output. */
+/** A work item completely missing from the ledger (Pass A: COMPLETENESS RECOVERY). Same shape as
+ * ordinary extraction output. */
 export const globalWorkItemAdditionSchema = rawWorkItemSchema;
 export type GlobalWorkItemAddition = z.infer<typeof globalWorkItemAdditionSchema>;
 
-export const globalCorrectionOutputSchema = z
-  .object({
-    corrections: z.array(globalWorkItemCorrectionSchema),
-    additions: z.array(globalWorkItemAdditionSchema)
-  })
+/**
+ * Pass A output: grounded additions only. This pass never repairs an existing item, so there is no
+ * corrections array here -- see lifecycleReviewOutputSchema for that.
+ */
+export const completenessRecoveryOutputSchema = z
+  .object({ additions: z.array(globalWorkItemAdditionSchema) })
   .strict();
-export type GlobalCorrectionOutput = z.infer<typeof globalCorrectionOutputSchema>;
+export type CompletenessRecoveryOutput = z.infer<typeof completenessRecoveryOutputSchema>;
+
+/**
+ * Pass B output: one review per submitted ref, exhaustively. `reviews` (not "corrections") to make
+ * the exhaustive-coverage contract explicit -- every requested ref must appear, including a
+ * no-op review that simply echoes an item's current values back unchanged.
+ */
+export const lifecycleReviewOutputSchema = z
+  .object({ reviews: z.array(globalWorkItemCorrectionSchema) })
+  .strict();
+export type LifecycleReviewOutput = z.infer<typeof lifecycleReviewOutputSchema>;
 
 // --- Phase 0: transcript normalization ---
 
@@ -447,19 +461,10 @@ const globalWorkItemCorrectionProperties = {
   superseded_item_refs: { type: "array", items: { type: "string" } }
 } as const;
 
-export const globalCorrectionJsonSchema: Record<string, unknown> = {
+export const completenessRecoveryJsonSchema: Record<string, unknown> = {
   type: "object",
   additionalProperties: false,
   properties: {
-    corrections: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: globalWorkItemCorrectionProperties,
-        required: Object.keys(globalWorkItemCorrectionProperties)
-      }
-    },
     additions: {
       type: "array",
       items: {
@@ -470,7 +475,24 @@ export const globalCorrectionJsonSchema: Record<string, unknown> = {
       }
     }
   },
-  required: ["corrections", "additions"]
+  required: ["additions"]
+};
+
+export const lifecycleReviewJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    reviews: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: globalWorkItemCorrectionProperties,
+        required: Object.keys(globalWorkItemCorrectionProperties)
+      }
+    }
+  },
+  required: ["reviews"]
 };
 
 const transcriptCorrectionProperties = {

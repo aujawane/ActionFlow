@@ -71,15 +71,15 @@ test("execution-intelligence timeout is clamped so 2 model attempts can never ex
 });
 
 test("per-V4-stage timeout overrides are clamped the same way as the global default", () => {
-  const previous = process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION;
+  const previous = process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETENESS_RECOVERY;
   try {
-    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION", "250000");
-    assert.equal(getV4StageTimeoutMs("global_correction"), MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS);
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETENESS_RECOVERY", "250000");
+    assert.equal(getV4StageTimeoutMs("completeness_recovery"), MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS);
 
-    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION", undefined);
-    assert.equal(getV4StageTimeoutMs("global_correction"), getExecutionIntelligenceTimeoutMs());
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETENESS_RECOVERY", undefined);
+    assert.equal(getV4StageTimeoutMs("completeness_recovery"), getExecutionIntelligenceTimeoutMs());
   } finally {
-    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION", previous);
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETENESS_RECOVERY", previous);
   }
 });
 

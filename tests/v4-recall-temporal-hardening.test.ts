@@ -4,7 +4,8 @@ import test from "node:test";
 import { applyGlobalCorrections } from "../lib/execution-intelligence/v4-pipeline";
 import { isExecutionEligible, isEligibleAcceptanceCriterion } from "../lib/execution-intelligence/execution-tree";
 import {
-  GLOBAL_WORK_ITEM_CORRECTION_PROMPT,
+  COMPLETENESS_RECOVERY_PROMPT,
+  LIFECYCLE_RECONCILIATION_PROMPT,
   WORK_ITEM_EXTRACTION_PROMPT
 } from "../lib/execution-intelligence/work-item-prompts";
 import {
@@ -669,38 +670,53 @@ test("[prompt] the new WORK_ITEM_EXTRACTION_PROMPT sections are generic -- no ha
   }
 });
 
-test("[prompt] GLOBAL_WORK_ITEM_CORRECTION_PROMPT defines current_scope vs future_scope explicitly", () => {
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /CURRENT_SCOPE VS FUTURE_SCOPE/);
+test("[prompt] COMPLETENESS_RECOVERY_PROMPT scopes itself to additions only, over one chronological window", () => {
+  assert.match(COMPLETENESS_RECOVERY_PROMPT, /completeness-recovery pass for one chronological window/);
+  assert.match(COMPLETENESS_RECOVERY_PROMPT, /COMPLETELY\s*\nABSENT from the existing ledger/);
+  assert.match(COMPLETENESS_RECOVERY_PROMPT, /Do not repair, re-describe, or re-emit/);
 });
 
-test("[prompt] GLOBAL_WORK_ITEM_CORRECTION_PROMPT instructs an active completeness scan for missing work", () => {
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /COMPLETENESS SCAN/);
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /Actively\s*\n?scan the whole transcript/);
+test("[prompt] COMPLETENESS_RECOVERY_PROMPT distinguishes future execution from future_scope and requires no prior request for self-initiated promises", () => {
+  assert.match(COMPLETENESS_RECOVERY_PROMPT, /future execution is not the same as future_scope/);
+  assert.match(COMPLETENESS_RECOVERY_PROMPT, /a self-initiated promise never requires an earlier matching request/);
 });
 
-test("[prompt] GLOBAL_WORK_ITEM_CORRECTION_PROMPT instructs forward-looking temporal completion reasoning, not backward topic-similarity matching", () => {
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /TEMPORAL COMPLETION RULE/);
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /strictly forward-looking/);
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /never by topic similarity alone/);
-});
-
-test("[prompt] GLOBAL_WORK_ITEM_CORRECTION_PROMPT instructs reconciling duplicate request/acceptance representations via existing superseded fields", () => {
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /DUPLICATE COMPLETION EVENT RECONCILIATION/);
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /scope_state=superseded/);
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /superseded_item_refs/);
-});
-
-test("[prompt] GLOBAL_WORK_ITEM_CORRECTION_PROMPT reminds the model to preserve true negatives (hypotheticals, unaccepted requests, brainstorming, etc.)", () => {
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /TRUE-NEGATIVE REMINDER/);
-  assert.match(GLOBAL_WORK_ITEM_CORRECTION_PROMPT, /hypothetical or\nillustrative examples/);
-});
-
-test("[prompt] the new GLOBAL_WORK_ITEM_CORRECTION_PROMPT sections are generic -- no hardcoded benchmark names", () => {
-  const startIndex = GLOBAL_WORK_ITEM_CORRECTION_PROMPT.indexOf("CURRENT_SCOPE VS FUTURE_SCOPE");
-  const endIndex = GLOBAL_WORK_ITEM_CORRECTION_PROMPT.indexOf("For every correction and every addition");
-  const newSection = GLOBAL_WORK_ITEM_CORRECTION_PROMPT.slice(startIndex, endIndex);
+test("[prompt] the new COMPLETENESS_RECOVERY_PROMPT is generic -- no hardcoded benchmark names", () => {
   for (const name of FORBIDDEN_BENCHMARK_NAMES) {
-    assert.doesNotMatch(newSection, new RegExp(name), name);
+    assert.doesNotMatch(COMPLETENESS_RECOVERY_PROMPT, new RegExp(name), name);
+  }
+});
+
+test("[prompt] LIFECYCLE_RECONCILIATION_PROMPT defines current_scope vs future_scope explicitly", () => {
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /CURRENT_SCOPE VS FUTURE_SCOPE/);
+});
+
+test("[prompt] LIFECYCLE_RECONCILIATION_PROMPT requires exhaustive per-ref coverage", () => {
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /EXHAUSTIVE COVERAGE/);
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /exactly one review for every ref you were given/);
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /Omitting a ref from your response is never acceptable/);
+});
+
+test("[prompt] LIFECYCLE_RECONCILIATION_PROMPT instructs forward-looking temporal completion reasoning, not backward topic-similarity matching", () => {
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /TEMPORAL COMPLETION RULE/);
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /strictly forward-looking/);
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /never by topic similarity alone/);
+});
+
+test("[prompt] LIFECYCLE_RECONCILIATION_PROMPT instructs reconciling duplicate request/acceptance representations via existing superseded fields", () => {
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /DUPLICATE COMPLETION EVENT RECONCILIATION/);
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /scope_state=superseded/);
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /superseded_item_refs/);
+});
+
+test("[prompt] LIFECYCLE_RECONCILIATION_PROMPT reminds the model to preserve true negatives (hypotheticals, unaccepted requests, brainstorming, etc.)", () => {
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /TRUE-NEGATIVE REMINDER/);
+  assert.match(LIFECYCLE_RECONCILIATION_PROMPT, /hypothetical or illustrative examples\n/);
+});
+
+test("[prompt] the new LIFECYCLE_RECONCILIATION_PROMPT sections are generic -- no hardcoded benchmark names", () => {
+  for (const name of FORBIDDEN_BENCHMARK_NAMES) {
+    assert.doesNotMatch(LIFECYCLE_RECONCILIATION_PROMPT, new RegExp(name), name);
   }
 });
 

@@ -33,9 +33,10 @@ import { isTranscriptNormalizationEnabled } from "@/lib/env";
 import type { NormalizationResult } from "./transcript-normalization";
 import {
   extractTopicWorkItems,
-  runGlobalCorrectionPass,
+  runCompletenessRecoveryPass,
   runGroupingPass,
-  runGroupingVerificationPass
+  runGroupingVerificationPass,
+  runLifecycleReconciliationPass
 } from "./work-item-stages";
 import type { ExecutionSourceContext } from "./stages";
 import type {
@@ -280,34 +281,72 @@ export async function runV4ConversationEventExtraction(
   return { ...source, conversationEvents: result.events };
 }
 
+/**
+ * Global correction, run as two focused passes instead of one combined call (generation-6
+ * staging benchmark follow-up -- see work-item-stages.ts's header comment for the full rationale).
+ * Pass A (completeness recovery) runs first and its grounded additions are merged into the ledger
+ * via the existing applyGlobalCorrections(); Pass B (lifecycle reconciliation) then reviews the
+ * UPDATED ledger (so a newly-recovered item is itself eligible for lifecycle review in the same
+ * meeting) and its reviews are merged the same way. Everything from isExecutionEligible onward is
+ * unchanged: this function still returns exactly the same state shape it always did.
+ */
 export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4ExecutionState> {
-  const result = await runGlobalCorrectionPass({ source: state.source, workItems: state.mergedWorkItems });
-  state.metrics.openAiLatencyMs.globalCorrection = result.latencyMs;
-  if (!result.ok) {
-    state.metrics.validationFailures += Number(result.validationFailure);
-    stageFailure("v4_global_correction", result.error, result.details);
+  const passA = await runCompletenessRecoveryPass({ source: state.source, workItems: state.mergedWorkItems });
+  state.metrics.openAiLatencyMs.completenessRecovery = passA.latencyMs;
+  if (!passA.ok) {
+    state.metrics.validationFailures += Number(passA.validationFailure);
+    stageFailure("v4_completeness_recovery", passA.error, passA.details);
   }
-  if (result.usage) state.metrics.openAiUsage.globalCorrection = result.usage;
-  state.metrics.salvagedItems += result.salvagedItems ?? 0;
-  const workItems = applyGlobalCorrections({
+  if (passA.usage) state.metrics.openAiUsage.completenessRecovery = passA.usage;
+  state.metrics.salvagedItems += passA.salvagedItems ?? 0;
+
+  const ledgerAfterAdditions = applyGlobalCorrections({
     workItems: state.mergedWorkItems,
-    corrections: result.corrections,
-    additions: result.additions,
+    corrections: [],
+    additions: passA.additions,
+    transcript: state.source.transcript
+  });
+  logExecutionStage(state.metrics, "v4_completeness_recovery_applied", {
+    additions: passA.additions.length,
+    total_work_items: ledgerAfterAdditions.length
+  });
+
+  const passB = await runLifecycleReconciliationPass({
+    source: state.source,
+    workItems: ledgerAfterAdditions
+  });
+  state.metrics.openAiLatencyMs.lifecycleReconciliation = passB.latencyMs;
+  if (!passB.ok) {
+    state.metrics.validationFailures += Number(passB.validationFailure);
+    stageFailure("v4_lifecycle_reconciliation", passB.error, passB.details);
+  }
+  if (passB.usage) state.metrics.openAiUsage.lifecycleReconciliation = passB.usage;
+  state.metrics.salvagedItems += passB.salvagedItems ?? 0;
+  if (passB.missingRefsAfterRetry.length > 0) {
+    logExecutionStage(state.metrics, "v4_lifecycle_reconciliation_incomplete", {
+      missing_refs: passB.missingRefsAfterRetry
+    });
+  }
+
+  const workItems = applyGlobalCorrections({
+    workItems: ledgerAfterAdditions,
+    corrections: passB.reviews,
+    additions: [],
     transcript: state.source.transcript
   });
   const eligibleWorkItems = workItems.filter(isExecutionEligible);
   const acceptanceCriteriaItems = workItems.filter(isEligibleAcceptanceCriterion);
   logExecutionStage(state.metrics, "v4_global_correction_applied", {
-    corrections: result.corrections.length,
-    additions: result.additions.length,
+    corrections: passB.reviews.length,
+    additions: passA.additions.length,
     total_work_items: workItems.length,
     eligible_work_items: eligibleWorkItems.length,
     acceptance_criteria: acceptanceCriteriaItems.length
   });
   return {
     ...state,
-    globalCorrections: result.corrections,
-    globalAdditions: result.additions,
+    globalCorrections: passB.reviews,
+    globalAdditions: passA.additions,
     workItems,
     eligibleWorkItems,
     acceptanceCriteriaItems

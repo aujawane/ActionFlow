@@ -164,13 +164,87 @@ Rules:
   schema-valid JSON.
 `.trim();
 
-export const GLOBAL_WORK_ITEM_CORRECTION_PROMPT = `
-You are the one meeting-wide scope and role reconciliation pass. You are given the full transcript
-with segment IDs and speakers (already normalized for entity names where applicable), the complete
-merged work-item ledger (each with a stable ref), participants, meeting date, and project context.
-Topic-scoped extraction sees only one slice of the meeting at a time and sometimes gets acceptance,
-scope, role, or recall wrong because of that narrow view, and it cannot see a later statement that
-changes an earlier item's scope. Your job is to fix both, now that the whole meeting is visible.
+/**
+ * PASS A of the former single "global correction" call (see docs/... V4 recall/temporal hardening
+ * notes): completeness recovery ONLY. Runs once per chronological transcript window (see
+ * lib/execution-intelligence/work-item-stages.ts's runCompletenessRecoveryPass) so a sparse,
+ * easy-to-miss voluntary promise buried in one part of a long meeting is not competing for the
+ * model's attention against five other unrelated correction responsibilities in the same call --
+ * the generation-6 staging benchmark showed the combined pass could satisfy some of its
+ * responsibilities while silently skipping others in the same run. This pass NEVER repairs an
+ * existing item; see LIFECYCLE_RECONCILIATION_PROMPT for that.
+ */
+export const COMPLETENESS_RECOVERY_PROMPT = `
+You are the completeness-recovery pass for one chronological window of a meeting transcript. You
+are given this window's transcript (with segment IDs and speakers), the participant list, and a
+compact summary of the ENTIRE meeting's existing work-item ledger -- every item already captured
+anywhere in the meeting, not just this window. Topic-scoped extraction sees only one slice of the
+meeting at a time and sometimes misses a voluntary promise entirely, most often because the
+accepting statement and its supporting context fall in a different topic region than extraction
+expected, or because a self-initiated promise had no preceding request for extraction to anchor on.
+
+Your ONLY job: scan this window for concrete accepted or active project work that is COMPLETELY
+ABSENT from the existing ledger summary you were given. Do not repair, re-describe, or re-emit
+anything already in the ledger, even if you would phrase it differently or think its current fields
+are wrong -- that is a separate pass's responsibility, not yours. If you are unsure whether
+something is already covered, do not add it.
+
+IMPORTANT: a self-initiated promise never requires an earlier matching request in this window --
+"I'll send you the article" is itself a complete, groundable accepted action on its own.
+
+IMPORTANT: future execution is not the same as future_scope. If the work is presently committed as
+a direct result of this conversation, it belongs in current_scope even though it will necessarily
+be carried out after the meeting ends ("I'll send you the article tomorrow", "I'll finish this and
+confirm it works", "we're going to test this build and send feedback").
+
+Concrete categories to look for, illustrative, not exhaustive: voluntary promises, accepted
+requests, assignments, explicit future actions with a clear owner, continuing work a speaker says
+they will finish, and multi-person agreed work -- preserve every named participant as an owner when
+more than one person is named; never collapse two or more named people into a single "Team".
+
+Do NOT add: hypothetical or illustrative examples ("maybe I could send an article someday", "we
+could try that sometime"), general opinions or brainstorming with no acceptance, plain status
+updates about something already in motion, work already completed in the past tense, a request
+nobody accepted, questions, purely informational statements, or personal logistics with no project
+deliverable attached. Vague, hedged, or conditional phrasing with no clear owner and no clear
+commitment is never itself evidence of active work.
+
+Every addition must be grounded in its own exact quote and real segment IDs from THIS window --
+never invent one without that evidence, and never cite a segment ID that does not appear in this
+window's transcript. State extraction_reason and classification_reason precisely. If nothing is
+missing in this window, return an empty additions array. Return only schema-valid JSON.
+`.trim();
+
+/**
+ * PASS B of the former single "global correction" call: exhaustive lifecycle reconciliation. Given
+ * the full transcript and a specific list of candidate refs, the model must return exactly one
+ * review per ref -- coverage is programmatically enforced afterward (see
+ * validateLifecycleReviewCoverage in work-item-stages.ts), never trusted on prompt wording alone.
+ * This pass never adds a new item; see COMPLETENESS_RECOVERY_PROMPT for that.
+ */
+export const LIFECYCLE_RECONCILIATION_PROMPT = `
+You are the lifecycle-reconciliation pass. You are given the full meeting transcript in
+chronological order (with segment IDs and speakers, already normalized for entity names where
+applicable), the participant list, meeting date, project context, and a specific list of work-item
+refs to review, each with its own current fields and evidence. Topic-scoped extraction only sees
+one slice of the meeting at a time: it cannot see a later statement that changes an earlier item's
+scope, cannot see whether the item was actually performed later in the same meeting, and cannot see
+that another ref you were given describes the exact same real-world action. Your job is to resolve
+all of that now that the whole meeting is visible.
+
+EXHAUSTIVE COVERAGE: you MUST return exactly one review for every ref you were given -- never
+fewer, never more, never a ref you were not given. If nothing about an item needs to change, return
+a review that echoes its current field values back unchanged (still with a classification_reason
+confirming why the current state is correct). Omitting a ref from your response is never acceptable
+under any circumstance, including when you are confident nothing about it needs to change.
+
+For every ref, determine:
+1. Is this genuine project execution work (not personal logistics, not purely informational)?
+2. Is it accepted, merely requested, or only proposed?
+3. Is it current_scope or genuinely future_scope?
+4. Was it actually performed/completed later during THIS meeting?
+5. Does another ref you were given describe the same real-world action/completion event?
+6. Is its owner/owners attribution supported by the transcript?
 
 CURRENT_SCOPE VS FUTURE_SCOPE: these are NOT "past vs future" or "will happen after the meeting vs
 during it" -- almost everything worth tracking executes after the meeting ends. The distinction is
@@ -182,87 +256,37 @@ whether the work is presently agreed to:
   should add voice support eventually", "we could do that in the next version" without a clear
   commitment, "that's something we might build later").
 A future-tense verb is never itself evidence of future_scope, and an immediate timeframe is never
-itself evidence of current_scope -- correct any item where topic-scoped extraction confused the two.
-
-You may only:
-- correct an existing work item's classification, status, acceptance_state, execution_scope,
-  scope_state, work_item_role, owner, owners, and evidence when the transcript clearly supports a
-  different value than what was extracted;
-- add a work item the topic-scoped pass missed entirely, grounded in its own exact quote and
-  segment IDs;
-- mark personal logistics and informational content with the correct execution_scope/scope_state so
-  they are correctly excluded downstream.
-
-COMPLETENESS SCAN: you see the full transcript and the entire merged ledger -- use both. Actively
-scan the whole transcript for concrete accepted promises, assignments, or actions that are simply
-absent from the ledger (most often because a voluntary promise had no preceding request for
-topic-scoped extraction to anchor on, or because the accepting statement and its supporting context
-fall in different topic regions that were extracted separately and never reconciled). Add any such
-item you find, grounded in its own exact quote and real segment IDs -- never invent one without that
-evidence. A missing item is exactly the kind of mistake this pass exists to catch; do not limit
-yourself to only correcting items that already exist in the ledger.
-
-You may not create groups, clusters, or commitments of any kind, and you may not touch a work item
-you have no correction for -- omit it from your corrections list entirely rather than re-stating it
-unchanged.
+itself evidence of current_scope -- correct any ref where topic-scoped extraction confused the two.
 
 CHRONOLOGY AND SCOPE OVERRIDE RULE: a later explicit scope or sequencing decision overrides an
 earlier broad discussion. When participants discuss something broadly early on, then later
 explicitly sequence what happens first versus later ("we can do X first and Y afterward", "for now
 just X", "eventually Y", "phase one is X, phase two is Y", "not yet", "once X ships we'll do Y",
-"parking lot", "after we validate"), the later statement must move every earlier item it covers to
+"parking lot", "after we validate"), the later statement must move every earlier ref it covers to
 the correct scope_state -- current_scope for what's sequenced first, future_scope for what's
-deferred. Do this by correcting each affected earlier item's scope_state (and setting
-superseding_segment_ids to the later statement's segment IDs, superseded_item_refs when one item's
-acceptance is specifically superseded by another). Never delete or ignore the future-scope
-discussion -- it must survive as a future_scope item, not disappear.
+deferred. Do this by correcting each affected ref's scope_state (and setting
+superseding_segment_ids to the later statement's segment IDs, superseded_item_refs when one ref's
+acceptance is specifically superseded by another). Never move the future-scope side of the
+discussion out of existence -- it must survive as a future_scope review, not disappear.
 
-Common correction patterns, illustrative, not exhaustive:
-- A first-person acceptance that topic-scoped extraction labeled as a bare "decision" is accepted,
-  open, project_work, role=action -- the speaker took ownership of future action.
-- An explicit accepted outcome with a stated deadline is accepted project work even if its concrete
-  steps were only vaguely discussed or discussed elsewhere in the meeting.
-- A requirement phrased as an instruction ("make sure it includes...", "it needs to have...") is
-  work_item_role=acceptance_criterion, not action -- correct extraction that mistakenly emitted it
-  as a task.
-- Something one person must supply before another's action can complete is
-  work_item_role=input_dependency when accepted, not a free-floating idea.
-- A personal availability statement is execution_scope=personal_logistics even though grammatically
-  an acceptance.
-- A status update about something already underway or already ordered elsewhere is
-  execution_scope=informational, acceptance_state=none, scope_state=informational -- add it for
-  completeness if missing so it is visibly and explicitly excluded rather than silently missing.
-- Completed work stated in the past tense must never be corrected into open pending work.
-- An earlier broad feature discussion (e-commerce, accounts, subscriptions, integrations) that a
-  later statement explicitly sequences as "later" must be corrected to scope_state=future_scope,
-  work_item_role=future_feature -- not deleted, not left as current_scope.
-- Strategic or exploratory discussion (a pattern or technique worth trying, a skill worth developing,
-  "I've been looking into X", encouragement to focus on a technique) that topic-scoped extraction
-  over-eagerly marked as accepted project work must be corrected back to role=idea/status_update,
-  execution_scope=informational, acceptance_state=none or proposed -- unless the transcript itself
-  shows a concrete future outcome or experiment, an owner who explicitly accepted accountability for
-  it, and a recognizable completion condition. General interest, enthusiasm, or technical depth is
-  never itself evidence of acceptance; only look for what was actually accepted, by whom, and what
-  "done" would recognizably look like. Do not treat any specific topic, technique, or phrase as
-  inherently forbidden -- apply this evidence-and-accountability test to whatever the transcript
-  actually contains.
-
-TEMPORAL COMPLETION RULE: for every accepted or requested-then-accepted item, look FORWARD through
+TEMPORAL COMPLETION RULE: for every accepted or requested-then-accepted ref, look FORWARD through
 the rest of the transcript, in chronological order, and ask "does the meeting go on to actually
 perform this action?" This covers both an immediate same-exchange completion (a phone number read
 aloud and written down, contact information stated and acknowledged, a document shared and confirmed
 received, a question asked and directly answered) AND an extended completion later in the meeting (an
 accepted request to "show us the demo" followed, however much later, by the meeting actually walking
 through the demo; an accepted request to explain something followed by the actual explanation being
-given). Either way, that item is completed_work/completed, acceptance_state=none, not an open future
+given). Either way, that ref is completed_work/completed, acceptance_state=none, not an open future
 task -- the meeting itself was the delivery, no matter how long the fulfilling activity ran or how
 many segments later it appears. Never leave it as accepted/open merely because a request phrase
 ("can you show us...", "can you share...") appears somewhere nearby -- check whether the transcript
-actually goes on to show the requested thing happening, immediately or later, and correct the item
-(or add it as completed if extraction missed it) whenever it does. This is strictly forward-looking:
-a later promise must never be marked complete because an earlier, similar-sounding topic was merely
-discussed -- only genuine subsequent performance of the SAME accepted action counts, tracked by
-transcript order and shared evidence, never by topic similarity alone.
+actually goes on to show the requested thing happening, immediately or later, and mark the ref
+completed whenever it does. This is strictly forward-looking: a later promise must never be marked
+complete because an earlier, similar-sounding topic was merely discussed -- only genuine subsequent
+performance of the SAME accepted action counts, tracked by transcript order and shared evidence,
+never by topic similarity alone. Check every ref you were given for this, even ones that seem
+unrelated to each other at first glance -- do not stop looking for completion evidence after finding
+it for one ref.
 
 COMMUNICATION-PROCESS RULE: a statement that establishes how future communication will happen ("if
 I have questions I'll text you", "let's just email back and forth", "I'll message the group when
@@ -278,40 +302,43 @@ the founder story" said by Jamileh means owner=Jamileh), not whoever is coordina
 whoever will later insert/use the result, and not a co-participant merely because they are present or
 discussed the topic. When a deliverable has one person producing raw content and a different person
 integrating it (e.g. Jamileh drafts the founder story; Aditya builds the section and places her text
-into it), these are two distinct work items with two distinct owners, not one item awarded to
-whoever is more central to the overall deliverable. If two owners are both plausible from the
-transcript but the evidence does not clearly resolve which one accepted, prefer leaving owner
-unclear (correct it to null with reconciliation_reason explaining the ambiguity) over confidently
-assigning the wrong person -- a missing owner is recoverable, a wrong one is not.
+into it), these are two distinct refs with two distinct owners, not one item awarded to whoever is
+more central to the overall deliverable. If two owners are both plausible from the transcript but
+the evidence does not clearly resolve which one accepted, prefer leaving owner unclear (set it to
+null with reconciliation_reason explaining the ambiguity) over confidently assigning the wrong
+person -- a missing owner is recoverable, a wrong one is not.
 
-DUPLICATE COMPLETION EVENT RECONCILIATION: the same real-world action often appears in the ledger
-more than once -- as a request, an assignment, an accepted_request, and a promise, each extracted
-independently by topic-scoped passes that could not see each other's output. These are different
-conversational representations of ONE completion event, not separate pieces of work. When you find
-two or more ledger items whose evidence (overlapping or adjacent segment IDs, the same actor, the
+DUPLICATE COMPLETION EVENT RECONCILIATION: the same real-world action often appears among your
+given refs more than once -- as a request, an assignment, an accepted_request, and a promise, each
+extracted independently by topic-scoped passes that could not see each other's output. These are
+different conversational representations of ONE completion event, not separate pieces of work. When
+two or more of your given refs' evidence (overlapping or adjacent segment IDs, the same actor, the
 same concrete outcome) shows they describe the same accepted action, keep exactly ONE as the
-canonical active representation and correct every other one to scope_state=superseded, with
-superseded_item_refs naming the canonical item and superseding_segment_ids set to the evidence that
+canonical active representation and mark every other one scope_state=superseded, with
+superseded_item_refs naming the canonical ref and superseding_segment_ids set to the evidence that
 establishes they are the same event. If the TEMPORAL COMPLETION RULE above also applies to the
-canonical item (the action was subsequently performed), correct the canonical item itself to
+canonical ref (the action was subsequently performed), mark the canonical ref itself
 completed_work/completed rather than leaving any copy open -- the result must never be that
-duplicate representations independently reach eligibility, and never that a completed action survives
-under one ref while an open duplicate survives under another.
+duplicate representations independently reach eligibility, and never that a completed action
+survives under one ref while an open duplicate survives under another. A ref describing the SAME
+action's completion evidence (e.g. "here, I'll send you the one" immediately following "I'll take a
+screenshot") is evidence for THAT action, not for an unrelated ref elsewhere in the ledger -- do not
+attach one ref's completion evidence to a different, merely similar-sounding commitment.
 
 UNSUPPORTED-SCOPE RULE: never add or imply implementation scope beyond what the transcript directly
 states. A person's email address being mentioned is not evidence of any email-infrastructure work
-(hosting, migration, mailbox creation, DNS/MX changes, provider setup) -- do not add such an item and
-correct one back to non-execution/informational if topic-scoped extraction invented it. Only correct
-or add scope that traces to an actual quote.
+(hosting, migration, mailbox creation, DNS/MX changes, provider setup) -- correct a ref back to
+non-execution/informational if topic-scoped extraction invented such scope. Only keep or correct
+scope that traces to an actual quote.
 
-TRUE-NEGATIVE REMINDER: this pass exists to recover missed work and fix wrong state, not to turn more
-of the meeting into work. Confirm (or correct back to) non-active state for: hypothetical or
-illustrative examples describing a fictional scenario, not a real participant's real work; product
-demonstrations or discussion that merely describes or references old/existing work; general opinions,
-brainstorming, and feature ideas with no acceptance; "maybe"/"could"/"would be cool" phrasing with no
-clear owner and no clear commitment; plain status updates about something already in motion; work
-already completed in the past tense; a request nobody accepted; questions; purely informational
-statements; and personal logistics with no project deliverable attached. None of these become active
+TRUE-NEGATIVE REMINDER: this pass exists to fix wrong state, not to turn more of the meeting into
+work. Confirm (or correct back to) non-active state for: hypothetical or illustrative examples
+describing a fictional scenario, not a real participant's real work; product demonstrations or
+discussion that merely describes or references old/existing work; general opinions, brainstorming,
+and feature ideas with no acceptance; "maybe"/"could"/"would be cool" phrasing with no clear owner
+and no clear commitment; plain status updates about something already in motion; work already
+completed in the past tense; a request nobody accepted; questions; purely informational statements;
+and personal logistics with no project deliverable attached. None of these become active
 current-scope work merely because they contain a future-tense verb or a technical-sounding noun
 phrase.
 
@@ -321,10 +348,11 @@ extraction dropped any -- do not collapse a clearly multi-person commitment down
 name is easiest to state, and do not invent a literal "Team" owner where the transcript actually names
 individuals.
 
-For every correction and every addition, state classification_reason precisely (what shows
-acceptance vs its absence, project relevance vs its absence) and reconciliation_reason specifically
-for any scope_state/work_item_role change (what later statement, if any, controls the scope
-decision). Return only schema-valid JSON.
+You may not create groups, clusters, or commitments of any kind, and you may not review a ref you
+were not given. For every review, state classification_reason precisely (what shows acceptance vs
+its absence, project relevance vs its absence) and reconciliation_reason specifically for any
+scope_state/work_item_role/completion change (what later statement, if any, controls the decision;
+null when nothing changed). Return only schema-valid JSON with exactly one review per given ref.
 `.trim();
 
 export const GROUPING_PROMPT = `

@@ -4,10 +4,11 @@ import { getV4StageModel, getV4StageTimeoutMs, type V4Stage } from "@/lib/env";
 import { openai } from "@/lib/openai";
 import { logExecutionModelEvent } from "./observability";
 import {
-  globalCorrectionJsonSchema,
+  completenessRecoveryJsonSchema,
   globalWorkItemAdditionSchema,
   globalWorkItemCorrectionSchema,
   groupingJsonSchema,
+  lifecycleReviewJsonSchema,
   rawGroupProposalSchema,
   rawWorkItemSchema,
   taskConsolidationJsonSchema,
@@ -260,10 +261,9 @@ export async function runWorkItemExtractionModel(input: {
   };
 }
 
-export type GlobalCorrectionModelResult =
+export type CompletenessRecoveryModelResult =
   | {
       ok: true;
-      corrections: GlobalWorkItemCorrection[];
       additions: GlobalWorkItemAddition[];
       latencyMs: number;
       salvagedItems: number;
@@ -271,29 +271,67 @@ export type GlobalCorrectionModelResult =
     }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
-export async function runGlobalCorrectionModel(input: {
+/** Pass A: completeness recovery. Additions only -- never repairs an existing item. */
+export async function runCompletenessRecoveryModel(input: {
   systemPrompt: string;
   context: unknown;
   timeoutMs?: number;
   createResponse?: CreateStructuredResponse;
-}): Promise<GlobalCorrectionModelResult> {
+}): Promise<CompletenessRecoveryModelResult> {
   const result = await requestStructuredJson({
-    stage: "global_correction",
+    stage: "completeness_recovery",
     systemPrompt: input.systemPrompt,
     context: input.context,
-    jsonSchema: globalCorrectionJsonSchema,
+    jsonSchema: completenessRecoveryJsonSchema,
     timeoutMs: input.timeoutMs,
     createResponse: input.createResponse
   });
   if (!result.ok) return result;
-  const corrections = salvageArray(result.raw, "corrections", globalWorkItemCorrectionSchema);
   const additions = salvageArray(result.raw, "additions", globalWorkItemAdditionSchema);
   return {
     ok: true,
-    corrections: corrections.items,
     additions: additions.items,
     latencyMs: result.latencyMs,
-    salvagedItems: corrections.dropped + additions.dropped,
+    salvagedItems: additions.dropped,
+    usage: result.usage
+  };
+}
+
+export type LifecycleReconciliationModelResult =
+  | {
+      ok: true;
+      reviews: GlobalWorkItemCorrection[];
+      latencyMs: number;
+      salvagedItems: number;
+      usage: TokenUsage | null;
+    }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+/** Pass B: exhaustive lifecycle reconciliation. One review per submitted ref -- exhaustive
+ * coverage is enforced by the caller (work-item-stages.ts's runLifecycleReconciliationPass), not
+ * here; this function only makes the model call and salvages whatever schema-valid reviews come
+ * back. */
+export async function runLifecycleReconciliationModel(input: {
+  systemPrompt: string;
+  context: unknown;
+  timeoutMs?: number;
+  createResponse?: CreateStructuredResponse;
+}): Promise<LifecycleReconciliationModelResult> {
+  const result = await requestStructuredJson({
+    stage: "lifecycle_reconciliation",
+    systemPrompt: input.systemPrompt,
+    context: input.context,
+    jsonSchema: lifecycleReviewJsonSchema,
+    timeoutMs: input.timeoutMs,
+    createResponse: input.createResponse
+  });
+  if (!result.ok) return result;
+  const reviews = salvageArray(result.raw, "reviews", globalWorkItemCorrectionSchema);
+  return {
+    ok: true,
+    reviews: reviews.items,
+    latencyMs: result.latencyMs,
+    salvagedItems: reviews.dropped,
     usage: result.usage
   };
 }

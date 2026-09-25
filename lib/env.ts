@@ -91,7 +91,8 @@ export function getExecutionIntelligenceEngine(): ExecutionIntelligenceEngine {
 export type V4Stage =
   | "transcript_normalization"
   | "work_item_extraction"
-  | "global_correction"
+  | "completeness_recovery"
+  | "lifecycle_reconciliation"
   | "grouping"
   | "grouping_verification"
   | "task_consolidation";
@@ -99,7 +100,8 @@ export type V4Stage =
 const V4_STAGE_MODEL_ENV: Record<V4Stage, string> = {
   transcript_normalization: "OPENAI_MODEL_V4_NORMALIZATION",
   work_item_extraction: "OPENAI_MODEL_V4_EXTRACTION",
-  global_correction: "OPENAI_MODEL_V4_CORRECTION",
+  completeness_recovery: "OPENAI_MODEL_V4_COMPLETENESS_RECOVERY",
+  lifecycle_reconciliation: "OPENAI_MODEL_V4_LIFECYCLE_RECONCILIATION",
   grouping: "OPENAI_MODEL_V4_GROUPING",
   grouping_verification: "OPENAI_MODEL_V4_VERIFICATION",
   task_consolidation: "EXECUTION_TASK_CONSOLIDATION_MODEL"
@@ -108,7 +110,8 @@ const V4_STAGE_MODEL_ENV: Record<V4Stage, string> = {
 const V4_STAGE_TIMEOUT_ENV: Record<V4Stage, string> = {
   transcript_normalization: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_NORMALIZATION",
   work_item_extraction: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION",
-  global_correction: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION",
+  completeness_recovery: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETENESS_RECOVERY",
+  lifecycle_reconciliation: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_LIFECYCLE_RECONCILIATION",
   grouping: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_GROUPING",
   grouping_verification: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_VERIFICATION",
   task_consolidation: "EXECUTION_TASK_CONSOLIDATION_TIMEOUT_MS"
@@ -183,11 +186,17 @@ export function getTaskConsolidationSuggestThreshold(): number {
     : DEFAULT_TASK_CONSOLIDATION_SUGGEST_THRESHOLD;
 }
 
+/**
+ * Deliberately excludes NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY /
+ * SUPABASE_SERVICE_ROLE_KEY (and their staging equivalents) -- those aren't unconditionally
+ * required the way every field below is; which pair is required depends on
+ * NEXT_PUBLIC_SUPABASE_ENV (staging vs production). They're validated on demand by
+ * getSupabaseEnvironment/resolveSupabasePublicConfig/getSupabaseServiceRoleKey instead, so a
+ * deployment that only configures staging (or only production) is never forced to also provide
+ * the other environment's credentials just to pass this schema.
+ */
 const coreEnvSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().trim().url(),
-  NEXT_PUBLIC_SUPABASE_URL: z.string().trim().url(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().trim().min(1),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().trim().min(1),
   OPENAI_API_KEY: z.string().trim().min(1),
   OPENAI_MODEL: z.string().trim().min(1).default(DEFAULT_OPENAI_MODEL),
   EXECUTION_INTELLIGENCE_TIMEOUT_MS: executionIntelligenceTimeoutSchema,
@@ -212,9 +221,6 @@ let cachedServerEnv: ServerEnv | null = null;
 function buildEnvInput() {
   return {
     NEXT_PUBLIC_APP_URL: readEnv("NEXT_PUBLIC_APP_URL"),
-    NEXT_PUBLIC_SUPABASE_URL: readEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: readEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
-    SUPABASE_SERVICE_ROLE_KEY: readEnv("SUPABASE_SERVICE_ROLE_KEY"),
     OPENAI_API_KEY: readEnv("OPENAI_API_KEY"),
     OPENAI_MODEL: getConfiguredOpenAIModel(),
     EXECUTION_INTELLIGENCE_TIMEOUT_MS: readEnv(
@@ -259,18 +265,124 @@ export const env = new Proxy({} as ServerEnv, {
   }
 });
 
-export function getPublicSupabaseUrl() {
-  const value = readEnv("NEXT_PUBLIC_SUPABASE_URL");
+/**
+ * ===========================================================================
+ * Supabase environment selection
+ * ===========================================================================
+ *
+ * Parfait talks to one of two Supabase projects -- staging or production -- chosen by a single
+ * explicit selector, NEXT_PUBLIC_SUPABASE_ENV, rather than by scattering NODE_ENV checks across
+ * the codebase. This is deliberate: `next build` sets NODE_ENV="production" for every real
+ * production build, INCLUDING a Vercel Preview deployment -- so a NODE_ENV-based default would
+ * make Preview indistinguishable from Production and risk a preview silently reading/writing the
+ * production database. NEXT_PUBLIC_SUPABASE_ENV has NO implicit default anywhere in this file for
+ * that exact reason: local `.env.local`, every Vercel Preview deployment, and the Vercel
+ * Production deployment must each set it explicitly. A missing or invalid value fails loudly
+ * (see parseSupabaseEnvironment) instead of silently picking a side.
+ */
+
+export type SupabaseEnvironment = "staging" | "production";
+
+function parseSupabaseEnvironment(value: string | undefined): SupabaseEnvironment {
   if (!value) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+    throw new Error(
+      'Missing NEXT_PUBLIC_SUPABASE_ENV. Set it to "staging" or "production" explicitly -- ' +
+        "there is no implicit default, specifically so a Preview deployment (which builds with " +
+        "the same NODE_ENV as Production) can never silently resolve to the Production " +
+        "Supabase project. See .env.example."
+    );
+  }
+  if (value !== "staging" && value !== "production") {
+    throw new Error(
+      `Invalid NEXT_PUBLIC_SUPABASE_ENV "${value}" -- must be "staging" or "production".`
+    );
   }
   return value;
 }
 
+/**
+ * Server-side: which Supabase project this process is configured to use. Only safe to call from
+ * server code -- it does a dynamic `process.env[name]` lookup (via readEnv), which Next.js cannot
+ * statically inline into a browser bundle. Browser code must go through resolveSupabasePublicConfig
+ * instead (see lib/supabase/client.ts), reading each literal `process.env.NEXT_PUBLIC_*` itself.
+ */
+export function getSupabaseEnvironment(): SupabaseEnvironment {
+  return parseSupabaseEnvironment(readEnv("NEXT_PUBLIC_SUPABASE_ENV"));
+}
+
+export type SupabasePublicConfig = { url: string; anonKey: string };
+
+/**
+ * Pure selection logic shared by the browser client AND every server client, so they can never
+ * disagree about which Supabase project is active (requirement: both must resolve to the same
+ * selected project). Deliberately takes already-read literal values as arguments rather than
+ * reading process.env itself: Next.js can only inline a `process.env.NEXT_PUBLIC_*` reference
+ * into a browser bundle when it appears as a literal, statically-analyzable expression at the
+ * call site -- not through a shared helper doing a dynamic `process.env[name]` lookup. Each
+ * caller is responsible for reading its own literal env vars and passing them in here; this
+ * function contains 100% of the actual staging-vs-production decision so that logic exists in
+ * exactly one place.
+ */
+export function resolveSupabasePublicConfig(input: {
+  supabaseEnv: string | undefined;
+  productionUrl: string | undefined;
+  productionAnonKey: string | undefined;
+  stagingUrl: string | undefined;
+  stagingAnonKey: string | undefined;
+}): SupabasePublicConfig {
+  const environment = parseSupabaseEnvironment(emptyToUndefined(input.supabaseEnv));
+  const url = emptyToUndefined(
+    environment === "production" ? input.productionUrl : input.stagingUrl
+  );
+  const anonKey = emptyToUndefined(
+    environment === "production" ? input.productionAnonKey : input.stagingAnonKey
+  );
+  if (!url || !anonKey) {
+    const urlVar =
+      environment === "production" ? "NEXT_PUBLIC_SUPABASE_URL" : "NEXT_PUBLIC_STAGING_SUPABASE_URL";
+    const keyVar =
+      environment === "production"
+        ? "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+        : "NEXT_PUBLIC_STAGING_SUPABASE_ANON_KEY";
+    throw new Error(`Missing ${urlVar}/${keyVar} for NEXT_PUBLIC_SUPABASE_ENV=${environment}.`);
+  }
+  return { url, anonKey };
+}
+
+/** Server-side convenience wrapper: server code can safely read its own full process.env (no
+ * bundler inlining concerns), so it delegates straight to resolveSupabasePublicConfig using the
+ * literal-named production/staging vars, exactly like the browser client does. */
+function getServerSupabasePublicConfig(): SupabasePublicConfig {
+  return resolveSupabasePublicConfig({
+    supabaseEnv: readEnv("NEXT_PUBLIC_SUPABASE_ENV"),
+    productionUrl: readEnv("NEXT_PUBLIC_SUPABASE_URL"),
+    productionAnonKey: readEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
+    stagingUrl: readEnv("NEXT_PUBLIC_STAGING_SUPABASE_URL"),
+    stagingAnonKey: readEnv("NEXT_PUBLIC_STAGING_SUPABASE_ANON_KEY")
+  });
+}
+
+export function getPublicSupabaseUrl() {
+  return getServerSupabasePublicConfig().url;
+}
+
 export function getPublicSupabaseAnonKey() {
-  const value = readEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  return getServerSupabasePublicConfig().anonKey;
+}
+
+/**
+ * The privileged service-role key follows the exact same selector as the anon/browser key, so
+ * the admin (service-role) client can never point at a different Supabase project than the one
+ * the rest of the app is using -- e.g. the browser/anon client resolving to staging while an
+ * admin script or API route silently wrote to production. Server-only; never read by browser code.
+ */
+export function getSupabaseServiceRoleKey(): string {
+  const environment = getSupabaseEnvironment();
+  const varName =
+    environment === "production" ? "SUPABASE_SERVICE_ROLE_KEY" : "STAGING_SUPABASE_SERVICE_ROLE_KEY";
+  const value = readEnv(varName);
   if (!value) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    throw new Error(`Missing ${varName} for NEXT_PUBLIC_SUPABASE_ENV=${environment}.`);
   }
   return value;
 }
