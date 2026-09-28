@@ -214,6 +214,38 @@ IMPORTANT: a self-initiated promise never requires an earlier matching request i
 "I'll send you the article" is itself a complete, harvestable candidate on its own, whether it is the
 entire turn or one brief clause within a much longer one that is mostly explanation or discussion.
 
+VERIFICATION AND OBSERVATION ARE THEIR OWN OUTCOME: a clause that checks, confirms, verifies, tests,
+or observes the result of something is a DIFFERENT, independently-checkable outcome from the work it
+checks -- even when both are said in the same breath by the same speaker, and even when the
+verification clause is short, hedged, or trails a longer lead-in or explanation. "I'll finish the
+implementation and confirm the integration works" is TWO outcomes (finish the implementation; confirm
+the integration works), not one, because the implementation can be finished while the confirmation has
+not yet happened, or vice versa -- they can be independently true or false. Do not confuse this with
+the "said twice" pattern above: "I'll fix the deployment and make sure that deployment issue is fixed"
+restates the SAME single completion event with different words (fixing IS making sure the issue is
+fixed, not a separate check performed afterward); "finish the implementation" and "confirm the
+integration works" name two DIFFERENT events (building something vs. checking it). When in doubt, ask:
+could one of these be true while the other is still false? If yes, harvest both separately, each with
+its own precise clause as its quote -- never let a verification/confirmation clause go unharvested
+merely because it shares a sentence, a topic, or a project with a more prominent nearby commitment.
+
+COMMITTED EXPERIMENTS ARE ACTIVE WORK, NOT ASPIRATION: an explicit first-person willingness or
+acceptance ("I can", "I will", "I'll", "yeah, I can definitely...") followed by a concrete
+experiment, trial, or test is a committed, harvestable action the moment it is said, even though its
+RESULT is not yet known -- "I can try that with my agent and see how it works," "I'll test the
+workflow and see what happens," "I'll run it once just to confirm the import works" are all active
+work, not speculation. Uncertainty about the OUTCOME of an experiment ("see how it works", "see what
+happens", "see whether that fixes it") is not the same as uncertainty about whether the experiment
+itself is committed -- harvest the experiment/verification action regardless of how the sentence
+hedges about what it might find. Contrast this with genuine non-commitment, which has no accepting
+first-person willingness at all: "maybe we could test that sometime" (speculation -- no one has said
+they will do it), "I'd love to see how that works" (aspiration -- a wish, not a commitment), "I wonder
+if that would work" (musing, not action), "we tested that yesterday and it worked" (retrospective --
+already done, nothing open), "if I have time I'll test it" with no later activation shown in this
+window (an unactivated conditional). Do NOT harvest these -- but DO harvest an explicit "I can/I
+will/I'll [try/test/verify/check/confirm/run/experiment]... and see/find out/observe..." as real,
+currently-committed work.
+
 Harvest candidates including, illustrative, not exhaustive: voluntary promises, accepted requests,
 assignments, explicit future actions with a clear (or plausible) owner, continuing work a speaker
 says they will finish, verification/follow-up actions, scheduled actions, multi-person commitments

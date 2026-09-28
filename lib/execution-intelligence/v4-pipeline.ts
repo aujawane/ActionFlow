@@ -36,7 +36,10 @@ import {
   runCompletenessRecoveryPass,
   runGroupingPass,
   runGroupingVerificationPass,
-  runLifecycleReconciliationPass
+  runLifecycleReconciliationPass,
+  type PassAGroundingRejectionTraceEntry,
+  type PassAHarvestTraceEntry,
+  type PassBAdjudicationTraceEntry
 } from "./work-item-stages";
 import type { ExecutionSourceContext } from "./stages";
 import type {
@@ -106,6 +109,46 @@ export function applyGlobalCorrections(input: {
   return [...corrected, ...additions];
 }
 
+/** Pass B's diagnostic decision, joined (in runV4GlobalCorrection, via
+ * resolveCompletenessAdjudicationTrace) with the final WorkItem ref its "add" disposition produced
+ * -- generation-12 forensic-audit follow-up, so a future benchmark can trace Pass A candidate ->
+ * grounding -> Pass B decision -> resulting WorkItem purely by candidate_id, without inference.
+ * resulting_work_item_ref is null for every non-"add" disposition, and also null (rather than
+ * guessed) if the addition/candidate match could not be resolved. */
+export type PassBAdjudicationTraceEntryResolved = {
+  candidate_id: string;
+  disposition: string;
+  reason: string;
+  resulting_work_item_ref: string | null;
+};
+
+/**
+ * Pure join: resolves each Pass-B diagnostic decision's resulting WorkItem ref by mirroring (never
+ * modifying) applyGlobalCorrections's own `wi_g${index + 1}` ref-assignment convention --
+ * `additions[i]` becomes `wi_g${i + 1}` there (both already grounded upstream, so the index
+ * alignment holds in the normal case). Extracted as its own pure function, independent of
+ * runV4GlobalCorrection's full V4ExecutionState/model-call plumbing, specifically so this join is
+ * unit-testable on its own -- see tests/v4-completeness-atomicity.test.ts's trace-linkage tests.
+ */
+export function resolveCompletenessAdjudicationTrace(input: {
+  additions: GlobalWorkItemAddition[];
+  additionCandidateIds: Array<string | null>;
+  adjudicationTrace: PassBAdjudicationTraceEntry[];
+}): PassBAdjudicationTraceEntryResolved[] {
+  const additionRefByCandidateId = new Map<string, string>();
+  input.additions.forEach((_addition, index) => {
+    const candidateId = input.additionCandidateIds[index];
+    if (candidateId) additionRefByCandidateId.set(candidateId, `wi_g${index + 1}`);
+  });
+  return input.adjudicationTrace.map((decision) => ({
+    candidate_id: decision.candidateId,
+    disposition: decision.disposition,
+    reason: decision.reason,
+    resulting_work_item_ref:
+      decision.disposition === "add" ? additionRefByCandidateId.get(decision.candidateId) ?? null : null
+  }));
+}
+
 export type V4ExecutionTrace = {
   version: "execution-tree-v4-hardened-2";
   normalization: {
@@ -119,6 +162,13 @@ export type V4ExecutionTrace = {
   merged_work_items: WorkItem[];
   global_corrections: GlobalWorkItemCorrection[];
   global_additions: GlobalWorkItemAddition[];
+  /** Diagnostic-only Pass-A/Pass-B trace (see PASS_A_TRACE_MAX_ENTRIES in work-item-stages.ts).
+   * Never used by any downstream decision -- these fields exist solely so a live run can be audited
+   * after the fact without re-running anything. */
+  completeness_harvest_trace: PassAHarvestTraceEntry[];
+  completeness_grounding_rejection_trace: PassAGroundingRejectionTraceEntry[];
+  completeness_adjudication_trace: PassBAdjudicationTraceEntryResolved[];
+  completeness_trace_truncated: boolean;
   corrected_work_items: WorkItem[];
   superseded_work_items: WorkItem[];
   eligible_work_items: WorkItem[];
@@ -155,6 +205,10 @@ export type V4ExecutionState = {
   mergedWorkItems: WorkItem[];
   globalCorrections: GlobalWorkItemCorrection[];
   globalAdditions: GlobalWorkItemAddition[];
+  completenessHarvestTrace: PassAHarvestTraceEntry[];
+  completenessGroundingRejectionTrace: PassAGroundingRejectionTraceEntry[];
+  completenessAdjudicationTrace: PassBAdjudicationTraceEntryResolved[];
+  completenessTraceTruncated: boolean;
   workItems: WorkItem[];
   eligibleWorkItems: WorkItem[];
   acceptanceCriteriaItems: WorkItem[];
@@ -243,6 +297,10 @@ export async function runV4WorkItemExtraction(input: {
     mergedWorkItems: merged.items,
     globalCorrections: [],
     globalAdditions: [],
+    completenessHarvestTrace: [],
+    completenessGroundingRejectionTrace: [],
+    completenessAdjudicationTrace: [],
+    completenessTraceTruncated: false,
     workItems: merged.items,
     eligibleWorkItems: [],
     acceptanceCriteriaItems: [],
@@ -342,6 +400,16 @@ export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4
     total_work_items: ledgerAfterAdditions.length
   });
 
+  // Generation-12 forensic-audit follow-up: this is the join that makes "Pass A candidate ->
+  // grounding -> Pass B decision -> resulting WorkItem" traceable by candidate_id alone, without
+  // inference (see resolveCompletenessAdjudicationTrace).
+  const completenessAdjudicationTrace = resolveCompletenessAdjudicationTrace({
+    additions: passA.additions,
+    additionCandidateIds: passA.additionCandidateIds,
+    adjudicationTrace: passA.adjudicationTrace
+  });
+  if (passA.traceTruncated) state.metrics.completenessTraceTruncated = true;
+
   const passB = await runLifecycleReconciliationPass({
     source: state.source,
     workItems: ledgerAfterAdditions
@@ -410,6 +478,10 @@ export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4
     ...state,
     globalCorrections: passB.reviews,
     globalAdditions: passA.additions,
+    completenessHarvestTrace: passA.harvestTrace,
+    completenessGroundingRejectionTrace: passA.groundingRejectionTrace,
+    completenessAdjudicationTrace,
+    completenessTraceTruncated: passA.traceTruncated,
     workItems,
     eligibleWorkItems,
     acceptanceCriteriaItems
@@ -568,6 +640,10 @@ export async function finalizeV4Execution(state: V4ExecutionState): Promise<V4Ex
     merged_work_items: finalState.mergedWorkItems,
     global_corrections: finalState.globalCorrections,
     global_additions: finalState.globalAdditions,
+    completeness_harvest_trace: finalState.completenessHarvestTrace,
+    completeness_grounding_rejection_trace: finalState.completenessGroundingRejectionTrace,
+    completeness_adjudication_trace: finalState.completenessAdjudicationTrace,
+    completeness_trace_truncated: finalState.completenessTraceTruncated,
     corrected_work_items: finalState.workItems,
     superseded_work_items: finalState.workItems.filter((item) => item.scope_state === "superseded"),
     eligible_work_items: finalState.eligibleWorkItems,

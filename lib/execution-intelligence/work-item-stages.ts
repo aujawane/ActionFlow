@@ -254,6 +254,21 @@ export function filterGroundedHarvestCandidates(
   );
 }
 
+export type HarvestGroundingRejectionReason = "empty_quote" | "invalid_segment_ids" | "both";
+
+/** Read-only mirror of filterGroundedHarvestCandidates's own predicate, used ONLY to explain (for
+ * diagnostics) why a candidate that predicate already rejected was rejected -- never changes what
+ * gets rejected, since it is never called by filterGroundedHarvestCandidates itself. */
+function classifyHarvestGroundingRejection(
+  candidate: AtomicActionHarvestCandidate,
+  validSegments: Set<string>
+): HarvestGroundingRejectionReason {
+  const emptyQuote = candidate.source_quote.trim().length === 0;
+  const noValidSegment = !candidate.source_segment_ids.some((id) => validSegments.has(id));
+  if (emptyQuote && noValidSegment) return "both";
+  return emptyQuote ? "empty_quote" : "invalid_segment_ids";
+}
+
 function normalizeQuoteForDedup(quote: string): string {
   return quote.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -368,6 +383,41 @@ export type HarvestedCandidate = AtomicActionHarvestCandidate & { canonicalRef: 
 
 export type CompletenessHarvestWindowCount = { windowIndex: number; harvested: number };
 
+/** Generous safety cap for Pass-A/Pass-B diagnostic trace retention (generation-12 forensic-audit
+ * follow-up: the raw Pass-A candidate list was never persisted, which is exactly why a future
+ * benchmark could not distinguish a Pass-A enumeration miss from a Pass-B rewrite without inference).
+ * Real meetings produce tens of candidates, not thousands -- this exists purely as a runaway-input
+ * safety valve for the checkpoint payload, not a practical limit. If ever hit, the itemized trace is
+ * truncated but candidate/decision COUNTS remain fully accurate regardless (they come from the
+ * existing, untruncated aggregate metrics, e.g. candidatesHarvested/candidatesExpectedForAdjudication
+ * -- only the per-candidate diagnostic detail below this cap is capped), and the truncation itself is
+ * recorded (see traceTruncated on each pass result) rather than silently dropped. */
+export const PASS_A_TRACE_MAX_ENTRIES = 2000;
+
+/** Bounded, per-candidate diagnostic record of what Pass A itself harvested -- window, candidate_id
+ * (the application-assigned canonicalRef, stable and joinable to Pass B's trace), owner/owners,
+ * outcome, and grounding evidence. Deliberately excludes harvest_reason: this is structured,
+ * observable output only, not a store of the model's reasoning/chain-of-thought. */
+export type PassAHarvestTraceEntry = {
+  windowIndex: number;
+  candidateId: string;
+  owner: string | null;
+  owners: string[];
+  outcome: string;
+  sourceSegmentIds: string[];
+  sourceQuote: string;
+};
+
+/** Bounded diagnostic record of a harvest candidate Pass A proposed that grounding then rejected --
+ * identified by the model's own window-local candidate_id (never a canonicalRef, since a rejected
+ * candidate is never assigned one -- see runAtomicActionHarvestPass). */
+export type PassAGroundingRejectionTraceEntry = {
+  windowIndex: number;
+  candidateId: string;
+  sourceSegmentIds: string[];
+  rejectionReason: HarvestGroundingRejectionReason;
+};
+
 export type AtomicActionHarvestPassResult =
   | {
       ok: true;
@@ -377,6 +427,10 @@ export type AtomicActionHarvestPassResult =
       latencyMs: number;
       salvagedItems: number;
       usage: TokenUsage | null;
+      /** Diagnostic-only (see PASS_A_TRACE_MAX_ENTRIES); never used by any downstream decision. */
+      harvestTrace: PassAHarvestTraceEntry[];
+      groundingRejectionTrace: PassAGroundingRejectionTraceEntry[];
+      traceTruncated: boolean;
     }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
@@ -431,7 +485,10 @@ export async function runAtomicActionHarvestPass(input: {
   const validSegments = new Set(transcriptSourceSegmentIds(input.source.transcript));
   const harvestedByWindow: CompletenessHarvestWindowCount[] = [];
   const allCandidates: HarvestedCandidate[] = [];
+  const harvestTrace: PassAHarvestTraceEntry[] = [];
+  const groundingRejectionTrace: PassAGroundingRejectionTraceEntry[] = [];
   let groundingRejected = 0;
+  let traceTruncated = false;
 
   results.forEach((result, index) => {
     const windowIndex = chunks[index].index;
@@ -442,11 +499,35 @@ export async function runAtomicActionHarvestPass(input: {
     harvestedByWindow.push({ windowIndex, harvested: result.candidates.length });
     const grounded = filterGroundedHarvestCandidates(result.candidates, validSegments);
     groundingRejected += result.candidates.length - grounded.length;
+    const groundedIds = new Set(grounded.map((candidate) => candidate.candidate_id));
+    for (const candidate of result.candidates) {
+      if (groundedIds.has(candidate.candidate_id)) continue;
+      if (groundingRejectionTrace.length >= PASS_A_TRACE_MAX_ENTRIES) {
+        traceTruncated = true;
+        continue;
+      }
+      groundingRejectionTrace.push({
+        windowIndex,
+        candidateId: candidate.candidate_id,
+        sourceSegmentIds: candidate.source_segment_ids,
+        rejectionReason: classifyHarvestGroundingRejection(candidate, validSegments)
+      });
+    }
     grounded.forEach((candidate, candidateIndex) => {
-      allCandidates.push({
-        ...candidate,
-        canonicalRef: `hc_w${windowIndex}_${candidateIndex + 1}`,
-        windowIndex
+      const canonicalRef = `hc_w${windowIndex}_${candidateIndex + 1}`;
+      allCandidates.push({ ...candidate, canonicalRef, windowIndex });
+      if (harvestTrace.length >= PASS_A_TRACE_MAX_ENTRIES) {
+        traceTruncated = true;
+        return;
+      }
+      harvestTrace.push({
+        windowIndex,
+        candidateId: canonicalRef,
+        owner: candidate.owner,
+        owners: candidate.owners,
+        outcome: candidate.outcome,
+        sourceSegmentIds: candidate.source_segment_ids,
+        sourceQuote: candidate.source_quote
       });
     });
   });
@@ -458,7 +539,10 @@ export async function runAtomicActionHarvestPass(input: {
     groundingRejected,
     latencyMs: Date.now() - startedAt,
     salvagedItems: results.reduce((sum, result) => sum + (result?.ok ? result.salvagedItems : 0), 0),
-    usage: sumUsage(results.map((result) => (result?.ok ? result.usage : null)))
+    usage: sumUsage(results.map((result) => (result?.ok ? result.usage : null))),
+    harvestTrace,
+    groundingRejectionTrace,
+    traceTruncated
   };
 }
 
@@ -512,6 +596,18 @@ export type CompletenessAdjudicationCounts = {
   completenessDecisionInsufficientGrounding: number;
 };
 
+/** Bounded, per-decision diagnostic record (see PASS_A_TRACE_MAX_ENTRIES) -- candidate_id joins
+ * directly back to a PassAHarvestTraceEntry.candidateId, and (for disposition="add") forward to the
+ * resulting WorkItem ref once runCompletenessRecoveryPass's orchestration resolves it (Pass B itself
+ * never assigns a final ref -- see additionCandidateIds on CompletenessRecoveryPassResult). `reason`
+ * is the same concise field the decision schema already requires and Pass B already returns -- not
+ * new reasoning storage, just retention of what the model was already asked to state. */
+export type PassBAdjudicationTraceEntry = {
+  candidateId: string;
+  disposition: CompletenessAdjudicationDecision["disposition"];
+  reason: string;
+};
+
 export type CompletenessAdjudicationPassResult =
   | ({
       ok: true;
@@ -522,6 +618,8 @@ export type CompletenessAdjudicationPassResult =
       latencyMs: number;
       salvagedItems: number;
       usage: TokenUsage | null;
+      adjudicationTrace: PassBAdjudicationTraceEntry[];
+      traceTruncated: boolean;
     } & CompletenessAdjudicationCounts)
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
@@ -600,6 +698,8 @@ export async function runCompletenessAdjudicationPass(input: {
       latencyMs: Date.now() - startedAt,
       salvagedItems: 0,
       usage: null,
+      adjudicationTrace: [],
+      traceTruncated: false,
       ...counts
     };
   }
@@ -689,6 +789,20 @@ export async function runCompletenessAdjudicationPass(input: {
     }
   }
 
+  let traceTruncated = false;
+  const adjudicationTrace: PassBAdjudicationTraceEntry[] = [];
+  for (const decision of decisions) {
+    if (adjudicationTrace.length >= PASS_A_TRACE_MAX_ENTRIES) {
+      traceTruncated = true;
+      break;
+    }
+    adjudicationTrace.push({
+      candidateId: decision.candidate_id,
+      disposition: decision.disposition,
+      reason: decision.reason
+    });
+  }
+
   return {
     ok: true,
     additions,
@@ -698,6 +812,8 @@ export async function runCompletenessAdjudicationPass(input: {
     latencyMs: Date.now() - startedAt,
     salvagedItems,
     usage: sumUsage(usages),
+    adjudicationTrace,
+    traceTruncated,
     ...counts
   };
 }
@@ -739,6 +855,18 @@ export type CompletenessRecoveryPassResult =
       latencyMs: number;
       salvagedItems: number;
       usage: TokenUsage | null;
+      /** Diagnostic-only (generation-12 forensic-audit follow-up): Pass A's own per-candidate
+       * output, grounding rejections, and Pass B's per-candidate decisions, all joinable purely by
+       * candidate_id -- see PassAHarvestTraceEntry/PassAGroundingRejectionTraceEntry/
+       * PassBAdjudicationTraceEntry. `additionCandidateIds[i]` is the candidate_id that produced
+       * `additions[i]` (parallel arrays, same order dedup already preserves), which callers can join
+       * against applyGlobalCorrections's own `wi_g${i + 1}` ref-assignment convention to resolve
+       * "Pass A candidate -> grounding -> Pass B decision -> resulting WorkItem" without inference. */
+      harvestTrace: PassAHarvestTraceEntry[];
+      groundingRejectionTrace: PassAGroundingRejectionTraceEntry[];
+      adjudicationTrace: PassBAdjudicationTraceEntry[];
+      additionCandidateIds: Array<string | null>;
+      traceTruncated: boolean;
     }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
@@ -783,15 +911,21 @@ export async function runCompletenessRecoveryPass(input: {
 
   const windowByCanonicalRef = new Map(harvest.candidates.map((c) => [c.canonicalRef, c.windowIndex]));
   const additionWindow = new Map<GlobalWorkItemAddition, number | null>();
-  // Re-associate each "add" addition with its originating window by matching evidence back to the
-  // harvested candidate it came from (additions don't carry the candidate ref themselves).
+  const additionCandidateId = new Map<GlobalWorkItemAddition, string>();
+  // Re-associate each "add" addition with its originating window AND candidate_id by matching
+  // evidence back to the harvested candidate it came from (additions don't carry the candidate ref
+  // themselves). The candidate_id side of this same match is what makes the Pass-A/Pass-B trace
+  // joinable end to end (see additionCandidateIds below).
   for (const candidate of harvest.candidates) {
     const match = adjudication.additions.find(
       (addition) =>
         addition.source_quote.trim() === candidate.source_quote.trim() &&
         segmentSetsEqual(addition.source_segment_ids, candidate.source_segment_ids)
     );
-    if (match && !additionWindow.has(match)) additionWindow.set(match, windowByCanonicalRef.get(candidate.canonicalRef) ?? null);
+    if (match && !additionWindow.has(match)) {
+      additionWindow.set(match, windowByCanonicalRef.get(candidate.canonicalRef) ?? null);
+      additionCandidateId.set(match, candidate.canonicalRef);
+    }
   }
 
   const validSegments = new Set(transcriptSourceSegmentIds(input.source.transcript));
@@ -804,6 +938,9 @@ export async function runCompletenessRecoveryPass(input: {
     windowIndex: additionWindow.get(addition) ?? null,
     title: addition.title
   }));
+  const additionCandidateIds: Array<string | null> = semantic.kept.map(
+    (addition) => additionCandidateId.get(addition) ?? null
+  );
 
   return {
     ok: true,
@@ -829,7 +966,12 @@ export async function runCompletenessRecoveryPass(input: {
     },
     latencyMs: Date.now() - startedAt,
     salvagedItems: harvest.salvagedItems + adjudication.salvagedItems,
-    usage: sumUsage([harvest.usage, adjudication.usage])
+    usage: sumUsage([harvest.usage, adjudication.usage]),
+    harvestTrace: harvest.harvestTrace,
+    groundingRejectionTrace: harvest.groundingRejectionTrace,
+    adjudicationTrace: adjudication.adjudicationTrace,
+    additionCandidateIds,
+    traceTruncated: harvest.traceTruncated || adjudication.traceTruncated
   };
 }
 

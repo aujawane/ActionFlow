@@ -690,6 +690,18 @@ test("[prompt] the new ATOMIC_ACTION_HARVEST_PROMPT is generic -- no hardcoded b
   }
 });
 
+test("[prompt] ATOMIC_ACTION_HARVEST_PROMPT treats verification/confirmation as its own outcome, distinct from the work it checks", () => {
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /VERIFICATION AND OBSERVATION ARE THEIR OWN OUTCOME/);
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /could one of these be true while the other is still false/);
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /never let a verification\/confirmation clause go unharvested/);
+});
+
+test("[prompt] ATOMIC_ACTION_HARVEST_PROMPT treats a committed experiment/test as active work, distinct from aspiration or speculation", () => {
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /COMMITTED EXPERIMENTS ARE ACTIVE WORK, NOT ASPIRATION/);
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /Uncertainty about the OUTCOME of an experiment/);
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /is not the same as uncertainty about whether the experiment\s*\nitself is committed/);
+});
+
 test("[prompt] COMPLETENESS_ADJUDICATION_PROMPT requires exhaustive per-candidate coverage and distinguishes current_scope from future_scope", () => {
   assert.match(COMPLETENESS_ADJUDICATION_PROMPT, /EXHAUSTIVE COVERAGE/);
   assert.match(COMPLETENESS_ADJUDICATION_PROMPT, /exactly one decision for every candidate_id you were given/);

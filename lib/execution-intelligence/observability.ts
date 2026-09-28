@@ -64,6 +64,11 @@ export type ExecutionMetrics = {
   completenessDecisionInsufficientGrounding: number;
   completenessDuplicatesRemovedDeterministic: number;
   completenessDuplicatesRemovedSemantic: number;
+  /** Generation-12 forensic-audit follow-up: true only if the bounded Pass-A/Pass-B diagnostic
+   * trace (see PASS_A_TRACE_MAX_ENTRIES in work-item-stages.ts) hit its safety cap and had to drop
+   * itemized detail -- the aggregate counts above are never affected by this, only the per-candidate
+   * trace attached to the checkpoint. False for every realistic meeting size. */
+  completenessTraceTruncated: boolean;
   openAiLatencyMs: Record<string, number>;
   /** Populated only for stages that returned OpenAI usage on their response; used for replay/eval
    * cost reporting (`scripts/eval-v4.ts`). Absent entries mean the SDK/mock did not report usage. */
@@ -122,6 +127,7 @@ export function createExecutionMetrics(
     completenessDecisionInsufficientGrounding: 0,
     completenessDuplicatesRemovedDeterministic: 0,
     completenessDuplicatesRemovedSemantic: 0,
+    completenessTraceTruncated: false,
     openAiLatencyMs: {},
     openAiUsage: {}
   };

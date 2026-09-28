@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyGlobalCorrections } from "../lib/execution-intelligence/v4-pipeline";
+import { applyGlobalCorrections, resolveCompletenessAdjudicationTrace } from "../lib/execution-intelligence/v4-pipeline";
 import { isExecutionEligible } from "../lib/execution-intelligence/execution-tree";
 import type { ExecutionSourceContext } from "../lib/execution-intelligence/stages";
 import {
@@ -908,4 +908,352 @@ test("[observability] harvest, adjudication, and dedup diagnostics are all popul
   assert.equal(result.acceptedByWindow.length, 1);
   assert.equal(result.acceptedByWindow[0].title, "Confirm the drops flow works");
   assert.equal(result.acceptedByWindow[0].windowIndex, 0);
+});
+
+// ===========================================================================
+// PART 8 -- Pass-A verification/experiment enumeration (generation-12 forensic-audit follow-up).
+//
+// The Gen-12 forensic audit found two remaining recall gaps sharing one root cause: Pass A
+// under-enumerates a "confirm/check/verify/test/try...and see how it works" clause when it trails a
+// longer, hedged lead-in in the same turn -- GT3-B folded "confirm the drops works" into the same
+// candidate as "finish the chatter work"; GT4 (a committed experiment: "I can definitely talk to my
+// agent about it... I want to see how it's used in practice") produced zero candidates at all, in a
+// window that successfully harvested an unrelated promise moments later. These tests exercise the
+// new ATOMIC_ACTION_HARVEST_PROMPT sections (VERIFICATION AND OBSERVATION ARE THEIR OWN OUTCOME;
+// COMMITTED EXPERIMENTS ARE ACTIVE WORK, NOT ASPIRATION) at the pipeline-boundary level: given a
+// harvest response shaped the way the strengthened prompt asks the model to produce, the rest of the
+// pipeline (grounding, adjudication, dedup, eligibility) must carry it through correctly, and must
+// keep two genuinely independent verification-class outcomes unmerged all the way to Pass B.
+// ===========================================================================
+
+test("[GT3-B class] a compound turn harvested as two candidates reaches Pass A's output as two independent, unmerged candidates", async () => {
+  const transcript = transcriptLine(
+    seg(1),
+    "Speaker",
+    "I'll finish up what I was working on and then confirm that the drops flow works."
+  );
+  const result = await runAtomicActionHarvestPass({
+    source: source({ transcript }),
+    createResponse: harvestResponse([
+      harvestCandidate({
+        candidate_id: "c1",
+        outcome: "Finish current work",
+        source_quote: "I'll finish up what I was working on",
+        source_segment_ids: [seg(1)]
+      }),
+      harvestCandidate({
+        candidate_id: "c2",
+        outcome: "Confirm the drops flow works",
+        source_quote: "confirm that the drops flow works",
+        source_segment_ids: [seg(1)]
+      })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.candidates.length, 2, "the verification clause must be exposed as its own candidate, not merged into the first");
+  assert.deepEqual(result.candidates.map((c) => c.canonicalRef), ["hc_w0_1", "hc_w0_2"]);
+  assert.equal(result.candidates[1].outcome, "Confirm the drops flow works");
+});
+
+test("[GT4 class] a committed experiment ('I can talk to my agent about it and see how it's used in practice') is harvested, added, and reaches eligibility", async () => {
+  const transcript = transcriptLine(
+    seg(1),
+    "Speaker",
+    "Yeah, I can definitely talk to my agent about it. I want to see how it's used in practice."
+  );
+  const result = await runCompletenessRecoveryPass({
+    source: source({ transcript }),
+    workItems: [],
+    createResponse: harvestResponse([
+      harvestCandidate({
+        outcome: "Try the approach with the agent and observe how it works in practice",
+        source_quote: "Yeah, I can definitely talk to my agent about it. I want to see how it's used in practice.",
+        source_segment_ids: [seg(1)]
+      })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({
+          title: "Try the approach with the agent and observe how it works in practice",
+          source_quote: "Yeah, I can definitely talk to my agent about it. I want to see how it's used in practice.",
+          source_segment_ids: [seg(1)]
+        })
+      })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.additions.length, 1);
+  const merged = applyGlobalCorrections({ workItems: [], corrections: [], additions: result.additions, transcript });
+  assert.equal(isExecutionEligible(merged[0]), true);
+});
+
+test("[V1] 'I'll deploy it and verify the endpoint responds' harvests two distinct, independently-checkable candidates", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "I'll deploy it and verify the endpoint responds.");
+  const result = await runAtomicActionHarvestPass({
+    source: source({ transcript }),
+    createResponse: harvestResponse([
+      harvestCandidate({ candidate_id: "c1", outcome: "Deploy it", source_quote: "I'll deploy it", source_segment_ids: [seg(1)] }),
+      harvestCandidate({ candidate_id: "c2", outcome: "Verify the endpoint responds", source_quote: "verify the endpoint responds", source_segment_ids: [seg(1)] })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.candidates.length, 2);
+});
+
+test("[V2] 'I'll change the setting and check whether that fixes the issue' harvests the change and the check as two candidates", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "I'll change the setting and check whether that fixes the issue.");
+  const result = await runAtomicActionHarvestPass({
+    source: source({ transcript }),
+    createResponse: harvestResponse([
+      harvestCandidate({ candidate_id: "c1", outcome: "Change the setting", source_quote: "I'll change the setting", source_segment_ids: [seg(1)] }),
+      harvestCandidate({ candidate_id: "c2", outcome: "Check whether that fixes the issue", source_quote: "check whether that fixes the issue", source_segment_ids: [seg(1)] })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.candidates.length, 2);
+});
+
+test("[V3] 'I'll test the workflow and let you know what happens' harvests the test and the report as two candidates", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "I'll test the workflow and let you know what happens.");
+  const result = await runAtomicActionHarvestPass({
+    source: source({ transcript }),
+    createResponse: harvestResponse([
+      harvestCandidate({ candidate_id: "c1", outcome: "Test the workflow", source_quote: "I'll test the workflow", source_segment_ids: [seg(1)] }),
+      harvestCandidate({ candidate_id: "c2", outcome: "Report the result", source_quote: "let you know what happens", source_segment_ids: [seg(1)] })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.candidates.length, 2);
+});
+
+test("[V4] 'I can definitely try that approach tomorrow and see whether it works' is an active experiment candidate, not aspiration", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "I can definitely try that approach tomorrow and see whether it works.");
+  const result = await runCompletenessRecoveryPass({
+    source: source({ transcript }),
+    workItems: [],
+    createResponse: harvestResponse([
+      harvestCandidate({ outcome: "Try the approach and see whether it works", source_quote: "I can definitely try that approach tomorrow and see whether it works.", source_segment_ids: [seg(1)] })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({ title: "Try the approach and see whether it works", source_quote: "I can definitely try that approach tomorrow and see whether it works.", source_segment_ids: [seg(1)] })
+      })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.additions.length, 1);
+});
+
+test("[V5] 'I'll run it once just to confirm the import works' is captured even though it is operationally small", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "I'll run it once just to confirm the import works.");
+  const result = await runCompletenessRecoveryPass({
+    source: source({ transcript }),
+    workItems: [],
+    createResponse: harvestResponse([
+      harvestCandidate({ outcome: "Run it once to confirm the import works", source_quote: "I'll run it once just to confirm the import works.", source_segment_ids: [seg(1)] })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({ title: "Run it once to confirm the import works", source_quote: "I'll run it once just to confirm the import works.", source_segment_ids: [seg(1)] })
+      })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.additions.length, 1);
+});
+
+test("[verification N1] 'Maybe we could test that sometime' produces no active harvest", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "Maybe we could test that sometime.");
+  const result = await runCompletenessRecoveryPass({
+    source: source({ transcript }),
+    workItems: [],
+    createResponse: harvestResponse([])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.additions.length, 0);
+});
+
+test("[verification N2] 'I'd love to see how that works' produces no active execution merely from aspiration", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "I'd love to see how that works.");
+  const result = await runCompletenessRecoveryPass({
+    source: source({ transcript }),
+    workItems: [],
+    createResponse: harvestResponse([
+      harvestCandidate({ outcome: "See how that works", source_quote: "I'd love to see how that works.", source_segment_ids: [seg(1)] })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({ candidate_id: "hc_w0_1", disposition: "speculative_or_inactive" })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.additions.length, 0);
+});
+
+test("[verification N3] 'I wonder if that would work' produces no action", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "I wonder if that would work.");
+  const result = await runCompletenessRecoveryPass({
+    source: source({ transcript }),
+    workItems: [],
+    createResponse: harvestResponse([])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.additions.length, 0);
+});
+
+test("[verification N4] 'We tested that yesterday and it worked' is retrospective only", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "We tested that yesterday and it worked.");
+  const result = await runCompletenessRecoveryPass({
+    source: source({ transcript }),
+    workItems: [],
+    createResponse: harvestResponse([
+      harvestCandidate({ outcome: "Test it", source_quote: "We tested that yesterday and it worked.", source_segment_ids: [seg(1)] })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({ candidate_id: "hc_w0_1", disposition: "retrospective_or_completed" })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.additions.length, 0);
+});
+
+test("[verification N5] 'If I have time I'll test it' with no later activation is not active", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "If I have time I'll test it.");
+  const result = await runCompletenessRecoveryPass({
+    source: source({ transcript }),
+    workItems: [],
+    createResponse: harvestResponse([
+      harvestCandidate({ outcome: "Test it", source_quote: "If I have time I'll test it.", source_segment_ids: [seg(1)] })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({ candidate_id: "hc_w0_1", disposition: "speculative_or_inactive" })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.additions.length, 0);
+});
+
+test("[verification N6] 'That confirms the service works' is a pure observation of an already-completed event, not a future/open action", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "That confirms the service works.");
+  const result = await runCompletenessRecoveryPass({
+    source: source({ transcript }),
+    workItems: [],
+    createResponse: harvestResponse([])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.additions.length, 0);
+});
+
+// ===========================================================================
+// PART 9 -- Pass-A/Pass-B diagnostic trace observability (generation-12 forensic-audit follow-up).
+//
+// The forensic audit's central limitation was that Pass A's raw candidate list was never persisted,
+// so a future benchmark could not distinguish a Pass-A enumeration miss from a Pass-B rewrite
+// without inference. These tests exercise the new bounded trace end to end: window -> candidate ->
+// grounding -> adjudication -> resulting WorkItem ref, joinable purely by candidate_id.
+// ===========================================================================
+
+test("[trace] harvestTrace and adjudicationTrace are joinable end-to-end by candidate_id, and additionCandidateIds identifies which candidate produced which addition", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "I'll finish the work and confirm the integration works.");
+  const result = await runCompletenessRecoveryPass({
+    source: source({ transcript }),
+    workItems: [],
+    createResponse: harvestResponse([
+      harvestCandidate({ outcome: "Finish the work", source_quote: "I'll finish the work", source_segment_ids: [seg(1)] }),
+      harvestCandidate({ outcome: "Confirm the integration works", source_quote: "confirm the integration works", source_segment_ids: [seg(1)] })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({ title: "Finish the work", source_quote: "I'll finish the work", source_segment_ids: [seg(1)] })
+      }),
+      adjudicationDecision({
+        candidate_id: "hc_w0_2",
+        disposition: "add",
+        addition: addition({ title: "Confirm the integration works", source_quote: "confirm the integration works", source_segment_ids: [seg(1)] })
+      })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.harvestTrace.length, 2);
+  assert.deepEqual(result.harvestTrace.map((t) => t.candidateId), ["hc_w0_1", "hc_w0_2"]);
+  assert.equal(result.harvestTrace[0].windowIndex, 0);
+  assert.equal(result.harvestTrace[0].outcome, "Finish the work");
+  assert.equal(result.harvestTrace[1].outcome, "Confirm the integration works");
+  assert.equal((result.harvestTrace[0] as unknown as Record<string, unknown>).harvest_reason, undefined, "harvest_reason must never be retained in the trace");
+
+  assert.equal(result.adjudicationTrace.length, 2);
+  const harvestIds = new Set(result.harvestTrace.map((t) => t.candidateId));
+  for (const decision of result.adjudicationTrace) {
+    assert.ok(harvestIds.has(decision.candidateId), `adjudication decision ${decision.candidateId} must be traceable back to a harvested candidate`);
+    assert.equal(decision.disposition, "add");
+  }
+
+  assert.deepEqual(result.additionCandidateIds, ["hc_w0_1", "hc_w0_2"]);
+  assert.equal(result.groundingRejectionTrace.length, 0);
+  assert.equal(result.traceTruncated, false);
+});
+
+test("[trace] a candidate rejected by harvest grounding is recorded with its window, candidate_id, and rejection reason", async () => {
+  const transcript = transcriptLine(seg(1), "Speaker", "I'll send the article.");
+  const result = await runAtomicActionHarvestPass({
+    source: source({ transcript }),
+    createResponse: harvestResponse([
+      harvestCandidate({ candidate_id: "c1", outcome: "Real candidate", source_quote: "I'll send the article.", source_segment_ids: [seg(1)] }),
+      harvestCandidate({ candidate_id: "c2", outcome: "Empty quote", source_quote: "   ", source_segment_ids: [seg(1)] }),
+      harvestCandidate({ candidate_id: "c3", outcome: "Fabricated segment", source_quote: "something never said", source_segment_ids: [seg(99)] })
+    ])
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.harvestTrace.length, 1);
+  assert.equal(result.harvestTrace[0].candidateId, "hc_w0_1");
+  assert.equal(result.groundingRejectionTrace.length, 2);
+  const byId = new Map(result.groundingRejectionTrace.map((r) => [r.candidateId, r]));
+  assert.equal(byId.get("c2")?.rejectionReason, "empty_quote");
+  assert.equal(byId.get("c2")?.windowIndex, 0);
+  assert.equal(byId.get("c3")?.rejectionReason, "invalid_segment_ids");
+});
+
+test("[trace] resolveCompletenessAdjudicationTrace joins a Pass-B 'add' decision to its final wi_g ref, and leaves non-add dispositions null", () => {
+  const additions = [
+    addition({ title: "A", source_quote: "q1", source_segment_ids: [seg(1)] }),
+    addition({ title: "B", source_quote: "q2", source_segment_ids: [seg(2)] })
+  ];
+  const resolved = resolveCompletenessAdjudicationTrace({
+    additions,
+    additionCandidateIds: ["hc_w0_1", "hc_w0_3"],
+    adjudicationTrace: [
+      { candidateId: "hc_w0_1", disposition: "add", reason: "r1" },
+      { candidateId: "hc_w0_2", disposition: "already_represented", reason: "r2" },
+      { candidateId: "hc_w0_3", disposition: "add", reason: "r3" }
+    ]
+  });
+  assert.deepEqual(resolved, [
+    { candidate_id: "hc_w0_1", disposition: "add", reason: "r1", resulting_work_item_ref: "wi_g1" },
+    { candidate_id: "hc_w0_2", disposition: "already_represented", reason: "r2", resulting_work_item_ref: null },
+    { candidate_id: "hc_w0_3", disposition: "add", reason: "r3", resulting_work_item_ref: "wi_g2" }
+  ]);
 });
