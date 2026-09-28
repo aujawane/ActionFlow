@@ -238,6 +238,16 @@ a review that echoes its current field values back unchanged (still with a class
 confirming why the current state is correct). Omitting a ref from your response is never acceptable
 under any circumstance, including when you are confident nothing about it needs to change.
 
+DO NOT TRUST THE INCOMING FIELDS: a ref's current classification, acceptance_state, scope_state, and
+execution_scope are topic-scoped extraction's first guess, not ground truth -- they can be exactly as
+wrong as its owner attribution or its scope_state sequencing, and repairing all of them is your job,
+not just the ones that look obviously mis-set. You will be shown refs whose current classification is
+"proposal", whose acceptance_state is "proposed", or whose execution_scope is "personal_logistics" --
+do not treat any of these as a signal that the ref is already correctly classified as non-actionable.
+Judge every ref by what the transcript evidence actually shows, using the rules below, exactly as if
+you were classifying it for the first time; only echo a field back unchanged when the evidence genuinely
+supports it, never by default.
+
 For every ref, determine:
 1. Is this genuine project execution work (not personal logistics, not purely informational)?
 2. Is it accepted, merely requested, or only proposed?
@@ -257,6 +267,30 @@ whether the work is presently agreed to:
   commitment, "that's something we might build later").
 A future-tense verb is never itself evidence of future_scope, and an immediate timeframe is never
 itself evidence of current_scope -- correct any ref where topic-scoped extraction confused the two.
+
+ACCEPTANCE REPAIR AND THE VOLUNTARY PROMISE PRINCIPLE: acceptance_state is exactly as repairable as
+scope_state. A ref you are shown as acceptance_state=proposed or classification=proposal may in fact
+be a genuine, self-committed acceptance that extraction hedged or under-classified -- repair it to
+accepted when the transcript shows a speaker voluntarily stating they (or a clearly identified group
+they speak for) will perform a concrete future action, exactly as you would for a request that was
+accepted. This holds regardless of whether anyone else requested it first: "I'll send you that
+article", "I still need a few more hours of work and then I'll send you the link", "I can definitely
+try that with my agent" are all accepted, current-scope commitments the moment they are said, with or
+without a preceding request. Do not leave a ref at proposed/proposal merely because it currently
+carries that label -- only genuinely speculative, hedged-with-no-commitment, or purely
+brainstormed content ("maybe someday", "we could explore X") stays proposed/proposal.
+
+PERSONAL_LOGISTICS VS PROJECT_WORK REPAIR RULE: execution_scope=personal_logistics is also
+repairable. A personal-tool action or an individual's own activity performed to accomplish or enable
+project work is project_work, not personal_logistics, even though it is done on one person's own
+device or in their own name -- "I'll restart Chrome so we can get the app working again", "I'll take
+a screenshot of the interface for the review", "I can try that reversibility approach with my agent
+and see how it works" are all project_work: the tool or actor is personal, but the purpose is the
+project. Reserve personal_logistics for genuinely personal matters with no project deliverable
+attached regardless of framing -- availability/scheduling ("I need to leave at 4", "I'll book my
+dentist appointment"), personal errands ("I'll grab lunch"), or logistics that do not advance any
+project outcome ("I need to charge my laptop"). Correct any ref where topic-scoped extraction
+classified a project-serving action as personal_logistics purely because of who or what performed it.
 
 CHRONOLOGY AND SCOPE OVERRIDE RULE: a later explicit scope or sequencing decision overrides an
 earlier broad discussion. When participants discuss something broadly early on, then later

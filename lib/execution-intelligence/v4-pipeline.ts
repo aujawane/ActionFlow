@@ -327,6 +327,14 @@ export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4
   state.metrics.completionRejectedMissingEvidence += passB.completionRejectedMissingEvidence;
   state.metrics.completionRejectedChronology += passB.completionRejectedChronology;
   state.metrics.completionRejectedVerifier += passB.completionRejectedVerifier;
+  state.metrics.lifecycleCandidatesConsidered += passB.lifecycleCandidatesConsidered;
+  state.metrics.lifecycleCandidatesAdmittedViaProposal += passB.lifecycleCandidatesAdmittedViaProposal;
+  state.metrics.lifecycleCandidatesAdmittedViaFutureScope += passB.lifecycleCandidatesAdmittedViaFutureScope;
+  state.metrics.lifecycleCandidatesAdmittedViaPersonalLogistics += passB.lifecycleCandidatesAdmittedViaPersonalLogistics;
+  state.metrics.lifecycleCandidatesAdmittedViaProposedAcceptance += passB.lifecycleCandidatesAdmittedViaProposedAcceptance;
+  state.metrics.lifecycleRepairedExecutionScope += passB.lifecycleRepairedExecutionScope;
+  state.metrics.lifecycleRepairedAcceptanceState += passB.lifecycleRepairedAcceptanceState;
+  state.metrics.lifecycleRepairedScopeState += passB.lifecycleRepairedScopeState;
   if (passB.missingRefsAfterRetry.length > 0) {
     logExecutionStage(state.metrics, "v4_lifecycle_reconciliation_incomplete", {
       missing_refs: passB.missingRefsAfterRetry
@@ -341,6 +349,16 @@ export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4
       completion_rejected_verifier: passB.completionRejectedVerifier
     });
   }
+  logExecutionStage(state.metrics, "v4_lifecycle_candidate_selection", {
+    candidates_considered: passB.lifecycleCandidatesConsidered,
+    admitted_via_proposal: passB.lifecycleCandidatesAdmittedViaProposal,
+    admitted_via_future_scope: passB.lifecycleCandidatesAdmittedViaFutureScope,
+    admitted_via_personal_logistics: passB.lifecycleCandidatesAdmittedViaPersonalLogistics,
+    admitted_via_proposed_acceptance: passB.lifecycleCandidatesAdmittedViaProposedAcceptance,
+    repaired_execution_scope: passB.lifecycleRepairedExecutionScope,
+    repaired_acceptance_state: passB.lifecycleRepairedAcceptanceState,
+    repaired_scope_state: passB.lifecycleRepairedScopeState
+  });
 
   const workItems = applyGlobalCorrections({
     workItems: ledgerAfterAdditions,

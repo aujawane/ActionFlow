@@ -320,11 +320,26 @@ export async function runCompletenessRecoveryPass(input: {
   };
 }
 
-/** Statuses/classifications/roles/acceptance/scope combinations worth a lifecycle review --
- * mirrors isExecutionEligible's own vocabulary (execution-tree.ts) plus "request"/"future_scope",
- * since an item that ISN'T YET eligible (still merely requested, or misclassified as future_scope)
- * is exactly the kind of item this pass exists to potentially move into eligibility. Deliberately
- * reuses the repository's real enum values rather than a separately-maintained list. */
+/**
+ * Statuses/classifications/roles/acceptance/scope/execution_scope combinations worth a lifecycle
+ * review (generation-9 recall-benchmark follow-up: candidate selection previously assumed these
+ * same fields were already correct, but they are EXACTLY the fields lifecycle reconciliation exists
+ * to repair -- a bad initial classification therefore permanently excluded an item from the one
+ * pass that could have fixed it. GT1 ("proposal"/"proposed") and GT4 ("proposal"/"proposed"/
+ * "personal_logistics"/"idea") were both real, grounded, self-committed statements that never
+ * became lifecycle candidates for exactly this reason.
+ *
+ * Each set below is deliberately widened just enough to admit a plausible MISCLASSIFICATION of a
+ * grounded, owned, action-bearing item -- not widened to "everything." Values that are excluded
+ * here are excluded because they are structurally non-actionable even when correctly assigned:
+ * classification=completed_work/decision/idea/question/blocker/reminder never represents an open
+ * action a candidate review should reopen; work_item_role=acceptance_criterion/scope_decision/
+ * reference/question/status_update are never themselves a step someone performs, independent of
+ * whether the rest of the item was classified correctly; acceptance_state=none means acceptance
+ * genuinely does not apply (completed work, a bare question); execution_scope=informational means
+ * no future action is attached at all. Grounding (source_quote/source_segment_ids) is required
+ * defensively even though the extraction/addition schemas already enforce it upstream.
+ */
 const LIFECYCLE_REVIEW_CLASSIFICATIONS = new Set([
   "open_task",
   "assignment",
@@ -332,19 +347,35 @@ const LIFECYCLE_REVIEW_CLASSIFICATIONS = new Set([
   "accepted_request",
   "scheduling",
   "in_progress",
-  "request"
+  "request",
+  "proposal"
 ]);
-const LIFECYCLE_REVIEW_ROLES = new Set(["action", "input_dependency"]);
-const LIFECYCLE_REVIEW_ACCEPTANCE_STATES = new Set(["accepted", "requested"]);
+/** future_feature/idea/incidental_troubleshooting admitted because a real accepted action can be
+ * mistagged as any of these three at extraction time (a genuine commitment described in tentative
+ * language reads as "idea"; a real, consequential fix reads as "incidental_troubleshooting"; a
+ * feature already being built now can still be filed as "future_feature"). Structurally non-action
+ * roles (acceptance_criterion, scope_decision, reference, question, status_update) stay excluded --
+ * no repair to those specific roles turns them into a task lifecycle should track. */
+const LIFECYCLE_REVIEW_ROLES = new Set(["action", "input_dependency", "idea", "future_feature", "incidental_troubleshooting"]);
+const LIFECYCLE_REVIEW_ACCEPTANCE_STATES = new Set(["accepted", "requested", "proposed"]);
 const LIFECYCLE_REVIEW_SCOPE_STATES = new Set(["current_scope", "future_scope"]);
+/** personal_logistics admitted because a personal-tool action performed to accomplish or enable
+ * project work ("I'll restart Chrome so we can test the app," "I'll take a screenshot of the UI for
+ * the review," "I can try that with my agent") is real project execution, not logistics, even
+ * though extraction sometimes classifies it by the tool/actor rather than the purpose. informational
+ * stays excluded -- a pure status update or fact has no future action attached regardless of how
+ * this field gets repaired. */
+const LIFECYCLE_REVIEW_EXECUTION_SCOPES = new Set(["project_work", "personal_logistics"]);
 
 export function isLifecycleReviewCandidate(item: WorkItem): boolean {
   return (
-    item.execution_scope === "project_work" &&
+    LIFECYCLE_REVIEW_EXECUTION_SCOPES.has(item.execution_scope) &&
     LIFECYCLE_REVIEW_ROLES.has(item.work_item_role) &&
     LIFECYCLE_REVIEW_CLASSIFICATIONS.has(item.classification) &&
     LIFECYCLE_REVIEW_ACCEPTANCE_STATES.has(item.acceptance_state) &&
-    LIFECYCLE_REVIEW_SCOPE_STATES.has(item.scope_state)
+    LIFECYCLE_REVIEW_SCOPE_STATES.has(item.scope_state) &&
+    item.source_quote.trim().length > 0 &&
+    item.source_segment_ids.length > 0
   );
 }
 
@@ -687,6 +718,60 @@ async function requestLifecycleReviews(input: {
   });
 }
 
+export type LifecycleCandidateObservability = {
+  lifecycleCandidatesConsidered: number;
+  lifecycleCandidatesAdmittedViaProposal: number;
+  lifecycleCandidatesAdmittedViaFutureScope: number;
+  lifecycleCandidatesAdmittedViaPersonalLogistics: number;
+  lifecycleCandidatesAdmittedViaProposedAcceptance: number;
+  lifecycleRepairedExecutionScope: number;
+  lifecycleRepairedAcceptanceState: number;
+  lifecycleRepairedScopeState: number;
+};
+
+/**
+ * Diagnostic counts for the widened candidate-selection rule (generation-9 recall-benchmark
+ * follow-up): how many candidates were admitted only because of the broadened fields, and how many
+ * of those fields lifecycle actually went on to repair. Pure and independently testable so the
+ * broadening's effect can be benchmarked without needing to inspect the persisted debug trace.
+ * "Admitted via X" counts the candidate's PRE-review value; "repaired X" counts reviews whose
+ * POST-review value differs from the candidate's pre-review value, for any candidate (not only the
+ * ones admitted via that specific field) -- both are population-level signals about this pass, not
+ * a claim that a specific admission caused a specific repair.
+ */
+export function computeLifecycleCandidateObservability(
+  candidates: WorkItem[],
+  reviews: GlobalWorkItemCorrection[]
+): LifecycleCandidateObservability {
+  const reviewsByRef = new Map(reviews.map((review) => [review.ref, review]));
+  const result: LifecycleCandidateObservability = {
+    lifecycleCandidatesConsidered: candidates.length,
+    lifecycleCandidatesAdmittedViaProposal: 0,
+    lifecycleCandidatesAdmittedViaFutureScope: 0,
+    lifecycleCandidatesAdmittedViaPersonalLogistics: 0,
+    lifecycleCandidatesAdmittedViaProposedAcceptance: 0,
+    lifecycleRepairedExecutionScope: 0,
+    lifecycleRepairedAcceptanceState: 0,
+    lifecycleRepairedScopeState: 0
+  };
+  for (const candidate of candidates) {
+    if (candidate.classification === "proposal") result.lifecycleCandidatesAdmittedViaProposal += 1;
+    if (candidate.scope_state === "future_scope") result.lifecycleCandidatesAdmittedViaFutureScope += 1;
+    if (candidate.execution_scope === "personal_logistics") {
+      result.lifecycleCandidatesAdmittedViaPersonalLogistics += 1;
+    }
+    if (candidate.acceptance_state === "proposed") {
+      result.lifecycleCandidatesAdmittedViaProposedAcceptance += 1;
+    }
+    const review = reviewsByRef.get(candidate.ref);
+    if (!review) continue;
+    if (review.execution_scope !== candidate.execution_scope) result.lifecycleRepairedExecutionScope += 1;
+    if (review.acceptance_state !== candidate.acceptance_state) result.lifecycleRepairedAcceptanceState += 1;
+    if (review.scope_state !== candidate.scope_state) result.lifecycleRepairedScopeState += 1;
+  }
+  return result;
+}
+
 export type LifecycleReconciliationPassResult =
   | ({
       ok: true;
@@ -695,7 +780,8 @@ export type LifecycleReconciliationPassResult =
       latencyMs: number;
       salvagedItems: number;
       usage: TokenUsage | null;
-    } & CompletionSafetyCounts)
+    } & CompletionSafetyCounts &
+      LifecycleCandidateObservability)
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
 /**
@@ -718,7 +804,8 @@ export async function runLifecycleReconciliationPass(input: {
 }): Promise<LifecycleReconciliationPassResult> {
   const startedAt = Date.now();
   const itemsByRef = new Map(input.workItems.map((item) => [item.ref, item]));
-  const candidateRefs = input.workItems.filter(isLifecycleReviewCandidate).map((item) => item.ref);
+  const candidates = input.workItems.filter(isLifecycleReviewCandidate);
+  const candidateRefs = candidates.map((item) => item.ref);
 
   if (candidateRefs.length === 0) {
     return {
@@ -732,7 +819,8 @@ export async function runLifecycleReconciliationPass(input: {
       completionVerified: 0,
       completionRejectedMissingEvidence: 0,
       completionRejectedChronology: 0,
-      completionRejectedVerifier: 0
+      completionRejectedVerifier: 0,
+      ...computeLifecycleCandidateObservability([], [])
     };
   }
 
@@ -790,6 +878,8 @@ export async function runLifecycleReconciliationPass(input: {
     }
   }
 
+  const candidateObservability = computeLifecycleCandidateObservability(candidates, reviews);
+
   const completionSafety = await applyCompletionSafety({
     source: input.source,
     reviews,
@@ -805,7 +895,8 @@ export async function runLifecycleReconciliationPass(input: {
     latencyMs: Date.now() - startedAt,
     salvagedItems,
     usage: sumUsage(usages),
-    ...completionSafety.counts
+    ...completionSafety.counts,
+    ...candidateObservability
   };
 }
 

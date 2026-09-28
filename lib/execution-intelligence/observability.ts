@@ -25,6 +25,18 @@ export type ExecutionMetrics = {
   completionRejectedMissingEvidence: number;
   completionRejectedChronology: number;
   completionRejectedVerifier: number;
+  /** Lifecycle candidate-selection widening (generation-9 recall-benchmark follow-up): how many
+   * candidates were admitted only because of the broadened classification/scope_state/
+   * execution_scope/acceptance_state rules, and how many of those fields lifecycle actually
+   * repaired. See computeLifecycleCandidateObservability in work-item-stages.ts. */
+  lifecycleCandidatesConsidered: number;
+  lifecycleCandidatesAdmittedViaProposal: number;
+  lifecycleCandidatesAdmittedViaFutureScope: number;
+  lifecycleCandidatesAdmittedViaPersonalLogistics: number;
+  lifecycleCandidatesAdmittedViaProposedAcceptance: number;
+  lifecycleRepairedExecutionScope: number;
+  lifecycleRepairedAcceptanceState: number;
+  lifecycleRepairedScopeState: number;
   openAiLatencyMs: Record<string, number>;
   /** Populated only for stages that returned OpenAI usage on their response; used for replay/eval
    * cost reporting (`scripts/eval-v4.ts`). Absent entries mean the SDK/mock did not report usage. */
@@ -58,6 +70,14 @@ export function createExecutionMetrics(
     completionRejectedMissingEvidence: 0,
     completionRejectedChronology: 0,
     completionRejectedVerifier: 0,
+    lifecycleCandidatesConsidered: 0,
+    lifecycleCandidatesAdmittedViaProposal: 0,
+    lifecycleCandidatesAdmittedViaFutureScope: 0,
+    lifecycleCandidatesAdmittedViaPersonalLogistics: 0,
+    lifecycleCandidatesAdmittedViaProposedAcceptance: 0,
+    lifecycleRepairedExecutionScope: 0,
+    lifecycleRepairedAcceptanceState: 0,
+    lifecycleRepairedScopeState: 0,
     openAiLatencyMs: {},
     openAiUsage: {}
   };
