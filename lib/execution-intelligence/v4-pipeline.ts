@@ -299,6 +299,16 @@ export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4
   }
   if (passA.usage) state.metrics.openAiUsage.completenessRecovery = passA.usage;
   state.metrics.salvagedItems += passA.salvagedItems ?? 0;
+  const completenessProposed = passA.proposedByWindow.reduce((sum, w) => sum + w.proposed, 0);
+  state.metrics.completenessAdditionsProposed += completenessProposed;
+  state.metrics.completenessAdditionsGrounded += passA.groundedCount;
+  state.metrics.completenessAdditionsAccepted += passA.additions.length;
+  state.metrics.completenessAdditionsRemovedAsDuplicate += passA.duplicatesRemoved.length;
+  logExecutionStage(state.metrics, "v4_completeness_recovery_diagnostics", {
+    proposed_by_window: passA.proposedByWindow,
+    accepted_by_window: passA.acceptedByWindow,
+    duplicates_removed: passA.duplicatesRemoved
+  });
 
   const ledgerAfterAdditions = applyGlobalCorrections({
     workItems: state.mergedWorkItems,

@@ -221,35 +221,89 @@ export function filterGroundedAdditions(
   );
 }
 
+function normalizeQuoteForDedup(quote: string): string {
+  return quote.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function segmentSetsEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const setB = new Set(b);
+  return a.every((id) => setB.has(id));
+}
+
+export type CompletenessDedupRemoval = {
+  title: string;
+  matchedTitle: string;
+};
+
+export type CompletenessDedupResult = {
+  kept: GlobalWorkItemAddition[];
+  removed: CompletenessDedupRemoval[];
+};
+
 /**
- * Drops a completeness-recovery addition that shares a source segment with either an existing
- * ledger item or an addition already kept earlier in this same pass -- a segment-overlap-based
- * proxy for "this describes the same statement something already covers," which is exactly the
- * situation that can arise both across two overlapping chronological windows and between a window
- * and the ledger it was shown. Order-preserving (first occurrence wins).
+ * Drops a completeness-recovery addition only when it represents the SAME real-world outcome as
+ * something already seen (an existing ledger item, or an addition already kept earlier in this
+ * same pass) -- not merely the same transcript segment, turn, or topic. A compound turn can
+ * legitimately produce two distinct additions that cite the exact same segment ID (see ACTION-LEVEL
+ * ATOMICITY in COMPLETENESS_RECOVERY_PROMPT -- e.g. "I'll finish X and then confirm Y works" is one
+ * segment, two outcomes); segment-ID overlap alone is therefore not a safe duplicate signal by
+ * itself, and using it as one silently erases the second outcome whenever it shares a segment with
+ * something already covered. A candidate is only treated as a duplicate when its FULL segment set
+ * exactly matches something already seen AND its quote is the same statement (equal, or one fully
+ * contains the other, after normalization) -- both conditions together are strong evidence of a
+ * literal re-statement of the same outcome, whereas an overlapping-but-textually-different quote
+ * from a shared segment is exactly the distinct-outcome case this must not suppress. Order-
+ * preserving (first occurrence wins).
  */
 export function dedupeCompletenessAdditions(
   existingItems: WorkItem[],
   candidateAdditions: GlobalWorkItemAddition[]
-): GlobalWorkItemAddition[] {
-  const seenSegments = new Set<string>();
-  for (const item of existingItems) {
-    for (const id of item.source_segment_ids) seenSegments.add(id);
-  }
-  const deduped: GlobalWorkItemAddition[] = [];
+): CompletenessDedupResult {
+  const seen: Array<{ title: string; segmentIds: readonly string[]; normalizedQuote: string }> =
+    existingItems.map((item) => ({
+      title: item.title,
+      segmentIds: item.source_segment_ids,
+      normalizedQuote: normalizeQuoteForDedup(item.source_quote)
+    }));
+  const kept: GlobalWorkItemAddition[] = [];
+  const removed: CompletenessDedupRemoval[] = [];
   for (const addition of candidateAdditions) {
-    const overlaps = addition.source_segment_ids.some((id) => seenSegments.has(id));
-    if (overlaps) continue;
-    deduped.push(addition);
-    for (const id of addition.source_segment_ids) seenSegments.add(id);
+    const candidateQuote = normalizeQuoteForDedup(addition.source_quote);
+    const match = seen.find(
+      (entry) =>
+        segmentSetsEqual(entry.segmentIds, addition.source_segment_ids) &&
+        (entry.normalizedQuote === candidateQuote ||
+          entry.normalizedQuote.includes(candidateQuote) ||
+          candidateQuote.includes(entry.normalizedQuote))
+    );
+    if (match) {
+      removed.push({ title: addition.title, matchedTitle: match.title });
+      continue;
+    }
+    kept.push(addition);
+    seen.push({ title: addition.title, segmentIds: addition.source_segment_ids, normalizedQuote: candidateQuote });
   }
-  return deduped;
+  return { kept, removed };
 }
+
+export type CompletenessWindowProposalCount = { windowIndex: number; proposed: number };
+export type CompletenessAcceptedAddition = { windowIndex: number | null; title: string };
 
 export type CompletenessRecoveryPassResult =
   | {
       ok: true;
       additions: GlobalWorkItemAddition[];
+      /** Raw proposal count per window, including windows that proposed nothing -- observability
+       * only, not persisted. */
+      proposedByWindow: CompletenessWindowProposalCount[];
+      /** Final accepted additions (post grounding + dedup) paired with the window that proposed
+       * them -- observability only. */
+      acceptedByWindow: CompletenessAcceptedAddition[];
+      /** Additions dropped by dedup, and which already-seen item (by title -- refs don't exist
+       * yet at this stage) they were judged a duplicate of -- observability only. */
+      duplicatesRemoved: CompletenessDedupRemoval[];
+      groundedCount: number;
       latencyMs: number;
       salvagedItems: number;
       usage: TokenUsage | null;
@@ -306,14 +360,36 @@ export async function runCompletenessRecoveryPass(input: {
   const failure = results.find((result) => result && !result.ok);
   if (failure && !failure.ok) return { ...failure, latencyMs: Date.now() - startedAt };
 
+  const proposedByWindow: CompletenessWindowProposalCount[] = results.map((result, index) => ({
+    windowIndex: chunks[index].index,
+    proposed: result?.ok ? result.additions.length : 0
+  }));
+
+  const windowByAddition = new Map<GlobalWorkItemAddition, number>();
+  const allAdditions: GlobalWorkItemAddition[] = [];
+  results.forEach((result, index) => {
+    if (!result?.ok) return;
+    for (const addition of result.additions) {
+      allAdditions.push(addition);
+      windowByAddition.set(addition, chunks[index].index);
+    }
+  });
+
   const validSegments = new Set(transcriptSourceSegmentIds(input.source.transcript));
-  const allAdditions = results.flatMap((result) => (result?.ok ? result.additions : []));
   const grounded = filterGroundedAdditions(allAdditions, validSegments);
-  const deduped = dedupeCompletenessAdditions(input.workItems, grounded);
+  const { kept, removed } = dedupeCompletenessAdditions(input.workItems, grounded);
+  const acceptedByWindow: CompletenessAcceptedAddition[] = kept.map((addition) => ({
+    windowIndex: windowByAddition.get(addition) ?? null,
+    title: addition.title
+  }));
 
   return {
     ok: true,
-    additions: deduped,
+    additions: kept,
+    proposedByWindow,
+    acceptedByWindow,
+    duplicatesRemoved: removed,
+    groundedCount: grounded.length,
     latencyMs: Date.now() - startedAt,
     salvagedItems: results.reduce((sum, result) => sum + (result?.ok ? result.salvagedItems : 0), 0),
     usage: sumUsage(results.map((result) => (result?.ok ? result.usage : null)))

@@ -242,11 +242,15 @@ test("[C5] a candidate addition that overlaps an existing ledger item's evidence
   assert.equal(result.additions.length, 0, "the ledger already covers this segment -- no duplicate addition");
 
   // Direct unit coverage of the dedup primitive itself, isolated from the model-call plumbing.
+  // Same segment set AND the same statement (not just an overlapping segment) -- a genuine
+  // re-detection of the exact same outcome, which dedup must still catch.
   const deduped = dedupeCompletenessAdditions(
     [existing],
-    [addition({ title: "dup", source_quote: "q", source_segment_ids: [seg(1)] })]
+    [addition({ title: "dup", source_quote: "I'll send Sam the article we discussed", source_segment_ids: [seg(1)] })]
   );
-  assert.equal(deduped.length, 0);
+  assert.equal(deduped.kept.length, 0);
+  assert.equal(deduped.removed.length, 1);
+  assert.equal(deduped.removed[0].matchedTitle, "Send the article");
 });
 
 test("[C6] a hypothetical with no clear commitment produces no addition, and a fabricated addition would be rejected by grounding regardless", async () => {

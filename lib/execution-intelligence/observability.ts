@@ -37,6 +37,14 @@ export type ExecutionMetrics = {
   lifecycleRepairedExecutionScope: number;
   lifecycleRepairedAcceptanceState: number;
   lifecycleRepairedScopeState: number;
+  /** Completeness-recovery outcome atomicity (missed-voluntary-promise recall follow-up): how many
+   * additions each window proposed before grounding/dedup, how many survived grounding, how many
+   * were finally accepted, and how many were dropped as duplicates. See
+   * runCompletenessRecoveryPass/dedupeCompletenessAdditions in work-item-stages.ts. */
+  completenessAdditionsProposed: number;
+  completenessAdditionsGrounded: number;
+  completenessAdditionsAccepted: number;
+  completenessAdditionsRemovedAsDuplicate: number;
   openAiLatencyMs: Record<string, number>;
   /** Populated only for stages that returned OpenAI usage on their response; used for replay/eval
    * cost reporting (`scripts/eval-v4.ts`). Absent entries mean the SDK/mock did not report usage. */
@@ -78,6 +86,10 @@ export function createExecutionMetrics(
     lifecycleRepairedExecutionScope: 0,
     lifecycleRepairedAcceptanceState: 0,
     lifecycleRepairedScopeState: 0,
+    completenessAdditionsProposed: 0,
+    completenessAdditionsGrounded: 0,
+    completenessAdditionsAccepted: 0,
+    completenessAdditionsRemovedAsDuplicate: 0,
     openAiLatencyMs: {},
     openAiUsage: {}
   };

@@ -186,11 +186,31 @@ expected, or because a self-initiated promise had no preceding request for extra
 Your ONLY job: scan this window for concrete accepted or active project work that is COMPLETELY
 ABSENT from the existing ledger summary you were given. Do not repair, re-describe, or re-emit
 anything already in the ledger, even if you would phrase it differently or think its current fields
-are wrong -- that is a separate pass's responsibility, not yours. If you are unsure whether
-something is already covered, do not add it.
+are wrong -- that is a separate pass's responsibility, not yours. If a specific outcome is unsure
+whether it is already covered, do not add it -- but "unsure" must be judged per OUTCOME (see
+ACTION-LEVEL ATOMICITY below), never assumed for an entire turn just because part of it is covered.
+
+ACTION-LEVEL ATOMICITY: work at the level of distinct, independently-checkable OUTCOMES, not at the
+level of turns or topics. A single speaker turn, sentence, or topic can contain more than one
+outcome, and the ledger already covering one of them never implies the others are covered too --
+check each one separately against the ledger summary. This applies however the outcomes are
+connected: "I'll finish X and then confirm Y works" can be two distinct outcomes (finishing X, and
+separately confirming Y) even though they share one sentence and one speaker turn; a long turn about
+one broader initiative can still contain one short, separate, concrete commitment buried inside it
+("...we'll keep working on the rollout, and I'll also send you that document we discussed..." has a
+document-sending outcome distinct from the rollout work, even though the sentence starts by talking
+about the rollout). Do not summarize a turn down to only its most prominent or most-discussed
+outcome and silently drop a smaller one mentioned alongside it -- a commitment is exactly as real,
+and exactly as required to add, whether it is the main point of the turn or a brief aside within a
+longer one. This is not a mechanical instruction to split every "and" into separate items -- most
+"and"s join two descriptions of the very same outcome, not two different outcomes. Add multiple
+outcomes from one turn only when they are genuinely separate, independently-verifiable results (each
+could be true or false, complete or incomplete, independently of the other); never split a single
+outcome into artificial pieces just because it was described in more than one clause.
 
 IMPORTANT: a self-initiated promise never requires an earlier matching request in this window --
-"I'll send you the article" is itself a complete, groundable accepted action on its own.
+"I'll send you the article" is itself a complete, groundable accepted action on its own, and this
+holds identically whether it is the entire turn or one clause within a much longer one.
 
 IMPORTANT: future execution is not the same as future_scope. If the work is presently committed as
 a direct result of this conversation, it belongs in current_scope even though it will necessarily
@@ -209,10 +229,18 @@ nobody accepted, questions, purely informational statements, or personal logisti
 deliverable attached. Vague, hedged, or conditional phrasing with no clear owner and no clear
 commitment is never itself evidence of active work.
 
+CONDITIONAL OFFERS: "if you need it, I can send you X" or "if that breaks, I can take a look" is not
+itself active work -- it stays non-active unless this same window's transcript shows the condition
+actually being invoked or accepted ("yes, please" or equivalent). Only add it once activated, citing
+the activating segment alongside the offer's own segment.
+
 Every addition must be grounded in its own exact quote and real segment IDs from THIS window --
 never invent one without that evidence, and never cite a segment ID that does not appear in this
-window's transcript. State extraction_reason and classification_reason precisely. If nothing is
-missing in this window, return an empty additions array. Return only schema-valid JSON.
+window's transcript. When two distinct outcomes share the same segment (a compound turn), quote each
+addition's own exact clause, not the whole turn -- this keeps each addition's evidence specific to
+the outcome it actually represents, even though both additions may cite the same segment ID. State
+extraction_reason and classification_reason precisely. If nothing is missing in this window, return
+an empty additions array. Return only schema-valid JSON.
 `.trim();
 
 /**
