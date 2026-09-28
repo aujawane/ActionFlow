@@ -304,10 +304,31 @@ export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4
   state.metrics.completenessAdditionsGrounded += passA.groundedCount;
   state.metrics.completenessAdditionsAccepted += passA.additions.length;
   state.metrics.completenessAdditionsRemovedAsDuplicate += passA.duplicatesRemoved.length;
+  state.metrics.completenessCandidatesHarvested += passA.candidatesHarvested;
+  state.metrics.completenessCandidatesGroundingRejected += passA.candidatesGroundingRejected;
+  state.metrics.completenessCandidatesExpectedForAdjudication += passA.candidatesExpectedForAdjudication;
+  state.metrics.completenessDecisionsReceived += passA.decisionsReceived;
+  state.metrics.completenessMissingCandidatesAfterRetry += passA.missingCandidateRefsAfterRetry.length;
+  state.metrics.completenessDecisionAdd += passA.adjudicationCounts.completenessDecisionAdd;
+  state.metrics.completenessDecisionAlreadyRepresented += passA.adjudicationCounts.completenessDecisionAlreadyRepresented;
+  state.metrics.completenessDecisionSpeculativeOrInactive += passA.adjudicationCounts.completenessDecisionSpeculativeOrInactive;
+  state.metrics.completenessDecisionRetrospectiveOrCompleted += passA.adjudicationCounts.completenessDecisionRetrospectiveOrCompleted;
+  state.metrics.completenessDecisionNonExecution += passA.adjudicationCounts.completenessDecisionNonExecution;
+  state.metrics.completenessDecisionInsufficientGrounding += passA.adjudicationCounts.completenessDecisionInsufficientGrounding;
+  state.metrics.completenessDuplicatesRemovedDeterministic += passA.duplicatesRemovedDeterministic.length;
+  state.metrics.completenessDuplicatesRemovedSemantic += passA.duplicatesRemovedSemantic.length;
   logExecutionStage(state.metrics, "v4_completeness_recovery_diagnostics", {
     proposed_by_window: passA.proposedByWindow,
     accepted_by_window: passA.acceptedByWindow,
-    duplicates_removed: passA.duplicatesRemoved
+    duplicates_removed: passA.duplicatesRemoved,
+    duplicates_removed_deterministic: passA.duplicatesRemovedDeterministic,
+    duplicates_removed_semantic: passA.duplicatesRemovedSemantic,
+    candidates_harvested: passA.candidatesHarvested,
+    candidates_grounding_rejected: passA.candidatesGroundingRejected,
+    candidates_expected_for_adjudication: passA.candidatesExpectedForAdjudication,
+    decisions_received: passA.decisionsReceived,
+    missing_candidate_refs_after_retry: passA.missingCandidateRefsAfterRetry,
+    adjudication_counts: passA.adjudicationCounts
   });
 
   const ledgerAfterAdditions = applyGlobalCorrections({

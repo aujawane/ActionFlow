@@ -91,7 +91,8 @@ export function getExecutionIntelligenceEngine(): ExecutionIntelligenceEngine {
 export type V4Stage =
   | "transcript_normalization"
   | "work_item_extraction"
-  | "completeness_recovery"
+  | "atomic_action_harvest"
+  | "completeness_adjudication"
   | "lifecycle_reconciliation"
   | "completion_verification"
   | "grouping"
@@ -101,7 +102,8 @@ export type V4Stage =
 const V4_STAGE_MODEL_ENV: Record<V4Stage, string> = {
   transcript_normalization: "OPENAI_MODEL_V4_NORMALIZATION",
   work_item_extraction: "OPENAI_MODEL_V4_EXTRACTION",
-  completeness_recovery: "OPENAI_MODEL_V4_COMPLETENESS_RECOVERY",
+  atomic_action_harvest: "OPENAI_MODEL_V4_ATOMIC_ACTION_HARVEST",
+  completeness_adjudication: "OPENAI_MODEL_V4_COMPLETENESS_ADJUDICATION",
   lifecycle_reconciliation: "OPENAI_MODEL_V4_LIFECYCLE_RECONCILIATION",
   completion_verification: "OPENAI_MODEL_V4_COMPLETION_VERIFICATION",
   grouping: "OPENAI_MODEL_V4_GROUPING",
@@ -112,7 +114,8 @@ const V4_STAGE_MODEL_ENV: Record<V4Stage, string> = {
 const V4_STAGE_TIMEOUT_ENV: Record<V4Stage, string> = {
   transcript_normalization: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_NORMALIZATION",
   work_item_extraction: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION",
-  completeness_recovery: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETENESS_RECOVERY",
+  atomic_action_harvest: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_ATOMIC_ACTION_HARVEST",
+  completeness_adjudication: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETENESS_ADJUDICATION",
   lifecycle_reconciliation: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_LIFECYCLE_RECONCILIATION",
   completion_verification: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETION_VERIFICATION",
   grouping: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_GROUPING",

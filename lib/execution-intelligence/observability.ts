@@ -39,12 +39,31 @@ export type ExecutionMetrics = {
   lifecycleRepairedScopeState: number;
   /** Completeness-recovery outcome atomicity (missed-voluntary-promise recall follow-up): how many
    * additions each window proposed before grounding/dedup, how many survived grounding, how many
-   * were finally accepted, and how many were dropped as duplicates. See
-   * runCompletenessRecoveryPass/dedupeCompletenessAdditions in work-item-stages.ts. */
+   * were finally accepted, and how many were dropped as duplicates (either dedup layer combined).
+   * See runCompletenessRecoveryPass/dedupeCompletenessAdditions in work-item-stages.ts. */
   completenessAdditionsProposed: number;
   completenessAdditionsGrounded: number;
   completenessAdditionsAccepted: number;
   completenessAdditionsRemovedAsDuplicate: number;
+  /** Two-step completeness recovery (generation-11 benchmark follow-up): PASS A (atomic action
+   * harvest, ledger-blind) and PASS B (missing-work adjudication, ledger-aware) diagnostics, plus
+   * the breakdown of which dedup LAYER caught a duplicate -- LAYER 1 (deterministic, exact segment
+   * set) vs LAYER 2 (semantic, reused isNearDuplicateWorkItem; this is what closes the wi_g7/wi_g8
+   * cross-segment leak). See runAtomicActionHarvestPass/runCompletenessAdjudicationPass/
+   * semanticDedupeCompletenessAdditions in work-item-stages.ts. */
+  completenessCandidatesHarvested: number;
+  completenessCandidatesGroundingRejected: number;
+  completenessCandidatesExpectedForAdjudication: number;
+  completenessDecisionsReceived: number;
+  completenessMissingCandidatesAfterRetry: number;
+  completenessDecisionAdd: number;
+  completenessDecisionAlreadyRepresented: number;
+  completenessDecisionSpeculativeOrInactive: number;
+  completenessDecisionRetrospectiveOrCompleted: number;
+  completenessDecisionNonExecution: number;
+  completenessDecisionInsufficientGrounding: number;
+  completenessDuplicatesRemovedDeterministic: number;
+  completenessDuplicatesRemovedSemantic: number;
   openAiLatencyMs: Record<string, number>;
   /** Populated only for stages that returned OpenAI usage on their response; used for replay/eval
    * cost reporting (`scripts/eval-v4.ts`). Absent entries mean the SDK/mock did not report usage. */
@@ -90,6 +109,19 @@ export function createExecutionMetrics(
     completenessAdditionsGrounded: 0,
     completenessAdditionsAccepted: 0,
     completenessAdditionsRemovedAsDuplicate: 0,
+    completenessCandidatesHarvested: 0,
+    completenessCandidatesGroundingRejected: 0,
+    completenessCandidatesExpectedForAdjudication: 0,
+    completenessDecisionsReceived: 0,
+    completenessMissingCandidatesAfterRetry: 0,
+    completenessDecisionAdd: 0,
+    completenessDecisionAlreadyRepresented: 0,
+    completenessDecisionSpeculativeOrInactive: 0,
+    completenessDecisionRetrospectiveOrCompleted: 0,
+    completenessDecisionNonExecution: 0,
+    completenessDecisionInsufficientGrounding: 0,
+    completenessDuplicatesRemovedDeterministic: 0,
+    completenessDuplicatesRemovedSemantic: 0,
     openAiLatencyMs: {},
     openAiUsage: {}
   };

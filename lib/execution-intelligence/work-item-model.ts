@@ -4,10 +4,12 @@ import { getV4StageModel, getV4StageTimeoutMs, type V4Stage } from "@/lib/env";
 import { openai } from "@/lib/openai";
 import { logExecutionModelEvent } from "./observability";
 import {
-  completenessRecoveryJsonSchema,
+  atomicActionHarvestCandidateSchema,
+  atomicActionHarvestJsonSchema,
+  completenessAdjudicationDecisionSchema,
+  completenessAdjudicationJsonSchema,
   completionVerificationJsonSchema,
   completionVerificationSchema,
-  globalWorkItemAdditionSchema,
   globalWorkItemCorrectionSchema,
   groupingJsonSchema,
   lifecycleReviewJsonSchema,
@@ -21,7 +23,8 @@ import {
   verifiedGroupSchema,
   vocabularyCandidateSchema,
   workItemExtractionJsonSchema,
-  type GlobalWorkItemAddition,
+  type AtomicActionHarvestCandidate,
+  type CompletenessAdjudicationDecision,
   type GlobalWorkItemCorrection,
   type RawGroupProposal,
   type RawWorkItem,
@@ -263,38 +266,78 @@ export async function runWorkItemExtractionModel(input: {
   };
 }
 
-export type CompletenessRecoveryModelResult =
+export type AtomicActionHarvestModelResult =
   | {
       ok: true;
-      additions: GlobalWorkItemAddition[];
+      candidates: AtomicActionHarvestCandidate[];
       latencyMs: number;
       salvagedItems: number;
       usage: TokenUsage | null;
     }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
-/** Pass A: completeness recovery. Additions only -- never repairs an existing item. */
-export async function runCompletenessRecoveryModel(input: {
+/** Pass A: atomic action harvest. Ledger-blind, high-recall enumeration of grounded action
+ * candidates -- never decides whether something is already known, never repairs an existing item. */
+export async function runAtomicActionHarvestModel(input: {
   systemPrompt: string;
   context: unknown;
   timeoutMs?: number;
   createResponse?: CreateStructuredResponse;
-}): Promise<CompletenessRecoveryModelResult> {
+}): Promise<AtomicActionHarvestModelResult> {
   const result = await requestStructuredJson({
-    stage: "completeness_recovery",
+    stage: "atomic_action_harvest",
     systemPrompt: input.systemPrompt,
     context: input.context,
-    jsonSchema: completenessRecoveryJsonSchema,
+    jsonSchema: atomicActionHarvestJsonSchema,
     timeoutMs: input.timeoutMs,
     createResponse: input.createResponse
   });
   if (!result.ok) return result;
-  const additions = salvageArray(result.raw, "additions", globalWorkItemAdditionSchema);
+  const candidates = salvageArray(result.raw, "candidates", atomicActionHarvestCandidateSchema);
   return {
     ok: true,
-    additions: additions.items,
+    candidates: candidates.items,
     latencyMs: result.latencyMs,
-    salvagedItems: additions.dropped,
+    salvagedItems: candidates.dropped,
+    usage: result.usage
+  };
+}
+
+export type CompletenessAdjudicationModelResult =
+  | {
+      ok: true;
+      decisions: CompletenessAdjudicationDecision[];
+      latencyMs: number;
+      salvagedItems: number;
+      usage: TokenUsage | null;
+    }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+/** Pass B: missing-work adjudication. Given harvested candidates (never rediscovered from the
+ * transcript itself) plus the existing ledger, decides per candidate whether it represents genuine,
+ * currently-absent execution work -- exhaustive coverage is enforced by the caller
+ * (work-item-stages.ts's runCompletenessAdjudicationPass), not here. */
+export async function runCompletenessAdjudicationModel(input: {
+  systemPrompt: string;
+  context: unknown;
+  timeoutMs?: number;
+  createResponse?: CreateStructuredResponse;
+}): Promise<CompletenessAdjudicationModelResult> {
+  const result = await requestStructuredJson({
+    stage: "completeness_adjudication",
+    systemPrompt: input.systemPrompt,
+    context: input.context,
+    jsonSchema: completenessAdjudicationJsonSchema,
+    timeoutMs: input.timeoutMs,
+    createResponse: input.createResponse
+  });
+  if (!result.ok) return result;
+  const decisions = salvageArray(result.raw, "decisions", completenessAdjudicationDecisionSchema);
+  return {
+    ok: true,
+    decisions: decisions.items,
+    latencyMs: result.latencyMs,
+    salvagedItems: decisions.dropped,
     usage: result.usage
   };
 }

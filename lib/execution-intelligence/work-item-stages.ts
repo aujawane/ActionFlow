@@ -1,6 +1,7 @@
 import { getV4StageTimeoutMs } from "@/lib/env";
 import {
-  COMPLETENESS_RECOVERY_PROMPT,
+  ATOMIC_ACTION_HARVEST_PROMPT,
+  COMPLETENESS_ADJUDICATION_PROMPT,
   COMPLETION_VERIFICATION_PROMPT,
   GROUPING_PROMPT,
   GROUPING_VERIFICATION_PROMPT,
@@ -8,7 +9,8 @@ import {
   WORK_ITEM_EXTRACTION_PROMPT
 } from "./work-item-prompts";
 import {
-  runCompletenessRecoveryModel,
+  runAtomicActionHarvestModel,
+  runCompletenessAdjudicationModel,
   runCompletionVerificationModel,
   runGroupingModel,
   runGroupingVerificationModel,
@@ -21,6 +23,8 @@ import { assignDraftGroupRefs } from "./execution-tree";
 import { EXECUTION_CHUNK_CONCURRENCY, splitExecutionSourceIntoChunks } from "./chunking";
 import { transcriptSourceSegmentIds } from "./conversation-event-identity";
 import type {
+  AtomicActionHarvestCandidate,
+  CompletenessAdjudicationDecision,
   EligibleWorkItemView,
   GlobalWorkItemAddition,
   GlobalWorkItemCorrection,
@@ -30,6 +34,7 @@ import type {
   WorkItem
 } from "./work-item-schemas";
 import type { TopicWorkItemExtraction } from "./work-item-merge";
+import { isNearDuplicateWorkItem } from "./work-item-merge";
 import {
   participantMap,
   transcriptForSegmentIds,
@@ -173,29 +178,43 @@ export async function extractTopicWorkItems(
 
 /**
  * ===========================================================================
- * Global correction, split into two focused passes (V4 recall/temporal-state hardening,
- * generation-6 staging benchmark follow-up).
+ * Completeness recovery, split into two focused internal steps (missed-voluntary-promise recall
+ * follow-up, generation-11 staging benchmark).
  *
- * The single combined "global correction" call used to be asked simultaneously to find missing
- * work, repair acceptance, repair current_scope/future_scope, detect later completion, reconcile
- * duplicate request/acceptance representations, repair owners, and inspect evidence -- all in one
- * model response over the entire transcript. The generation-6 benchmark showed it could satisfy
- * some of these responsibilities while silently skipping others in the same run (e.g. correctly
- * closing out a demo while never even evaluating a different, structurally identical completed
- * action). Splitting into Pass A (completeness recovery, windowed) and Pass B (exhaustive
- * per-ref lifecycle reconciliation) gives each responsibility its own focused call and, for Pass
- * B, a programmatically-enforced coverage guarantee instead of relying on prompt wording alone.
+ * The single windowed completeness call used to both enumerate what the transcript said AND decide
+ * whether it was already known, in one response, over one window at a time, WITH ledger visibility.
+ * The generation-11 benchmark showed this conflated two different questions: "what actions does
+ * this turn express" and "is any of that already covered" -- when a compound turn's more prominent
+ * outcome happened to look already-covered (or was simply the one the model picked to represent
+ * the turn), a smaller or secondary outcome sharing the same turn was silently never enumerated at
+ * all, with no separate mechanism able to catch what was never proposed in the first place.
  *
- * Both passes reuse the EXISTING GlobalWorkItemAddition/GlobalWorkItemCorrection schemas and the
- * existing applyGlobalCorrections() merge/grounding logic in v4-pipeline.ts -- nothing downstream
- * of this file (isExecutionEligible onward) changes.
+ * PASS A (ATOMIC ACTION HARVEST, see runAtomicActionHarvestPass) is windowed exactly as before, but
+ * is deliberately LEDGER-BLIND and high-recall: its only question is "what concrete actions/outcomes
+ * does this window express," never "is this already known." PASS B (MISSING-WORK ADJUDICATION, see
+ * runCompletenessAdjudicationPass) receives the harvested candidates directly (never re-derives them
+ * from the transcript), plus full ledger visibility and the full transcript, and is the only place
+ * that decides whether a candidate is genuinely absent, active work -- and if so, assigns its final
+ * WorkItem-shaped fields. Exhaustive per-candidate coverage is programmatically enforced the same
+ * way lifecycle reconciliation's coverage already is, with the same targeted-retry-then-leave-
+ * unresolved salvage behavior. A final semantic same-outcome dedup layer (reusing
+ * isNearDuplicateWorkItem, already used by the initial extraction-merge stage for the identical
+ * "same real-world outcome, not same topic" judgment) catches same-outcome candidates that cite
+ * different transcript segments, which the original segment-set-based dedup structurally cannot.
+ *
+ * Both original single-pass architecture's outputs -- GlobalWorkItemAddition/GlobalWorkItemCorrection
+ * schemas and applyGlobalCorrections()'s merge/grounding logic in v4-pipeline.ts -- are unchanged and
+ * still what this two-step internal refactor ultimately produces; nothing downstream of this file
+ * (isExecutionEligible onward), and no other pass (lifecycle candidate selection, lifecycle
+ * reconciliation, completion safety), is affected.
  * ===========================================================================
  */
 
 /** Compact, per-window-independent summary of the ENTIRE existing ledger sent to every
- * completeness-recovery window, so a window never re-proposes something already captured
- * elsewhere in the meeting. Deliberately lean (no full evidence/reasoning fields) to keep each
- * window's prompt compact. */
+ * missing-work-adjudication batch, so adjudication never proposes "add" for something already
+ * captured elsewhere in the meeting. Deliberately lean (no full evidence/reasoning fields) to keep
+ * each batch's prompt compact. (Atomic action harvest deliberately does NOT see this -- see the
+ * module header comment.) */
 function buildLedgerSummary(items: WorkItem[]) {
   return items.map((item) => ({
     ref: item.ref,
@@ -221,6 +240,20 @@ export function filterGroundedAdditions(
   );
 }
 
+/** Same rule, applied to Pass A's raw harvest candidates before they are ever shown to Pass B --
+ * an ungrounded candidate never reaches adjudication, exactly as an ungrounded addition never
+ * reached dedup under the old single-pass design. */
+export function filterGroundedHarvestCandidates(
+  candidates: AtomicActionHarvestCandidate[],
+  validSegments: Set<string>
+): AtomicActionHarvestCandidate[] {
+  return candidates.filter(
+    (candidate) =>
+      candidate.source_quote.trim().length > 0 &&
+      candidate.source_segment_ids.some((id) => validSegments.has(id))
+  );
+}
+
 function normalizeQuoteForDedup(quote: string): string {
   return quote.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -242,19 +275,18 @@ export type CompletenessDedupResult = {
 };
 
 /**
- * Drops a completeness-recovery addition only when it represents the SAME real-world outcome as
- * something already seen (an existing ledger item, or an addition already kept earlier in this
- * same pass) -- not merely the same transcript segment, turn, or topic. A compound turn can
- * legitimately produce two distinct additions that cite the exact same segment ID (see ACTION-LEVEL
- * ATOMICITY in COMPLETENESS_RECOVERY_PROMPT -- e.g. "I'll finish X and then confirm Y works" is one
- * segment, two outcomes); segment-ID overlap alone is therefore not a safe duplicate signal by
- * itself, and using it as one silently erases the second outcome whenever it shares a segment with
- * something already covered. A candidate is only treated as a duplicate when its FULL segment set
- * exactly matches something already seen AND its quote is the same statement (equal, or one fully
- * contains the other, after normalization) -- both conditions together are strong evidence of a
- * literal re-statement of the same outcome, whereas an overlapping-but-textually-different quote
- * from a shared segment is exactly the distinct-outcome case this must not suppress. Order-
- * preserving (first occurrence wins).
+ * LAYER 1 (cheap, deterministic, exact-match): drops a completeness addition only when it
+ * represents the SAME real-world outcome as something already seen (an existing ledger item, or an
+ * addition already kept earlier in this same pass) -- not merely the same transcript segment, turn,
+ * or topic. A compound turn can legitimately produce two distinct additions that cite the exact same
+ * segment ID (see ACTION-LEVEL ATOMICITY in ATOMIC_ACTION_HARVEST_PROMPT -- e.g. "I'll finish X and
+ * then confirm Y works" is one segment, two outcomes); segment-ID overlap alone is therefore not a
+ * safe duplicate signal by itself. A candidate is only treated as a duplicate here when its FULL
+ * segment set exactly matches something already seen AND its quote is the same statement (equal, or
+ * one fully contains the other, after normalization). This layer cannot catch a same-outcome
+ * candidate citing a DIFFERENT segment (e.g. the same real commitment mentioned in two different
+ * turns) -- see semanticDedupeCompletenessAdditions (LAYER 2) for that. Order-preserving (first
+ * occurrence wins).
  */
 export function dedupeCompletenessAdditions(
   existingItems: WorkItem[],
@@ -287,23 +319,61 @@ export function dedupeCompletenessAdditions(
   return { kept, removed };
 }
 
-export type CompletenessWindowProposalCount = { windowIndex: number; proposed: number };
-export type CompletenessAcceptedAddition = { windowIndex: number | null; title: string };
+/** Adapts a WorkItem/GlobalWorkItemAddition (both already RawWorkItem-shaped) to the ScopedWorkItem
+ * shape isNearDuplicateWorkItem expects. topic_id is never inspected by that function's own logic
+ * (confirmed by reading its body) -- it exists only to satisfy the shared type, so `null` is always
+ * safe here regardless of which real topic (if any) the item came from. */
+function toScopedForSemanticDedup(item: RawWorkItem): RawWorkItem & { topic_id: string | null } {
+  return { ...item, topic_id: null };
+}
 
-export type CompletenessRecoveryPassResult =
+/**
+ * LAYER 2 (semantic, reused primitive): catches a same-real-world-outcome duplicate that cites a
+ * DIFFERENT transcript segment than the item it duplicates -- structurally invisible to LAYER 1's
+ * segment-set-equality check, and exactly the shape of the generation-11 "wi_g7/wi_g8" leak (same
+ * "connect agent to phone" commitment, two different turns/segments, both survived because their
+ * segment sets never matched). Reuses isNearDuplicateWorkItem verbatim from work-item-merge.ts --
+ * the SAME "same classification and status, and (near-identical title OR (shared evidence AND
+ * moderately similar title))" judgment already used to merge topic-scoped extraction's own
+ * duplicates -- rather than inventing a second, parallel semantic-duplicate heuristic. Deliberately
+ * does NOT weaken LAYER 1: this runs only on LAYER 1's survivors, as a second, independent pass.
+ */
+export function semanticDedupeCompletenessAdditions(
+  existingItems: WorkItem[],
+  candidateAdditions: GlobalWorkItemAddition[]
+): CompletenessDedupResult {
+  const seen: Array<{ title: string; scoped: RawWorkItem & { topic_id: string | null } }> = existingItems.map(
+    (item) => ({ title: item.title, scoped: toScopedForSemanticDedup(item) })
+  );
+  const kept: GlobalWorkItemAddition[] = [];
+  const removed: CompletenessDedupRemoval[] = [];
+  for (const addition of candidateAdditions) {
+    const scoped = toScopedForSemanticDedup(addition);
+    const match = seen.find((entry) => isNearDuplicateWorkItem(entry.scoped, scoped));
+    if (match) {
+      removed.push({ title: addition.title, matchedTitle: match.title });
+      continue;
+    }
+    kept.push(addition);
+    seen.push({ title: addition.title, scoped });
+  }
+  return { kept, removed };
+}
+
+// ---------------------------------------------------------------------------
+// PASS A: ATOMIC ACTION HARVEST
+// ---------------------------------------------------------------------------
+
+export type HarvestedCandidate = AtomicActionHarvestCandidate & { canonicalRef: string; windowIndex: number };
+
+export type CompletenessHarvestWindowCount = { windowIndex: number; harvested: number };
+
+export type AtomicActionHarvestPassResult =
   | {
       ok: true;
-      additions: GlobalWorkItemAddition[];
-      /** Raw proposal count per window, including windows that proposed nothing -- observability
-       * only, not persisted. */
-      proposedByWindow: CompletenessWindowProposalCount[];
-      /** Final accepted additions (post grounding + dedup) paired with the window that proposed
-       * them -- observability only. */
-      acceptedByWindow: CompletenessAcceptedAddition[];
-      /** Additions dropped by dedup, and which already-seen item (by title -- refs don't exist
-       * yet at this stage) they were judged a duplicate of -- observability only. */
-      duplicatesRemoved: CompletenessDedupRemoval[];
-      groundedCount: number;
+      candidates: HarvestedCandidate[];
+      harvestedByWindow: CompletenessHarvestWindowCount[];
+      groundingRejected: number;
       latencyMs: number;
       salvagedItems: number;
       usage: TokenUsage | null;
@@ -311,23 +381,22 @@ export type CompletenessRecoveryPassResult =
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
 /**
- * PASS A: completeness recovery, run over chronological transcript windows (reusing the same
- * chunker/concurrency the topic-scoped extraction stage already uses -- see chunking.ts -- rather
- * than inventing a second windowing scheme) instead of one whole-transcript call. Every window
- * sees the full existing-ledger summary but only its own slice of transcript, so a sparse,
- * easy-to-miss promise is never competing for attention against five other unrelated
- * responsibilities in one giant prompt. Never repairs an existing item -- additions only.
+ * PASS A: atomic action harvest, run over the SAME chronological transcript windows completeness
+ * recovery has always used (reusing the same chunker/concurrency the topic-scoped extraction stage
+ * also uses -- see chunking.ts -- rather than inventing a second windowing scheme). Ledger-blind and
+ * deliberately high-recall (see ATOMIC_ACTION_HARVEST_PROMPT) -- never decides what is already known,
+ * only enumerates. Candidate identity (canonicalRef) is always assigned here by application code,
+ * never trusted from the model's own window-local candidate_id, so candidates from different windows
+ * can be safely pooled together for Pass B without ID collisions.
  */
-export async function runCompletenessRecoveryPass(input: {
+export async function runAtomicActionHarvestPass(input: {
   source: ExecutionSourceContext;
-  workItems: WorkItem[];
   createResponse?: CreateStructuredResponse;
-}): Promise<CompletenessRecoveryPassResult> {
+}): Promise<AtomicActionHarvestPassResult> {
   const startedAt = Date.now();
   const chunks = splitExecutionSourceIntoChunks(input.source);
-  const ledgerSummary = buildLedgerSummary(input.workItems);
 
-  const results: Array<Awaited<ReturnType<typeof runCompletenessRecoveryModel>> | undefined> =
+  const results: Array<Awaited<ReturnType<typeof runAtomicActionHarvestModel>> | undefined> =
     new Array(chunks.length);
   let next = 0;
   let failed = false;
@@ -336,17 +405,16 @@ export async function runCompletenessRecoveryPass(input: {
       const index = next++;
       if (index >= chunks.length) return;
       const chunk = chunks[index];
-      const result = await runCompletenessRecoveryModel({
-        systemPrompt: COMPLETENESS_RECOVERY_PROMPT,
-        timeoutMs: Math.max(getV4StageTimeoutMs("completeness_recovery"), 90_000),
+      const result = await runAtomicActionHarvestModel({
+        systemPrompt: ATOMIC_ACTION_HARVEST_PROMPT,
+        timeoutMs: Math.max(getV4StageTimeoutMs("atomic_action_harvest"), 90_000),
         createResponse: input.createResponse,
         context: {
           meeting_id: input.source.meetingId,
           meeting_date: input.source.meetingDate,
           participants: participantMap(chunk.source.transcript),
           window_index: chunk.index,
-          transcript: chunk.source.transcript,
-          existing_ledger: ledgerSummary
+          transcript: chunk.source.transcript
         }
       });
       results[index] = result;
@@ -360,39 +428,408 @@ export async function runCompletenessRecoveryPass(input: {
   const failure = results.find((result) => result && !result.ok);
   if (failure && !failure.ok) return { ...failure, latencyMs: Date.now() - startedAt };
 
-  const proposedByWindow: CompletenessWindowProposalCount[] = results.map((result, index) => ({
-    windowIndex: chunks[index].index,
-    proposed: result?.ok ? result.additions.length : 0
-  }));
+  const validSegments = new Set(transcriptSourceSegmentIds(input.source.transcript));
+  const harvestedByWindow: CompletenessHarvestWindowCount[] = [];
+  const allCandidates: HarvestedCandidate[] = [];
+  let groundingRejected = 0;
 
-  const windowByAddition = new Map<GlobalWorkItemAddition, number>();
-  const allAdditions: GlobalWorkItemAddition[] = [];
   results.forEach((result, index) => {
-    if (!result?.ok) return;
-    for (const addition of result.additions) {
-      allAdditions.push(addition);
-      windowByAddition.set(addition, chunks[index].index);
+    const windowIndex = chunks[index].index;
+    if (!result?.ok) {
+      harvestedByWindow.push({ windowIndex, harvested: 0 });
+      return;
     }
+    harvestedByWindow.push({ windowIndex, harvested: result.candidates.length });
+    const grounded = filterGroundedHarvestCandidates(result.candidates, validSegments);
+    groundingRejected += result.candidates.length - grounded.length;
+    grounded.forEach((candidate, candidateIndex) => {
+      allCandidates.push({
+        ...candidate,
+        canonicalRef: `hc_w${windowIndex}_${candidateIndex + 1}`,
+        windowIndex
+      });
+    });
   });
 
+  return {
+    ok: true,
+    candidates: allCandidates,
+    harvestedByWindow,
+    groundingRejected,
+    latencyMs: Date.now() - startedAt,
+    salvagedItems: results.reduce((sum, result) => sum + (result?.ok ? result.salvagedItems : 0), 0),
+    usage: sumUsage(results.map((result) => (result?.ok ? result.usage : null)))
+  };
+}
+
+// ---------------------------------------------------------------------------
+// PASS B: MISSING-WORK ADJUDICATION
+// ---------------------------------------------------------------------------
+
+/** Batch size for Pass B's harvested candidates -- mirrors LIFECYCLE_REVIEW_BATCH_SIZE exactly
+ * (same rationale: small/conservative so a single batch's response stays easy for the model to
+ * fully enumerate). The FULL transcript accompanies every batch regardless of which window(s) its
+ * candidates came from, so adjudication always has complete chronological context. */
+export const COMPLETENESS_ADJUDICATION_BATCH_SIZE = 15;
+
+// chunkIntoBatches is defined once, later in this file, and reused here (see the lifecycle
+// reconciliation section) -- declarations in this module are hoisted, so the forward reference
+// below is safe.
+
+/**
+ * Exhaustive-coverage enforcement for Pass B, mirroring validateLifecycleReviewCoverage's exact
+ * logic (never trusted on prompt wording alone): only decisions for candidate_ids actually
+ * requested are kept, only the first decision per candidate_id is kept, and every requested
+ * candidate_id not present in the response is reported back as missing rather than silently
+ * treated as adjudicated. A new, parallel function rather than generalizing/reusing
+ * validateLifecycleReviewCoverage directly, since that function lives in the lifecycle
+ * reconciliation section of this file, which this task must not modify.
+ */
+export function validateCompletenessAdjudicationCoverage(
+  requestedCandidateRefs: readonly string[],
+  decisions: CompletenessAdjudicationDecision[]
+): { covered: CompletenessAdjudicationDecision[]; missingCandidateRefs: string[] } {
+  const requested = new Set(requestedCandidateRefs);
+  const seen = new Set<string>();
+  const covered: CompletenessAdjudicationDecision[] = [];
+  for (const decision of decisions) {
+    if (!requested.has(decision.candidate_id) || seen.has(decision.candidate_id)) continue;
+    seen.add(decision.candidate_id);
+    covered.push(decision);
+  }
+  return {
+    covered,
+    missingCandidateRefs: requestedCandidateRefs.filter((ref) => !seen.has(ref))
+  };
+}
+
+export type CompletenessAdjudicationCounts = {
+  completenessDecisionAdd: number;
+  completenessDecisionAlreadyRepresented: number;
+  completenessDecisionSpeculativeOrInactive: number;
+  completenessDecisionRetrospectiveOrCompleted: number;
+  completenessDecisionNonExecution: number;
+  completenessDecisionInsufficientGrounding: number;
+};
+
+export type CompletenessAdjudicationPassResult =
+  | ({
+      ok: true;
+      additions: GlobalWorkItemAddition[];
+      candidatesExpected: number;
+      decisionsReceived: number;
+      missingCandidateRefsAfterRetry: string[];
+      latencyMs: number;
+      salvagedItems: number;
+      usage: TokenUsage | null;
+    } & CompletenessAdjudicationCounts)
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+async function requestCompletenessAdjudication(input: {
+  source: ExecutionSourceContext;
+  candidatesByRef: Map<string, HarvestedCandidate>;
+  ledgerSummary: ReturnType<typeof buildLedgerSummary>;
+  refs: readonly string[];
+  createResponse?: CreateStructuredResponse;
+}) {
+  const candidates = input.refs.flatMap((ref) => {
+    const candidate = input.candidatesByRef.get(ref);
+    if (!candidate) return [];
+    return [
+      {
+        candidate_id: candidate.canonicalRef,
+        owner: candidate.owner,
+        owners: candidate.owners,
+        outcome: candidate.outcome,
+        source_quote: candidate.source_quote,
+        source_segment_ids: candidate.source_segment_ids
+      }
+    ];
+  });
+  return runCompletenessAdjudicationModel({
+    systemPrompt: COMPLETENESS_ADJUDICATION_PROMPT,
+    timeoutMs: Math.max(getV4StageTimeoutMs("completeness_adjudication"), 90_000),
+    createResponse: input.createResponse,
+    context: {
+      meeting_id: input.source.meetingId,
+      meeting_date: input.source.meetingDate,
+      project: input.source.project ?? null,
+      participants: participantMap(input.source.transcript),
+      transcript: input.source.transcript,
+      existing_ledger: input.ledgerSummary,
+      candidates
+    }
+  });
+}
+
+/**
+ * PASS B: missing-work adjudication. Harvested candidates (see runAtomicActionHarvestPass) are
+ * batched (COMPLETENESS_ADJUDICATION_BATCH_SIZE); the FULL transcript and existing ledger
+ * accompany every batch regardless of which window(s) the candidates in it came from. Coverage is
+ * checked per batch: any candidate_id the model omits is retried once, scoped to just the missing
+ * candidate_ids (same full transcript/ledger). A candidate_id still missing after that retry is
+ * left unadjudicated rather than failing the whole meeting -- it is simply never added (never
+ * silently treated as "already_represented" or any other disposition), exactly mirroring lifecycle
+ * reconciliation's own "leave unreviewed rather than silently counted" salvage philosophy.
+ */
+export async function runCompletenessAdjudicationPass(input: {
+  source: ExecutionSourceContext;
+  existingWorkItems: WorkItem[];
+  candidates: HarvestedCandidate[];
+  createResponse?: CreateStructuredResponse;
+}): Promise<CompletenessAdjudicationPassResult> {
+  const startedAt = Date.now();
+  const candidatesByRef = new Map(input.candidates.map((candidate) => [candidate.canonicalRef, candidate]));
+  const requestedRefs = input.candidates.map((candidate) => candidate.canonicalRef);
+  const counts: CompletenessAdjudicationCounts = {
+    completenessDecisionAdd: 0,
+    completenessDecisionAlreadyRepresented: 0,
+    completenessDecisionSpeculativeOrInactive: 0,
+    completenessDecisionRetrospectiveOrCompleted: 0,
+    completenessDecisionNonExecution: 0,
+    completenessDecisionInsufficientGrounding: 0
+  };
+
+  if (requestedRefs.length === 0) {
+    return {
+      ok: true,
+      additions: [],
+      candidatesExpected: 0,
+      decisionsReceived: 0,
+      missingCandidateRefsAfterRetry: [],
+      latencyMs: Date.now() - startedAt,
+      salvagedItems: 0,
+      usage: null,
+      ...counts
+    };
+  }
+
+  const ledgerSummary = buildLedgerSummary(input.existingWorkItems);
+  const batches = chunkIntoBatches(requestedRefs, COMPLETENESS_ADJUDICATION_BATCH_SIZE);
+  const decisions: CompletenessAdjudicationDecision[] = [];
+  const missingCandidateRefsAfterRetry: string[] = [];
+  let salvagedItems = 0;
+  const usages: Array<TokenUsage | null> = [];
+
+  for (const batchRefs of batches) {
+    const attempt = await requestCompletenessAdjudication({
+      source: input.source,
+      candidatesByRef,
+      ledgerSummary,
+      refs: batchRefs,
+      createResponse: input.createResponse
+    });
+    if (!attempt.ok) return { ...attempt, latencyMs: Date.now() - startedAt };
+    salvagedItems += attempt.salvagedItems;
+    usages.push(attempt.usage);
+
+    const { covered, missingCandidateRefs } = validateCompletenessAdjudicationCoverage(batchRefs, attempt.decisions);
+    decisions.push(...covered);
+    if (missingCandidateRefs.length === 0) continue;
+
+    console.warn(
+      "[execution-intelligence-v4] Completeness adjudication omitted candidates; retrying missing candidates only",
+      { meeting_id: input.source.meetingId, missing_candidate_refs: missingCandidateRefs }
+    );
+
+    const retry = await requestCompletenessAdjudication({
+      source: input.source,
+      candidatesByRef,
+      ledgerSummary,
+      refs: missingCandidateRefs,
+      createResponse: input.createResponse
+    });
+    if (!retry.ok) {
+      console.warn(
+        "[execution-intelligence-v4] Completeness adjudication retry call failed; leaving candidates unadjudicated",
+        { meeting_id: input.source.meetingId, missing_candidate_refs: missingCandidateRefs, error: retry.error }
+      );
+      missingCandidateRefsAfterRetry.push(...missingCandidateRefs);
+      continue;
+    }
+    salvagedItems += retry.salvagedItems;
+    usages.push(retry.usage);
+
+    const retryCoverage = validateCompletenessAdjudicationCoverage(missingCandidateRefs, retry.decisions);
+    decisions.push(...retryCoverage.covered);
+    if (retryCoverage.missingCandidateRefs.length > 0) {
+      console.warn(
+        "[execution-intelligence-v4] Completeness adjudication still omitted candidates after retry; leaving them unadjudicated",
+        { meeting_id: input.source.meetingId, missing_candidate_refs: retryCoverage.missingCandidateRefs }
+      );
+      missingCandidateRefsAfterRetry.push(...retryCoverage.missingCandidateRefs);
+    }
+  }
+
+  const additions: GlobalWorkItemAddition[] = [];
+  for (const decision of decisions) {
+    switch (decision.disposition) {
+      case "add":
+        counts.completenessDecisionAdd += 1;
+        // Malformed fallback (C3): "add" without a schema-valid addition payload is never silently
+        // treated as any other disposition -- it simply contributes nothing, exactly like a
+        // candidate that was never adjudicated at all.
+        if (decision.addition) additions.push(decision.addition);
+        break;
+      case "already_represented":
+        counts.completenessDecisionAlreadyRepresented += 1;
+        break;
+      case "speculative_or_inactive":
+        counts.completenessDecisionSpeculativeOrInactive += 1;
+        break;
+      case "retrospective_or_completed":
+        counts.completenessDecisionRetrospectiveOrCompleted += 1;
+        break;
+      case "non_execution":
+        counts.completenessDecisionNonExecution += 1;
+        break;
+      case "insufficient_grounding":
+        counts.completenessDecisionInsufficientGrounding += 1;
+        break;
+    }
+  }
+
+  return {
+    ok: true,
+    additions,
+    candidatesExpected: requestedRefs.length,
+    decisionsReceived: decisions.length,
+    missingCandidateRefsAfterRetry,
+    latencyMs: Date.now() - startedAt,
+    salvagedItems,
+    usage: sumUsage(usages),
+    ...counts
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Orchestration: harvest -> adjudicate -> ground -> dedup (layer 1, layer 2)
+// ---------------------------------------------------------------------------
+
+export type CompletenessWindowProposalCount = { windowIndex: number; proposed: number };
+export type CompletenessAcceptedAddition = { windowIndex: number | null; title: string };
+
+export type CompletenessRecoveryPassResult =
+  | {
+      ok: true;
+      additions: GlobalWorkItemAddition[];
+      /** Preserved name/shape for backward compatibility with existing consumers (v4-pipeline.ts):
+       * now populated from Pass A's harvest counts per window rather than a single combined call's
+       * proposal count -- still "how many candidates did this window produce," just one step
+       * earlier in the new two-step pipeline. */
+      proposedByWindow: CompletenessWindowProposalCount[];
+      /** Final accepted additions (post harvest, adjudication, grounding, and both dedup layers)
+       * paired with the window that originally harvested them -- observability only. */
+      acceptedByWindow: CompletenessAcceptedAddition[];
+      /** Additions dropped by EITHER dedup layer (deterministic exact-match, then semantic
+       * same-outcome) -- observability only. See duplicatesRemovedDeterministic/
+       * duplicatesRemovedSemantic for the breakdown by layer. */
+      duplicatesRemoved: CompletenessDedupRemoval[];
+      duplicatesRemovedDeterministic: CompletenessDedupRemoval[];
+      duplicatesRemovedSemantic: CompletenessDedupRemoval[];
+      groundedCount: number;
+      /** New (Pass A) harvest-level diagnostics. */
+      candidatesHarvested: number;
+      candidatesGroundingRejected: number;
+      /** New (Pass B) adjudication-level diagnostics. */
+      candidatesExpectedForAdjudication: number;
+      decisionsReceived: number;
+      missingCandidateRefsAfterRetry: string[];
+      adjudicationCounts: CompletenessAdjudicationCounts;
+      latencyMs: number;
+      salvagedItems: number;
+      usage: TokenUsage | null;
+    }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+/**
+ * Completeness recovery's external entry point -- unchanged name and call shape
+ * (source/workItems/createResponse in, the same ok/additions/latencyMs/salvagedItems/usage/
+ * groundedCount/proposedByWindow/acceptedByWindow/duplicatesRemoved fields out) so v4-pipeline.ts
+ * needs no changes at all. Internally now orchestrates PASS A (harvest) then PASS B (adjudicate)
+ * then two dedup layers, instead of one combined windowed call. `createResponse` continues to mean
+ * "Pass A's (harvest) model responses"; a new, optional `createAdjudicationResponse` controls Pass
+ * B's (adjudication) model responses -- mirroring the createResponse/createVerificationResponse
+ * dual-DI pattern already used by runLifecycleReconciliationPass.
+ */
+export async function runCompletenessRecoveryPass(input: {
+  source: ExecutionSourceContext;
+  workItems: WorkItem[];
+  createResponse?: CreateStructuredResponse;
+  createAdjudicationResponse?: CreateStructuredResponse;
+}): Promise<CompletenessRecoveryPassResult> {
+  const startedAt = Date.now();
+
+  const harvest = await runAtomicActionHarvestPass({
+    source: input.source,
+    createResponse: input.createResponse
+  });
+  if (!harvest.ok) return { ...harvest, latencyMs: Date.now() - startedAt };
+
+  const proposedByWindow: CompletenessWindowProposalCount[] = harvest.harvestedByWindow.map((w) => ({
+    windowIndex: w.windowIndex,
+    proposed: w.harvested
+  }));
+
+  const adjudication = await runCompletenessAdjudicationPass({
+    source: input.source,
+    existingWorkItems: input.workItems,
+    candidates: harvest.candidates,
+    createResponse: input.createAdjudicationResponse
+  });
+  if (!adjudication.ok) {
+    return { ...adjudication, latencyMs: Date.now() - startedAt };
+  }
+
+  const windowByCanonicalRef = new Map(harvest.candidates.map((c) => [c.canonicalRef, c.windowIndex]));
+  const additionWindow = new Map<GlobalWorkItemAddition, number | null>();
+  // Re-associate each "add" addition with its originating window by matching evidence back to the
+  // harvested candidate it came from (additions don't carry the candidate ref themselves).
+  for (const candidate of harvest.candidates) {
+    const match = adjudication.additions.find(
+      (addition) =>
+        addition.source_quote.trim() === candidate.source_quote.trim() &&
+        segmentSetsEqual(addition.source_segment_ids, candidate.source_segment_ids)
+    );
+    if (match && !additionWindow.has(match)) additionWindow.set(match, windowByCanonicalRef.get(candidate.canonicalRef) ?? null);
+  }
+
   const validSegments = new Set(transcriptSourceSegmentIds(input.source.transcript));
-  const grounded = filterGroundedAdditions(allAdditions, validSegments);
-  const { kept, removed } = dedupeCompletenessAdditions(input.workItems, grounded);
-  const acceptedByWindow: CompletenessAcceptedAddition[] = kept.map((addition) => ({
-    windowIndex: windowByAddition.get(addition) ?? null,
+  const grounded = filterGroundedAdditions(adjudication.additions, validSegments);
+
+  const deterministic = dedupeCompletenessAdditions(input.workItems, grounded);
+  const semantic = semanticDedupeCompletenessAdditions(input.workItems, deterministic.kept);
+
+  const acceptedByWindow: CompletenessAcceptedAddition[] = semantic.kept.map((addition) => ({
+    windowIndex: additionWindow.get(addition) ?? null,
     title: addition.title
   }));
 
   return {
     ok: true,
-    additions: kept,
+    additions: semantic.kept,
     proposedByWindow,
     acceptedByWindow,
-    duplicatesRemoved: removed,
+    duplicatesRemoved: [...deterministic.removed, ...semantic.removed],
+    duplicatesRemovedDeterministic: deterministic.removed,
+    duplicatesRemovedSemantic: semantic.removed,
     groundedCount: grounded.length,
+    candidatesHarvested: harvest.candidates.length,
+    candidatesGroundingRejected: harvest.groundingRejected,
+    candidatesExpectedForAdjudication: adjudication.candidatesExpected,
+    decisionsReceived: adjudication.decisionsReceived,
+    missingCandidateRefsAfterRetry: adjudication.missingCandidateRefsAfterRetry,
+    adjudicationCounts: {
+      completenessDecisionAdd: adjudication.completenessDecisionAdd,
+      completenessDecisionAlreadyRepresented: adjudication.completenessDecisionAlreadyRepresented,
+      completenessDecisionSpeculativeOrInactive: adjudication.completenessDecisionSpeculativeOrInactive,
+      completenessDecisionRetrospectiveOrCompleted: adjudication.completenessDecisionRetrospectiveOrCompleted,
+      completenessDecisionNonExecution: adjudication.completenessDecisionNonExecution,
+      completenessDecisionInsufficientGrounding: adjudication.completenessDecisionInsufficientGrounding
+    },
     latencyMs: Date.now() - startedAt,
-    salvagedItems: results.reduce((sum, result) => sum + (result?.ok ? result.salvagedItems : 0), 0),
-    usage: sumUsage(results.map((result) => (result?.ok ? result.usage : null)))
+    salvagedItems: harvest.salvagedItems + adjudication.salvagedItems,
+    usage: sumUsage([harvest.usage, adjudication.usage])
   };
 }
 

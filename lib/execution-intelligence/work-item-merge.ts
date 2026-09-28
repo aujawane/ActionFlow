@@ -52,7 +52,11 @@ function isExactEvidenceMatch(left: ScopedWorkItem, right: ScopedWorkItem) {
   );
 }
 
-function isNearDuplicateWorkItem(left: ScopedWorkItem, right: ScopedWorkItem) {
+/** Exported for reuse by completeness recovery's semantic same-outcome dedup (see
+ * semanticDedupeCompletenessAdditions in work-item-stages.ts) -- same "same real-world outcome, not
+ * merely same topic/segment" judgment this merge stage already needed, so it is reused rather than
+ * reimplemented. Behavior is completely unchanged; only visibility was widened. */
+export function isNearDuplicateWorkItem(left: ScopedWorkItem, right: ScopedWorkItem) {
   if (left.classification !== right.classification) return false;
   if (left.status !== right.status) return false;
   const similarity = semanticTokenSimilarity(left.title, right.title);

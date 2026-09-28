@@ -4,7 +4,8 @@ import test from "node:test";
 import { applyGlobalCorrections } from "../lib/execution-intelligence/v4-pipeline";
 import { isExecutionEligible, isEligibleAcceptanceCriterion } from "../lib/execution-intelligence/execution-tree";
 import {
-  COMPLETENESS_RECOVERY_PROMPT,
+  ATOMIC_ACTION_HARVEST_PROMPT,
+  COMPLETENESS_ADJUDICATION_PROMPT,
   LIFECYCLE_RECONCILIATION_PROMPT,
   WORK_ITEM_EXTRACTION_PROMPT
 } from "../lib/execution-intelligence/work-item-prompts";
@@ -672,20 +673,33 @@ test("[prompt] the new WORK_ITEM_EXTRACTION_PROMPT sections are generic -- no ha
   }
 });
 
-test("[prompt] COMPLETENESS_RECOVERY_PROMPT scopes itself to additions only, over one chronological window", () => {
-  assert.match(COMPLETENESS_RECOVERY_PROMPT, /completeness-recovery pass for one chronological window/);
-  assert.match(COMPLETENESS_RECOVERY_PROMPT, /COMPLETELY\s*\nABSENT from the existing ledger/);
-  assert.match(COMPLETENESS_RECOVERY_PROMPT, /Do not repair, re-describe, or re-emit/);
+test("[prompt] ATOMIC_ACTION_HARVEST_PROMPT scopes itself to one chronological window and is deliberately ledger-blind", () => {
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /atomic-action-harvest pass for one chronological window/);
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /You are\s*\nNOT given the existing work-item ledger/);
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /never\s*\n"has this already been captured somewhere\."/);
 });
 
-test("[prompt] COMPLETENESS_RECOVERY_PROMPT distinguishes future execution from future_scope and requires no prior request for self-initiated promises", () => {
-  assert.match(COMPLETENESS_RECOVERY_PROMPT, /future execution is not the same as future_scope/);
-  assert.match(COMPLETENESS_RECOVERY_PROMPT, /a self-initiated promise never requires an earlier matching request/);
+test("[prompt] ATOMIC_ACTION_HARVEST_PROMPT requires no prior request for self-initiated promises and instructs action-level atomicity", () => {
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /a self-initiated promise never requires an earlier matching request/);
+  assert.match(ATOMIC_ACTION_HARVEST_PROMPT, /ACTION-LEVEL ATOMICITY/);
 });
 
-test("[prompt] the new COMPLETENESS_RECOVERY_PROMPT is generic -- no hardcoded benchmark names", () => {
+test("[prompt] the new ATOMIC_ACTION_HARVEST_PROMPT is generic -- no hardcoded benchmark names", () => {
   for (const name of FORBIDDEN_BENCHMARK_NAMES) {
-    assert.doesNotMatch(COMPLETENESS_RECOVERY_PROMPT, new RegExp(name), name);
+    assert.doesNotMatch(ATOMIC_ACTION_HARVEST_PROMPT, new RegExp(name), name);
+  }
+});
+
+test("[prompt] COMPLETENESS_ADJUDICATION_PROMPT requires exhaustive per-candidate coverage and distinguishes current_scope from future_scope", () => {
+  assert.match(COMPLETENESS_ADJUDICATION_PROMPT, /EXHAUSTIVE COVERAGE/);
+  assert.match(COMPLETENESS_ADJUDICATION_PROMPT, /exactly one decision for every candidate_id you were given/);
+  assert.match(COMPLETENESS_ADJUDICATION_PROMPT, /CURRENT_SCOPE VS FUTURE_SCOPE/);
+  assert.match(COMPLETENESS_ADJUDICATION_PROMPT, /VOLUNTARY PROMISE PRINCIPLE/);
+});
+
+test("[prompt] the new COMPLETENESS_ADJUDICATION_PROMPT is generic -- no hardcoded benchmark names", () => {
+  for (const name of FORBIDDEN_BENCHMARK_NAMES) {
+    assert.doesNotMatch(COMPLETENESS_ADJUDICATION_PROMPT, new RegExp(name), name);
   }
 });
 

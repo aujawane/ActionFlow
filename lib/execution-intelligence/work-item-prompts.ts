@@ -174,73 +174,153 @@ Rules:
  * responsibilities while silently skipping others in the same run. This pass NEVER repairs an
  * existing item; see LIFECYCLE_RECONCILIATION_PROMPT for that.
  */
-export const COMPLETENESS_RECOVERY_PROMPT = `
-You are the completeness-recovery pass for one chronological window of a meeting transcript. You
-are given this window's transcript (with segment IDs and speakers), the participant list, and a
-compact summary of the ENTIRE meeting's existing work-item ledger -- every item already captured
-anywhere in the meeting, not just this window. Topic-scoped extraction sees only one slice of the
-meeting at a time and sometimes misses a voluntary promise entirely, most often because the
-accepting statement and its supporting context fall in a different topic region than extraction
-expected, or because a self-initiated promise had no preceding request for extraction to anchor on.
-
-Your ONLY job: scan this window for concrete accepted or active project work that is COMPLETELY
-ABSENT from the existing ledger summary you were given. Do not repair, re-describe, or re-emit
-anything already in the ledger, even if you would phrase it differently or think its current fields
-are wrong -- that is a separate pass's responsibility, not yours. If a specific outcome is unsure
-whether it is already covered, do not add it -- but "unsure" must be judged per OUTCOME (see
-ACTION-LEVEL ATOMICITY below), never assumed for an entire turn just because part of it is covered.
+/**
+ * PASS A of completeness recovery (ATOMIC ACTION HARVEST): enumerate every plausible grounded
+ * action/outcome candidate in one chronological transcript window. Deliberately ledger-blind --
+ * this pass is never told what the existing ledger already contains and must never try to guess or
+ * self-suppress on that basis. That judgment belongs entirely to Pass B (see
+ * COMPLETENESS_ADJUDICATION_PROMPT), which is what lets this pass stay maximally high-recall:
+ * "is this already known" and "is this genuinely absent, active work" are two different questions,
+ * and conflating them in one pass is exactly what caused a compound turn's smaller or secondary
+ * outcome to be silently dropped whenever the turn's more prominent outcome happened to look
+ * already-covered.
+ */
+export const ATOMIC_ACTION_HARVEST_PROMPT = `
+You are the atomic-action-harvest pass for one chronological window of a meeting transcript. You
+are given this window's transcript (with segment IDs and speakers) and the participant list. You are
+NOT given the existing work-item ledger, and that is deliberate -- your only question is "what
+concrete owned or potentially-owned actions/outcomes are expressed in this transcript window?", never
+"has this already been captured somewhere." A later, separate pass with full ledger visibility
+decides that. Do not withhold a candidate because you assume it is probably already known elsewhere.
 
 ACTION-LEVEL ATOMICITY: work at the level of distinct, independently-checkable OUTCOMES, not at the
-level of turns or topics. A single speaker turn, sentence, or topic can contain more than one
-outcome, and the ledger already covering one of them never implies the others are covered too --
-check each one separately against the ledger summary. This applies however the outcomes are
-connected: "I'll finish X and then confirm Y works" can be two distinct outcomes (finishing X, and
-separately confirming Y) even though they share one sentence and one speaker turn; a long turn about
-one broader initiative can still contain one short, separate, concrete commitment buried inside it
-("...we'll keep working on the rollout, and I'll also send you that document we discussed..." has a
-document-sending outcome distinct from the rollout work, even though the sentence starts by talking
-about the rollout). Do not summarize a turn down to only its most prominent or most-discussed
-outcome and silently drop a smaller one mentioned alongside it -- a commitment is exactly as real,
-and exactly as required to add, whether it is the main point of the turn or a brief aside within a
-longer one. This is not a mechanical instruction to split every "and" into separate items -- most
-"and"s join two descriptions of the very same outcome, not two different outcomes. Add multiple
-outcomes from one turn only when they are genuinely separate, independently-verifiable results (each
-could be true or false, complete or incomplete, independently of the other); never split a single
+level of turns, speakers, or topics. A single speaker turn, sentence, or topic can contain zero, one,
+or multiple outcomes -- examine every clause. "I'll finish the implementation, verify the deployment
+works, and send you the link" may contain three distinct outcomes (finish implementation; verify
+deployment; send the link) -- harvest each one separately, each with its own precise quote for that
+specific clause, not the whole turn's quote reused three times. A long turn about one broader
+initiative can still contain one short, separate, concrete commitment buried inside it (e.g. a
+housekeeping remark followed by "...and I'll also send you that document we discussed" has a
+document-sending outcome distinct from the housekeeping remark) -- a small promise embedded in a much
+longer explanation is exactly as real and exactly as required to harvest as one that is the entire
+turn. This is not a mechanical instruction to split every "and" into separate candidates -- most
+"and"s join two descriptions of the very same outcome ("I'll fix the deployment and make sure that
+deployment issue is fixed" is ONE outcome said twice), not two different ones. Harvest multiple
+candidates from one turn only when they are genuinely separate, independently-verifiable results
+(each could be true or false, complete or incomplete, independently of the other); never split one
 outcome into artificial pieces just because it was described in more than one clause.
 
 IMPORTANT: a self-initiated promise never requires an earlier matching request in this window --
-"I'll send you the article" is itself a complete, groundable accepted action on its own, and this
-holds identically whether it is the entire turn or one clause within a much longer one.
+"I'll send you the article" is itself a complete, harvestable candidate on its own, whether it is the
+entire turn or one brief clause within a much longer one that is mostly explanation or discussion.
 
-IMPORTANT: future execution is not the same as future_scope. If the work is presently committed as
-a direct result of this conversation, it belongs in current_scope even though it will necessarily
-be carried out after the meeting ends ("I'll send you the article tomorrow", "I'll finish this and
-confirm it works", "we're going to test this build and send feedback").
+Harvest candidates including, illustrative, not exhaustive: voluntary promises, accepted requests,
+assignments, explicit future actions with a clear (or plausible) owner, continuing work a speaker
+says they will finish, verification/follow-up actions, scheduled actions, multi-person commitments
+(preserve every named participant in owners -- never collapse two or more named people into a single
+"Team"), and concrete conditional actions ("if you need it, I can send you X") even if you cannot
+tell from this window alone whether the condition was later activated -- harvest it and let Pass B
+resolve activation using full-meeting context. Include small actions; do not use importance,
+strategic value, or topic prominence as a harvest filter -- a two-word promise is exactly as
+harvestable as an elaborate one.
 
-Concrete categories to look for, illustrative, not exhaustive: voluntary promises, accepted
-requests, assignments, explicit future actions with a clear owner, continuing work a speaker says
-they will finish, and multi-person agreed work -- preserve every named participant as an owner when
-more than one person is named; never collapse two or more named people into a single "Team".
+Do NOT harvest what is CLEARLY: pure informational statements or facts with no future action
+attached, generic discussion or brainstorming with no owned action, unowned ideas, retrospective
+statements about work already completed in the past tense, pure aspiration ("I'd love to try that")
+with no commitment, speculation or hypotheticals ("maybe I could send that someday", "it would be
+cool to walk them through this"), or purely social chatter. When an utterance is genuinely
+ambiguous rather than clearly one of these, prefer harvesting it over omitting it -- Pass B, with
+full-meeting context and ledger visibility, makes the final call; your error mode should be
+over-harvesting a borderline case, never under-harvesting one.
 
-Do NOT add: hypothetical or illustrative examples ("maybe I could send an article someday", "we
-could try that sometime"), general opinions or brainstorming with no acceptance, plain status
-updates about something already in motion, work already completed in the past tense, a request
-nobody accepted, questions, purely informational statements, or personal logistics with no project
-deliverable attached. Vague, hedged, or conditional phrasing with no clear owner and no clear
-commitment is never itself evidence of active work.
-
-CONDITIONAL OFFERS: "if you need it, I can send you X" or "if that breaks, I can take a look" is not
-itself active work -- it stays non-active unless this same window's transcript shows the condition
-actually being invoked or accepted ("yes, please" or equivalent). Only add it once activated, citing
-the activating segment alongside the offer's own segment.
-
-Every addition must be grounded in its own exact quote and real segment IDs from THIS window --
+Every candidate must be grounded in its own exact quote and real segment IDs from THIS window --
 never invent one without that evidence, and never cite a segment ID that does not appear in this
 window's transcript. When two distinct outcomes share the same segment (a compound turn), quote each
-addition's own exact clause, not the whole turn -- this keeps each addition's evidence specific to
-the outcome it actually represents, even though both additions may cite the same segment ID. State
-extraction_reason and classification_reason precisely. If nothing is missing in this window, return
-an empty additions array. Return only schema-valid JSON.
+candidate's own exact clause, not the whole turn -- this keeps each candidate's evidence specific to
+the outcome it actually represents, even though multiple candidates may cite the same segment ID.
+Assign each candidate its own candidate_id, unique within this response only (e.g. "c1", "c2", ...).
+State harvest_reason precisely: what in the transcript makes this a concrete, owned (or
+plausibly-owned) action/outcome. If nothing harvestable appears in this window, return an empty
+candidates array. Return only schema-valid JSON.
+`.trim();
+
+/**
+ * PASS B of completeness recovery (MISSING-WORK ADJUDICATION): given the candidates Pass A already
+ * harvested (never re-derived from the transcript by this pass), the full meeting transcript, and
+ * the existing ledger, decide per candidate whether it represents genuine, currently-absent
+ * execution work -- and if so, emit its final WorkItem-shaped fields. This is the ONLY place a
+ * completeness addition's classification/acceptance_state/scope_state/execution_scope/work_item_role
+ * are decided; Pass A never assigns them. Exhaustive coverage (one decision per given candidate) is
+ * programmatically enforced afterward, never trusted on prompt wording alone.
+ */
+export const COMPLETENESS_ADJUDICATION_PROMPT = `
+You are the missing-work adjudication pass. You are given the full meeting transcript in
+chronological order (with segment IDs and speakers), the participant list, a compact summary of the
+existing work-item ledger, and a specific batch of already-harvested action candidates to adjudicate
+-- each with its own owner, outcome description, exact quote, and source segment IDs. You did not
+harvest these candidates and must not harvest new ones or rediscover actions from the transcript on
+your own -- your only job is to decide, for each candidate you were given, whether it belongs in the
+missing-work ledger, using the full transcript and existing ledger for context you did not have
+during harvest.
+
+EXHAUSTIVE COVERAGE: you MUST return exactly one decision for every candidate_id you were given --
+never fewer, never more, never a candidate_id you were not given. Omitting a candidate from your
+response is never acceptable, including when you are confident it does not belong in the ledger --
+that confidence is itself a decision (a non-"add" disposition with a reason), not an omission.
+
+For every candidate, determine a disposition:
+- "add": genuine, currently-activated/accepted execution work, absent from the existing ledger.
+  Emit the full addition fields (see below).
+- "already_represented": the existing ledger already contains this same real-world outcome (not
+  merely the same topic or the same speaker) -- state which existing item in your reason.
+- "speculative_or_inactive": hypothetical, aspirational, merely proposed/floated with no acceptance,
+  or a conditional offer whose condition is never shown being invoked or accepted anywhere in the
+  full transcript.
+- "retrospective_or_completed": describes work already done, stated in the past tense, with no
+  remaining open action.
+- "non_execution": genuinely not project execution work (pure information, personal logistics with
+  no project deliverable, a question, generic discussion).
+- "insufficient_grounding": the candidate's own quote/segments do not actually support a concrete
+  owned action once you look at them in full transcript context (e.g. the quote was taken out of
+  context and does not really say what the harvested outcome claims).
+
+VOLUNTARY PROMISE PRINCIPLE: a self-initiated promise never requires an earlier matching request --
+"I'll send you the article", "I will walk them through the process", "I'll confirm the drops flow
+works" are all currently-activated accepted work the moment they are said, with or without a
+preceding request, and this holds however small the promise or however long the surrounding turn.
+
+CURRENT_SCOPE VS FUTURE_SCOPE: these are NOT "past vs future" or "will happen after the meeting vs
+during it" -- almost everything worth adding executes after the meeting ends. current_scope means
+accepted, active, or committed as a direct result of the conversation, even though execution
+necessarily happens later ("I'll send you the article tomorrow", "I'll finish this and confirm it
+works", "we're going to test this build and send feedback"). future_scope means speculative, backlog,
+deferred, next-version, or not yet activated ("maybe we should add voice support eventually", "we
+could do that in the next version" with no clear commitment). A future-tense verb is never itself
+evidence of future_scope, and an immediate timeframe is never itself evidence of current_scope.
+
+CONDITIONAL ACTIVATION: "if you need it, I can send you X" or "if that breaks, I can take a look" is
+speculative_or_inactive unless the full transcript shows the condition actually being invoked or
+accepted later ("yes, please" or equivalent) -- only then does it become "add", citing both the
+offer's own segment and the activating segment as source_segment_ids.
+
+SAME REAL-WORLD OUTCOME, NOT SAME TOPIC/OWNER/SEGMENT: two candidates (or a candidate and an existing
+ledger item) sharing an owner, a topic, a project, or even the exact same transcript segment are NOT
+automatically the same outcome -- "verify the deployment works" is distinct from "finish the
+implementation" even when one sentence states both; "confirm the tests pass" is distinct from
+"schedule the release" even when the same turn states both. Mark "already_represented" only when the
+existing ledger genuinely describes the same real-world result, not merely an adjacent one.
+
+For "add", emit the addition with the same fields ordinary completeness additions always carry:
+title, description, owner, owners (preserve every named participant, never collapse to "Team"),
+requester, recipient, due_date, due_date_text, status, classification, acceptance_state,
+execution_scope, scope_state, work_item_role, classification_reason, source_quote,
+source_segment_ids, extraction_reason, confidence. Reuse the candidate's own source_quote and
+source_segment_ids as the addition's evidence (refine only if the candidate's own quote was
+imprecise) -- never invent evidence beyond what the candidate already cited plus, for activated
+conditionals, the activating segment. For every non-"add" disposition, addition must be null.
+
+State reason precisely for every decision. Return only schema-valid JSON with exactly one decision
+per given candidate_id.
 `.trim();
 
 /**

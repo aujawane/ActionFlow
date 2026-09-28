@@ -13,6 +13,8 @@ import {
   validateLifecycleReviewCoverage
 } from "../lib/execution-intelligence/work-item-stages";
 import type {
+  AtomicActionHarvestCandidate,
+  CompletenessAdjudicationDecision,
   GlobalWorkItemAddition,
   GlobalWorkItemCorrection,
   RawWorkItem,
@@ -86,6 +88,49 @@ function addition(
   return rawItem(overrides);
 }
 
+// Pass A (atomic action harvest) and Pass B (missing-work adjudication) are now two separate
+// model calls. For a transcript small enough to stay in a single chronological window (<= 50
+// segments), splitExecutionSourceIntoChunks always assigns that window index 0, so a harvested
+// candidate's application-assigned canonicalRef is deterministically "hc_w0_<n>" in harvest-array
+// order -- these fixtures rely on that so a mocked adjudication response can echo the right
+// candidate_id back without needing to inspect the harvest call's actual arguments.
+function harvestCandidate(
+  overrides: Partial<AtomicActionHarvestCandidate> & {
+    outcome: string;
+    source_quote: string;
+    source_segment_ids: string[];
+  }
+): AtomicActionHarvestCandidate {
+  return {
+    candidate_id: "c1",
+    owner: "Speaker",
+    owners: ["Speaker"],
+    harvest_reason: "Fixture.",
+    ...overrides
+  };
+}
+
+function adjudicationDecision(
+  overrides: Partial<CompletenessAdjudicationDecision> & {
+    candidate_id: string;
+    disposition: CompletenessAdjudicationDecision["disposition"];
+  }
+): CompletenessAdjudicationDecision {
+  return {
+    reason: "Fixture.",
+    addition: null,
+    ...overrides
+  };
+}
+
+function harvestResponse(candidates: AtomicActionHarvestCandidate[]) {
+  return fakeModelResponse({ candidates });
+}
+
+function adjudicationResponse(decisions: CompletenessAdjudicationDecision[]) {
+  return fakeModelResponse({ decisions });
+}
+
 function correction(
   overrides: Partial<GlobalWorkItemCorrection> & { ref: string }
 ): GlobalWorkItemCorrection {
@@ -119,16 +164,25 @@ test("[C1] a self-initiated voluntary promise with no prior request becomes a gr
   const result = await runCompletenessRecoveryPass({
     source: source({ transcript }),
     workItems: [],
-    createResponse: fakeModelResponse({
-      additions: [
-        addition({
+    createResponse: harvestResponse([
+      harvestCandidate({
+        outcome: "Send Sam the article",
+        source_quote: "I'll send Sam the article we discussed",
+        source_segment_ids: [seg(1)]
+      })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({
           title: "Send Sam the article",
           recipient: "Sam",
           source_quote: "I'll send Sam the article we discussed",
           source_segment_ids: [seg(1)]
         })
-      ]
-    })
+      })
+    ])
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -148,16 +202,25 @@ test("[C2] a self-initiated future commitment ('I will walk the cohort through X
   const result = await runCompletenessRecoveryPass({
     source: source({ transcript }),
     workItems: [],
-    createResponse: fakeModelResponse({
-      additions: [
-        addition({
+    createResponse: harvestResponse([
+      harvestCandidate({
+        outcome: "Walk the incoming cohort through product-founder fit",
+        source_quote: "I will walk the incoming cohort through product-founder fit next week",
+        source_segment_ids: [seg(1)]
+      })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({
           title: "Walk the incoming cohort through product-founder fit",
           scope_state: "current_scope",
           source_quote: "I will walk the incoming cohort through product-founder fit next week",
           source_segment_ids: [seg(1)]
         })
-      ]
-    })
+      })
+    ])
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -175,17 +238,28 @@ test("[C3] multi-person agreed work preserves every named owner instead of colla
   const result = await runCompletenessRecoveryPass({
     source: source({ transcript }),
     workItems: [],
-    createResponse: fakeModelResponse({
-      additions: [
-        addition({
+    createResponse: harvestResponse([
+      harvestCandidate({
+        outcome: "Test the build and send feedback",
+        owner: "Speaker",
+        owners: ["Speaker", "Sam", "Priya"],
+        source_quote: "we're going to test the build, and Sam and Priya will send feedback",
+        source_segment_ids: [seg(1)]
+      })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({
           title: "Test the build and send feedback",
           owner: "Speaker",
           owners: ["Speaker", "Sam", "Priya"],
           source_quote: "we're going to test the build, and Sam and Priya will send feedback",
           source_segment_ids: [seg(1)]
         })
-      ]
-    })
+      })
+    ])
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -200,15 +274,24 @@ test("[C4] a concrete voluntary offer to try something with a named tool is grou
   const result = await runCompletenessRecoveryPass({
     source: source({ transcript }),
     workItems: [],
-    createResponse: fakeModelResponse({
-      additions: [
-        addition({
+    createResponse: harvestResponse([
+      harvestCandidate({
+        outcome: "Try the reversibility idea",
+        source_quote: "I can definitely try the reversibility idea with my agent",
+        source_segment_ids: [seg(1)]
+      })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({
           title: "Try the reversibility idea",
           source_quote: "I can definitely try the reversibility idea with my agent",
           source_segment_ids: [seg(1)]
         })
-      ]
-    })
+      })
+    ])
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -224,18 +307,32 @@ test("[C5] a candidate addition that overlaps an existing ledger item's evidence
     source_quote: "I'll send Sam the article we discussed",
     source_segment_ids: [seg(1)]
   });
+  // Pass A is deliberately ledger-blind, so it harvests this candidate regardless of what's
+  // already in the ledger; even if Pass B's adjudication mistakenly says "add" here (simulating an
+  // imperfect model that missed the existing representation), LAYER 1 deterministic dedup must
+  // still catch it -- exact same segment set, same statement -- and drop it before it ever reaches
+  // the final additions list.
   const result = await runCompletenessRecoveryPass({
     source: source({ transcript }),
     workItems: [existing],
-    createResponse: fakeModelResponse({
-      additions: [
-        addition({
+    createResponse: harvestResponse([
+      harvestCandidate({
+        outcome: "Send the article",
+        source_quote: "I'll send Sam the article we discussed",
+        source_segment_ids: [seg(1)]
+      })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({
           title: "Send the article (re-detected)",
           source_quote: "I'll send Sam the article we discussed",
           source_segment_ids: [seg(1)]
         })
-      ]
-    })
+      })
+    ])
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -255,10 +352,13 @@ test("[C5] a candidate addition that overlaps an existing ledger item's evidence
 
 test("[C6] a hypothetical with no clear commitment produces no addition, and a fabricated addition would be rejected by grounding regardless", async () => {
   const transcript = transcriptLine(seg(1), "Speaker", "maybe I could send an article someday");
+  // Pass A harvests nothing (0 candidates); Pass B is never even called, since
+  // runCompletenessAdjudicationPass short-circuits with an empty result when there is nothing to
+  // adjudicate -- no createAdjudicationResponse mock is needed here.
   const result = await runCompletenessRecoveryPass({
     source: source({ transcript }),
     workItems: [],
-    createResponse: fakeModelResponse({ additions: [] })
+    createResponse: harvestResponse([])
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -278,48 +378,72 @@ test("[C6] a hypothetical with no clear commitment produces no addition, and a f
   assert.equal(fabricatedSegment.length, 0, "a segment ID absent from this transcript must never survive grounding");
 });
 
-test("[completeness recovery] an addition citing a segment ID that does not exist in the transcript is dropped end-to-end, not merged", async () => {
+test("[completeness recovery] a candidate citing a segment ID that does not exist in the transcript is dropped end-to-end, not merged", async () => {
   const transcript = transcriptLine(seg(1), "Speaker", "I'll send Sam the article we discussed");
+  // The fabricated segment ID is rejected at Pass A's own harvest-grounding gate, so it never even
+  // reaches Pass B -- no createAdjudicationResponse mock is needed here either.
   const result = await runCompletenessRecoveryPass({
     source: source({ transcript }),
     workItems: [],
-    createResponse: fakeModelResponse({
-      additions: [
-        addition({
-          title: "Fabricated work",
-          source_quote: "something never said",
-          source_segment_ids: [seg(99)]
-        })
-      ]
-    })
+    createResponse: harvestResponse([
+      harvestCandidate({
+        outcome: "Fabricated work",
+        source_quote: "something never said",
+        source_segment_ids: [seg(99)]
+      })
+    ])
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.additions.length, 0);
 });
 
-test("[completeness recovery, windowing] additions independently proposed by two overlapping chronological windows for the same statement are merged into exactly one", async () => {
-  // Force multiple chunks: EXECUTION_CHUNK_MAX_SEGMENTS is 50, so 60 segments guarantees a split.
+test("[completeness recovery, windowing] additions independently harvested by two overlapping chronological windows for the same statement are merged into exactly one", async () => {
+  // Force multiple chunks: EXECUTION_CHUNK_MAX_SEGMENTS is 50, so 60 segments guarantees a split
+  // into windows 0 and 1.
   const lines: string[] = [];
   for (let i = 1; i <= 60; i += 1) {
     lines.push(transcriptLine(seg(i), "Speaker", `filler statement number ${i}`));
   }
   const transcript = lines.join("\n");
 
-  // Both windows' mocked model call return the SAME addition (same evidence segment) -- simulating
-  // the real scenario where a promise falls inside the overlap region and both windows see it.
+  // Both windows' mocked harvest call return the SAME candidate (same evidence segment) --
+  // simulating the real scenario where a promise falls inside the overlap region and both windows
+  // see it. Pass A pools them as two DISTINCT candidates (hc_w0_1 and hc_w1_1, different
+  // canonicalRefs) since it never dedups -- Pass B adjudicates both as "add" (simulating a model
+  // that, in isolation per batch, has no reason to know the other window's candidate exists
+  // either), and it is LAYER 1 deterministic dedup, downstream of adjudication, that must collapse
+  // the two same-evidence additions into exactly one.
   const result = await runCompletenessRecoveryPass({
     source: source({ transcript }),
     workItems: [],
-    createResponse: fakeModelResponse({
-      additions: [
-        addition({
+    createResponse: harvestResponse([
+      harvestCandidate({
+        outcome: "Send the article",
+        source_quote: "filler statement number 1",
+        source_segment_ids: [seg(1)]
+      })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({
           title: "Send the article",
           source_quote: "filler statement number 1",
           source_segment_ids: [seg(1)]
         })
-      ]
-    })
+      }),
+      adjudicationDecision({
+        candidate_id: "hc_w1_1",
+        disposition: "add",
+        addition: addition({
+          title: "Send the article",
+          source_quote: "filler statement number 1",
+          source_segment_ids: [seg(1)]
+        })
+      })
+    ])
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -768,11 +892,24 @@ test("[pipeline order] an item recovered by completeness recovery is itself a li
   const passA = await runCompletenessRecoveryPass({
     source: source({ transcript }),
     workItems: [],
-    createResponse: fakeModelResponse({
-      additions: [
-        addition({ title: "Send Sam the article", source_quote: "I'll send Sam the article we discussed", source_segment_ids: [seg(1)] })
-      ]
-    })
+    createResponse: harvestResponse([
+      harvestCandidate({
+        outcome: "Send Sam the article",
+        source_quote: "I'll send Sam the article we discussed",
+        source_segment_ids: [seg(1)]
+      })
+    ]),
+    createAdjudicationResponse: adjudicationResponse([
+      adjudicationDecision({
+        candidate_id: "hc_w0_1",
+        disposition: "add",
+        addition: addition({
+          title: "Send Sam the article",
+          source_quote: "I'll send Sam the article we discussed",
+          source_segment_ids: [seg(1)]
+        })
+      })
+    ])
   });
   assert.equal(passA.ok, true);
   if (!passA.ok) return;

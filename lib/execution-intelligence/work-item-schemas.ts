@@ -72,6 +72,19 @@ export const GROUP_BASIS_VALUES = [
   "explicit_zero_task_outcome"
 ] as const;
 
+/** Pass B's (completeness adjudication) disposition per harvested candidate -- a small,
+ * purpose-specific taxonomy, matching the precedent set by TASK_CONSOLIDATION_DISPOSITION_VALUES
+ * rather than overloading WORK_ITEM_CLASSIFICATION_VALUES, since none of these six values describe
+ * a final WorkItem field -- they describe what Pass B decided to DO with a harvested candidate. */
+export const COMPLETENESS_ADJUDICATION_DISPOSITION_VALUES = [
+  "add",
+  "already_represented",
+  "speculative_or_inactive",
+  "retrospective_or_completed",
+  "non_execution",
+  "insufficient_grounding"
+] as const;
+
 export const workItemStatusSchema = z.enum(WORK_ITEM_STATUS_VALUES);
 export const workItemClassificationSchema = z.enum(WORK_ITEM_CLASSIFICATION_VALUES);
 export const acceptanceStateSchema = z.enum(ACCEPTANCE_STATE_VALUES);
@@ -79,6 +92,7 @@ export const executionScopeSchema = z.enum(EXECUTION_SCOPE_VALUES);
 export const scopeStateSchema = z.enum(SCOPE_STATE_VALUES);
 export const workItemRoleSchema = z.enum(WORK_ITEM_ROLE_VALUES);
 export const groupBasisSchema = z.enum(GROUP_BASIS_VALUES);
+export const completenessAdjudicationDispositionSchema = z.enum(COMPLETENESS_ADJUDICATION_DISPOSITION_VALUES);
 
 /** What the model returns per topic. `ref` and `topic_id` are assigned by application code.
  * `scope_state`/`work_item_role` are the topic-scoped pass's first guess; the global scope/role
@@ -244,13 +258,54 @@ export const globalWorkItemAdditionSchema = rawWorkItemSchema;
 export type GlobalWorkItemAddition = z.infer<typeof globalWorkItemAdditionSchema>;
 
 /**
- * Pass A output: grounded additions only. This pass never repairs an existing item, so there is no
- * corrections array here -- see lifecycleReviewOutputSchema for that.
+ * Pass A (ATOMIC ACTION HARVEST) output: a per-window, ledger-blind enumeration of every plausible
+ * grounded action/outcome candidate -- deliberately high recall, deliberately unaware of what the
+ * ledger already contains (that judgment belongs entirely to Pass B). `candidate_id` is local to
+ * this one harvest call only; application code assigns a canonical, pass-wide-unique ref
+ * immediately after receiving it (see work-item-stages.ts) -- never trusted or reused downstream.
  */
-export const completenessRecoveryOutputSchema = z
-  .object({ additions: z.array(globalWorkItemAdditionSchema) })
+export const atomicActionHarvestCandidateSchema = z
+  .object({
+    candidate_id: z.string().min(1),
+    owner: z.string().nullable(),
+    owners: z.array(z.string()),
+    outcome: z.string().min(1),
+    source_quote: z.string().min(1),
+    source_segment_ids: z.array(z.string().uuid()),
+    harvest_reason: z.string().min(1)
+  })
   .strict();
-export type CompletenessRecoveryOutput = z.infer<typeof completenessRecoveryOutputSchema>;
+export type AtomicActionHarvestCandidate = z.infer<typeof atomicActionHarvestCandidateSchema>;
+
+export const atomicActionHarvestOutputSchema = z
+  .object({ candidates: z.array(atomicActionHarvestCandidateSchema) })
+  .strict();
+export type AtomicActionHarvestOutput = z.infer<typeof atomicActionHarvestOutputSchema>;
+
+/**
+ * Pass B (MISSING-WORK ADJUDICATION) output: exactly one decision per harvested candidate it was
+ * given, exhaustively -- coverage is programmatically enforced afterward (see
+ * validateCompletenessAdjudicationCoverage in work-item-stages.ts), the same pattern already used
+ * for lifecycle reconciliation's exhaustive coverage, never trusted on prompt wording alone.
+ * `addition` is populated (and required to be schema-valid) only when disposition="add"; every
+ * other disposition must leave it null. This is the ONLY place a completeness addition's final
+ * WorkItem-shaped fields (classification/acceptance_state/scope_state/execution_scope/etc.) are
+ * decided -- Pass A never assigns them.
+ */
+export const completenessAdjudicationDecisionSchema = z
+  .object({
+    candidate_id: z.string().min(1),
+    disposition: completenessAdjudicationDispositionSchema,
+    reason: z.string().min(1),
+    addition: globalWorkItemAdditionSchema.nullable()
+  })
+  .strict();
+export type CompletenessAdjudicationDecision = z.infer<typeof completenessAdjudicationDecisionSchema>;
+
+export const completenessAdjudicationOutputSchema = z
+  .object({ decisions: z.array(completenessAdjudicationDecisionSchema) })
+  .strict();
+export type CompletenessAdjudicationOutput = z.infer<typeof completenessAdjudicationOutputSchema>;
 
 /**
  * Pass B output: one review per submitted ref, exhaustively. `reviews` (not "corrections") to make
@@ -488,21 +543,60 @@ const globalWorkItemCorrectionProperties = {
   completion_reason: { type: ["string", "null"] }
 } as const;
 
-export const completenessRecoveryJsonSchema: Record<string, unknown> = {
+const atomicActionHarvestCandidateProperties = {
+  candidate_id: { type: "string" },
+  owner: { type: ["string", "null"] },
+  owners: { type: "array", items: { type: "string" } },
+  outcome: { type: "string" },
+  source_quote: { type: "string" },
+  source_segment_ids: { type: "array", items: { type: "string" } },
+  harvest_reason: { type: "string" }
+} as const;
+
+export const atomicActionHarvestJsonSchema: Record<string, unknown> = {
   type: "object",
   additionalProperties: false,
   properties: {
-    additions: {
+    candidates: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
-        properties: rawWorkItemProperties,
-        required: rawWorkItemRequired
+        properties: atomicActionHarvestCandidateProperties,
+        required: Object.keys(atomicActionHarvestCandidateProperties)
       }
     }
   },
-  required: ["additions"]
+  required: ["candidates"]
+};
+
+const completenessAdjudicationDecisionProperties = {
+  candidate_id: { type: "string" },
+  disposition: { type: "string", enum: COMPLETENESS_ADJUDICATION_DISPOSITION_VALUES },
+  reason: { type: "string" },
+  addition: {
+    type: ["object", "null"],
+    additionalProperties: false,
+    properties: rawWorkItemProperties,
+    required: rawWorkItemRequired
+  }
+} as const;
+
+export const completenessAdjudicationJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    decisions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: completenessAdjudicationDecisionProperties,
+        required: Object.keys(completenessAdjudicationDecisionProperties)
+      }
+    }
+  },
+  required: ["decisions"]
 };
 
 export const lifecycleReviewJsonSchema: Record<string, unknown> = {
