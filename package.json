@@ -10,6 +10,7 @@
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "eval:v4": "tsx scripts/eval-v4.ts",
+    "eval:v4:ground-truth": "tsx scripts/eval-v4-ground-truth.ts",
     "eval:execution": "tsx scripts/evaluate-execution-intelligence.ts",
     "eval:execution:live": "tsx scripts/run-execution-intelligence-live-eval.ts",
     "diagnose:execution-candidates": "tsx scripts/diagnose-execution-candidates.ts",
