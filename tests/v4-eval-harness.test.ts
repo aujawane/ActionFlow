@@ -1601,3 +1601,183 @@ test("[completed_during_meeting T9] negative and completed_during_meeting GT sco
   assert.equal(negativeTrace.finalResult, "correct", "the negative item is unaffected by the unrelated completed_during_meeting item's own WorkItem");
   assert.equal(completedTrace.finalResult, "correct", "the completed_during_meeting item resolves via the new matched-candidate-set logic, independent of the negative item");
 });
+
+// ===========================================================================
+// PART 12 -- completed_during_meeting PATH B: already-completed-at-extraction items
+//            (the same-breath persistence-fix follow-up: no lifecycle correction needed)
+// ===========================================================================
+
+test("[completed_during_meeting PATH-B T1] a matched candidate already completed at extraction time, present in final output, is 'correct' with NO lifecycle correction", async () => {
+  const gt = groundTruthItem({ id: "PB_T1", expected_state: "completed_during_meeting", semantic_outcome: "restart the stuck worker", owners: ["Theo"], source_segment_ids: [seg(1)] });
+  const wi = workItem({
+    ref: "wi_pb1",
+    title: "Restart the stuck worker",
+    source_quote: "restarting it now, okay it's back",
+    source_segment_ids: [seg(1)],
+    owner: "Theo",
+    owners: ["Theo"],
+    status: "completed",
+    classification: "completed_work"
+  });
+  const snapshot = emptySnapshot({
+    mergedWorkItems: [wi],
+    workItems: [wi],
+    // Deliberately NO globalCorrections entry -- this item was never a lifecycle-review
+    // candidate at all, exactly like the real same-breath M1/M2/M5 cases.
+    globalCorrections: [],
+    finalTasks: [{ id: "t1", task: wi.title, owner: "Theo", status: "pending", extraction_metadata: { client_ref: "wi_pb1" } }]
+  });
+  const trace = await traceGroundTruthItem(gt, snapshot);
+  assert.equal(trace.finalResult, "correct");
+  assert.equal(trace.subOutcomes[0].lifecycle.completionDecisions.some((d) => d.completed), false, "no lifecycle completion decision exists for this item -- PATH B must not depend on one");
+});
+
+test("[completed_during_meeting PATH-B T2] a matched item that starts open and is later lifecycle-completed is still 'correct' (PATH A unaffected)", async () => {
+  const gt = groundTruthItem({ id: "PB_T2", expected_state: "completed_during_meeting", semantic_outcome: "restart the stuck worker", owners: ["Theo"], source_segment_ids: [seg(1)] });
+  // The WorkItem's OWN fields in `snapshot.workItems` must reflect the FINAL (post-correction)
+  // state -- same convention every other test in this file uses -- the correction record below is
+  // what makes `lifecycle.completionDecisions` carry PATH A evidence; it doesn't retroactively
+  // change the WorkItem's own status/classification fields in this hand-built snapshot.
+  const wi = workItem({
+    ref: "wi_pb2",
+    title: "Restart the stuck worker",
+    source_quote: "I'll restart it",
+    source_segment_ids: [seg(1)],
+    owner: "Theo",
+    owners: ["Theo"],
+    status: "completed",
+    classification: "completed_work",
+    acceptance_state: "none"
+  });
+  const snapshot = emptySnapshot({
+    mergedWorkItems: [wi],
+    workItems: [wi],
+    globalCorrections: [
+      correction({ ref: "wi_pb2", status: "completed", classification: "completed_work", acceptance_state: "none", completion_reason: "confirmed restarted later in the meeting", owner: "Theo", owners: ["Theo"] })
+    ]
+  });
+  const trace = await traceGroundTruthItem(gt, snapshot);
+  assert.equal(trace.finalResult, "correct");
+});
+
+test("[completed_during_meeting PATH-B T3] a matched candidate with status=completed but NOT found in final output is not automatically 'correct'", async () => {
+  const gt = groundTruthItem({ id: "PB_T3", expected_state: "completed_during_meeting", semantic_outcome: "restart the stuck worker", owners: ["Theo"], source_segment_ids: [seg(1)] });
+  const wi = workItem({
+    ref: "wi_pb3",
+    title: "Restart the stuck worker",
+    source_quote: "restarting it now, okay it's back",
+    source_segment_ids: [seg(1)],
+    owner: "Theo",
+    owners: ["Theo"],
+    status: "completed",
+    classification: "completed_work"
+  });
+  const snapshot = emptySnapshot({
+    mergedWorkItems: [wi],
+    workItems: [wi],
+    globalCorrections: []
+    // No finalTasks/finalCommitments entry at all -- never actually persisted.
+  });
+  const trace = await traceGroundTruthItem(gt, snapshot);
+  assert.notEqual(trace.finalResult, "correct", "status=completed alone, without final-output representation, must not satisfy the GT");
+  assert.equal(trace.finalResult, "partial");
+});
+
+test("[completed_during_meeting PATH-B T4] a matched candidate that is ineligible for an unrelated reason (not completed) is never treated as completed", async () => {
+  const gt = groundTruthItem({ id: "PB_T4", expected_state: "completed_during_meeting", semantic_outcome: "restart the stuck worker", owners: ["Theo"], source_segment_ids: [seg(1)] });
+  const wi = workItem({
+    ref: "wi_pb4",
+    title: "Restart the stuck worker",
+    source_quote: "maybe I could restart it",
+    source_segment_ids: [seg(1)],
+    owner: "Theo",
+    owners: ["Theo"],
+    status: "open",
+    classification: "proposal",
+    acceptance_state: "proposed"
+  });
+  const snapshot = emptySnapshot({ mergedWorkItems: [wi], workItems: [wi] });
+  const trace = await traceGroundTruthItem(gt, snapshot);
+  assert.notEqual(trace.finalResult, "correct", "an ineligible-but-not-completed candidate must not satisfy the GT");
+});
+
+test("[completed_during_meeting PATH-B T5] a candidate the judge calls only 'partial' (even with status=completed) does not satisfy the GT", async () => {
+  const gt = groundTruthItem({ id: "PB_T5", expected_state: "completed_during_meeting", semantic_outcome: "restart the stuck export worker for the billing job", owners: ["Theo"], source_segment_ids: [seg(1)] });
+  const wi = workItem({
+    ref: "wi_pb5",
+    title: "Update the marketing newsletter template",
+    source_quote: "updated the newsletter layout, that one's done",
+    source_segment_ids: [seg(1)],
+    owner: "Theo",
+    owners: ["Theo"],
+    status: "completed",
+    classification: "completed_work"
+  });
+  const snapshot = emptySnapshot({
+    mergedWorkItems: [wi],
+    workItems: [wi],
+    finalTasks: [{ id: "t1", task: wi.title, owner: "Theo", status: "pending", extraction_metadata: { client_ref: "wi_pb5" } }]
+  });
+  const judge = fakeJudge({ [gt.semantic_outcome]: partial("Related but a different worker/process than the one the ground truth describes.") });
+  const trace = await traceGroundTruthItem(gt, snapshot, judge);
+  assert.notEqual(trace.finalResult, "correct", "a merely-partial match must never satisfy a completed_during_meeting GT, regardless of its own status field");
+});
+
+test("[completed_during_meeting PATH-B T6] a matched completed (PATH B) representation plus a separate matched active duplicate is 'wrong_state' with the duplicate flag set", async () => {
+  const gt = groundTruthItem({ id: "PB_T6", expected_state: "completed_during_meeting", semantic_outcome: "restart the stuck worker", owners: ["Theo"], source_segment_ids: [seg(1)] });
+  const completedItem = workItem({
+    ref: "wi_pb6_completed",
+    title: "Restart the stuck worker",
+    source_quote: "restarting it now, okay it's back",
+    source_segment_ids: [seg(1)],
+    owner: "Theo",
+    owners: ["Theo"],
+    status: "completed",
+    classification: "completed_work"
+  });
+  const activeItem = workItem({
+    ref: "wi_pb6_active",
+    title: "Restart the stuck worker again",
+    source_quote: "I'll restart it again just to be safe",
+    source_segment_ids: [seg(1)],
+    owner: "Theo",
+    owners: ["Theo"],
+    status: "open",
+    classification: "promise"
+  });
+  const snapshot = emptySnapshot({
+    mergedWorkItems: [completedItem, activeItem],
+    workItems: [completedItem, activeItem],
+    eligibleWorkItems: [activeItem],
+    globalCorrections: [],
+    finalTasks: [
+      { id: "t1", task: completedItem.title, owner: "Theo", status: "pending", extraction_metadata: { client_ref: "wi_pb6_completed" } },
+      { id: "t2", task: activeItem.title, owner: "Theo", status: "pending", extraction_metadata: { client_ref: "wi_pb6_active" } }
+    ]
+  });
+  const trace = await traceGroundTruthItem(gt, snapshot);
+  assert.equal(trace.finalResult, "wrong_state");
+  assert.equal(trace.qualityFlags.duplicate, true, "PATH B completion evidence must be recognized by the duplicate-flag check too, not just by combineFinalResult");
+});
+
+test("[completed_during_meeting PATH-B T7] an ambiguous semantic match still surfaces as 'needs_review', unaffected by the PATH B addition", async () => {
+  const gt = groundTruthItem({ id: "PB_T7", expected_state: "completed_during_meeting", semantic_outcome: "restart the stuck worker", owners: ["Theo"], source_segment_ids: [seg(1)] });
+  const wi = workItem({
+    ref: "wi_pb7",
+    title: "Update marketing newsletter template",
+    source_quote: "updated newsletter layout, finished",
+    source_segment_ids: [seg(1)],
+    owner: "Theo",
+    owners: ["Theo"],
+    status: "completed",
+    classification: "completed_work"
+  });
+  const snapshot = emptySnapshot({
+    mergedWorkItems: [wi],
+    workItems: [wi],
+    finalTasks: [{ id: "t1", task: wi.title, owner: "Theo", status: "pending", extraction_metadata: { client_ref: "wi_pb7" } }]
+  });
+  const judge = fakeJudge({ [gt.semantic_outcome]: ambiguous("Cannot confidently decide if this is the same restart action.") });
+  const trace = await traceGroundTruthItem(gt, snapshot, judge);
+  assert.equal(trace.finalResult, "needs_review", "ambiguity must still short-circuit to needs_review before the completed_during_meeting branch (and its PATH B logic) is ever reached");
+});

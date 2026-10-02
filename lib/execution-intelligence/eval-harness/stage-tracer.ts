@@ -112,6 +112,15 @@ export type CandidateCoverageTrace = {
   finalStatus: "matched" | "partial" | "needs_review" | "unmatched";
   eligible: boolean;
   foundInFinalOutput: boolean;
+  /** PATH B positive completion evidence: this candidate's own final WorkItem state is
+   * status="completed" AND classification="completed_work" -- i.e. it was already completed at
+   * extraction time (same-breath in-meeting completion), never needing a separate lifecycle
+   * correction to confirm it (see combineFinalResult's completed_during_meeting branch, which
+   * accepts this as an alternative to PATH A's `lifecycle.completionDecisions` evidence). Never
+   * inferred from `eligible === false` alone -- a candidate can be ineligible for many reasons
+   * that are NOT completion (proposed, idea role, future scope, ...), so this checks the specific
+   * status/classification pair directly. */
+  isCompletedWorkItem: boolean;
 };
 
 export type SubOutcomeStatus = "matched" | "partially_matched" | "needs_review" | "unmatched";
@@ -382,6 +391,7 @@ async function traceSubOutcome(input: {
       const item = workItemByRef.get(r.candidate.id);
       const eligible = item ? isExecutionEligible(item) : false;
       const foundInFinalOutput = findDownstreamPresence(r.candidate.id, snapshot).found;
+      const isCompletedWorkItem = item ? item.status === "completed" && item.classification === "completed_work" : false;
       return {
         ref: r.candidate.id,
         title: r.candidate.title,
@@ -391,14 +401,24 @@ async function traceSubOutcome(input: {
         semanticAdjudication: r.semantic,
         finalStatus: r.status,
         eligible,
-        foundInFinalOutput
+        foundInFinalOutput,
+        isCompletedWorkItem
       };
     });
 
   const finalActiveRefs = coverageCandidates.filter((c) => c.finalStatus === "matched" && c.eligible && c.foundInFinalOutput).map((c) => c.ref);
   const partialActiveRefs = coverageCandidates.filter((c) => c.finalStatus === "partial" && c.eligible && c.foundInFinalOutput).map((c) => c.ref);
+  // Deliberately does NOT require `eligible` the way finalActiveRefs/partialActiveRefs do --
+  // "eligible" is categorically false for a genuinely completed (status="completed") candidate by
+  // design (see isExecutionEligible), which is an orthogonal fact from whether the semantic judge
+  // could confidently decide if this persisted candidate represents the SAME real-world outcome as
+  // the GT. Gating on `eligible` would silently convert a genuine "the judge couldn't tell" about a
+  // real, persisted completed-history candidate into "missed" -- exactly the kind of silent
+  // ambiguity resolution this harness exists to prevent. `foundInFinalOutput` is kept: an ambiguous
+  // candidate that never reached final output either way is safely "unmatched"/missed regardless of
+  // how the judge felt about it, since the GT outcome isn't represented in the product either way.
   const needsReviewActiveRefs = coverageCandidates
-    .filter((c) => c.finalStatus === "needs_review" && c.eligible && c.foundInFinalOutput)
+    .filter((c) => c.finalStatus === "needs_review" && c.foundInFinalOutput)
     .map((c) => c.ref);
 
   let subOutcomeStatus: SubOutcomeStatus;
@@ -494,6 +514,23 @@ async function traceSubOutcome(input: {
   };
 }
 
+/** Positive completion evidence for one matched candidate, via EITHER valid path:
+ *   PATH A -- the candidate was initially open/active and a later lifecycle correction explicitly
+ *   confirmed completion (`lifecycle.completionDecisions`).
+ *   PATH B -- the candidate's own final WorkItem state was already status="completed"/
+ *   classification="completed_work" at extraction time (a same-breath in-meeting completion,
+ *   persisted directly as completed history -- see `isCompletedWorkItem` on CandidateCoverageTrace),
+ *   AND it actually reached final persisted output as that completed representation.
+ * Deliberately requires POSITIVE evidence either way -- never inferred from `eligible === false`
+ * alone (ineligible covers many non-completed reasons too: proposed, idea role, future scope, ...),
+ * and PATH B additionally requires `foundInFinalOutput` so a completed-shaped candidate that never
+ * actually persisted doesn't count. */
+function hasCompletionEvidence(sub: SubOutcomeTrace, candidate: CandidateCoverageTrace): boolean {
+  const viaLifecycle = sub.lifecycle.completionDecisions.some((d) => d.ref === candidate.ref && d.completed);
+  const viaDirectState = candidate.isCompletedWorkItem && candidate.foundInFinalOutput;
+  return viaLifecycle || viaDirectState;
+}
+
 /** completed_during_meeting-only duplicate signal: a matched (same-real-world-action) candidate was
  * both closed AND left with a separate matched-active representation of that SAME action -- distinct
  * from the general "2+ active refs" duplicate check below, which never fires here because a
@@ -502,9 +539,7 @@ async function traceSubOutcome(input: {
 function hasCompletedAndActiveMatchedDuplicate(sub: SubOutcomeTrace): boolean {
   const matchedCandidates = sub.coverage.candidates.filter((c) => c.finalStatus === "matched");
   const activeExists = matchedCandidates.some((c) => c.eligible);
-  const completedExists = matchedCandidates.some((c) =>
-    sub.lifecycle.completionDecisions.some((d) => d.ref === c.ref && d.completed)
-  );
+  const completedExists = matchedCandidates.some((c) => hasCompletionEvidence(sub, c));
   return activeExists && completedExists;
 }
 
@@ -549,9 +584,9 @@ function combineFinalResult(input: {
     // "still open" here -- a demo item that hasn't yet been consolidated into final persisted output
     // is still meaningfully "left open" for completed_during_meeting purposes.
     const matchedActiveExists = matchedCandidates.some((c) => c.eligible);
-    const matchedCompletedExists = matchedCandidates.some((c) =>
-      sub.lifecycle.completionDecisions.some((d) => d.ref === c.ref && d.completed)
-    );
+    // Accepts EITHER valid completion path -- PATH A (lifecycle-confirmed) or PATH B (already
+    // completed at extraction time, persisted directly) -- see hasCompletionEvidence.
+    const matchedCompletedExists = matchedCandidates.some((c) => hasCompletionEvidence(sub, c));
     if (matchedActiveExists) return "wrong_state"; // covers both "active only" and "active + completed duplicate" -- see qualityFlags.duplicate for the latter
     if (matchedCompletedExists) return "correct";
     return "partial"; // matched, but neither completed nor eligible (e.g. still proposed) -- unresolved, not missed
