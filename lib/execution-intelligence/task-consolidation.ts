@@ -764,7 +764,9 @@ export async function consolidateExecutionTree(
   }
 
   return {
-    tree: { commitments: finalCommitments, standalone_tasks: finalStandalone },
+    // `completed_work` never participates in consolidation (no pool, no model call touches it) --
+    // passed through unchanged, exactly as received.
+    tree: { commitments: finalCommitments, standalone_tasks: finalStandalone, completed_work: input.tree.completed_work },
     provenanceByRef: allProvenance,
     decisions: allDecisions,
     suggestions: allSuggestions,

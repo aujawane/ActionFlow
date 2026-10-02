@@ -43,6 +43,77 @@ export function isEligibleAcceptanceCriterion(item: WorkItem) {
   return item.scope_state === "current_scope" && item.work_item_role === "acceptance_criterion";
 }
 
+/** Roles that can represent a genuine, trackable execution action when already completed --
+ * deliberately the same "action"/"input_dependency" roles ELIGIBLE_ROLES uses for ACTIVE work,
+ * plus "incidental_troubleshooting" (a live-call troubleshooting action, e.g. restarting a stuck
+ * process, is never itself an open task, but is exactly the kind of same-breath completed action
+ * this history path exists for). */
+const COMPLETED_HISTORY_ROLES = ["action", "input_dependency", "incidental_troubleshooting"];
+
+/**
+ * The deterministic gate for the completed-during-meeting HISTORY path -- deliberately separate
+ * from, and never overlapping with, `isExecutionEligible` (that gate is mutually exclusive with
+ * this one on `status` alone: eligible requires open/in_progress/blocked, this requires
+ * completed). A WorkItem satisfying this was genuinely done, in current scope, as real project
+ * work, by a known owner, grounded in real transcript evidence -- not an open task, not active
+ * work, and therefore never a candidate for grouping, consolidation, dependency execution, or
+ * active-work recovery (none of which ever see `tree.completed_work`).
+ *
+ * Reuses existing classification semantics end to end rather than inventing new ones, which is
+ * what gives this its safety guarantees for free:
+ *   - `scope_state === "current_scope"` (not "informational") is exactly what already separates a
+ *     genuine in-meeting action from a retrospective/historical mention ("I sent that last week")
+ *     or pure informational narration -- both of those are classified `scope_state: "informational"`
+ *     with `work_item_role: "status_update"` by the SAME extraction stage that produces this field,
+ *     confirmed empirically (see the synthetic benchmark's M4-NEG2 case).
+ *   - `execution_scope === "project_work"` excludes personal logistics ("I'll share my screen")
+ *     exactly the same way it already does for active eligibility.
+ *   - requiring a resolved `owner` and valid grounded evidence (reusing `memberEvidenceIsValid`,
+ *     the same evidence check `hasExplicitDeliverableEvidence` already uses) excludes anything
+ *     speculative or hypothetical, which by definition was never actually done and so never
+ *     reaches `status === "completed"` in the first place.
+ */
+export function isCompletedDuringMeeting(item: WorkItem, validSegments: Set<string>): boolean {
+  return (
+    item.execution_scope === "project_work" &&
+    item.scope_state === "current_scope" &&
+    item.status === "completed" &&
+    item.classification === "completed_work" &&
+    COMPLETED_HISTORY_ROLES.includes(item.work_item_role) &&
+    Boolean(item.owner?.trim()) &&
+    memberEvidenceIsValid(item, validSegments)
+  );
+}
+
+/** Narrow, self-contained defensive dedup for the completed-history bucket only -- never touches
+ * `commitments`/`standalone_tasks` or any existing dedup pass. In the normal case this never
+ * removes anything: Pass A/B's own completeness dedup (completenessDuplicatesRemovedDeterministic/
+ * Semantic) already runs upstream of tree assembly over the full work-item set, completed items
+ * included, so two WorkItem refs describing the same completed action should already have been
+ * collapsed to one before `assembleExecutionTree` ever sees them. This exists purely as a second,
+ * cheap safety net -- e.g. if a same-breath completion and a separately-harvested near-duplicate
+ * both survive upstream dedup -- so "same-breath completed work appears once" holds even if that
+ * upstream guarantee is ever violated, without this path silently depending on it. */
+function dedupeCompletedWork(items: WorkItem[]): WorkItem[] {
+  const SAME_ACTION_THRESHOLD = 0.7;
+  const kept: WorkItem[] = [];
+  for (const item of items) {
+    const duplicateOfKept = kept.some((existing) => {
+      if (!ownersOverlapForDedup(existing, item)) return false;
+      return semanticTokenSimilarity(existing.title, item.title) >= SAME_ACTION_THRESHOLD;
+    });
+    if (!duplicateOfKept) kept.push(item);
+  }
+  return kept;
+}
+
+function ownersOverlapForDedup(a: WorkItem, b: WorkItem): boolean {
+  const ownerA = a.owner?.trim().toLowerCase();
+  const ownerB = b.owner?.trim().toLowerCase();
+  if (!ownerA || !ownerB) return false;
+  return ownerA === ownerB;
+}
+
 /** A current-scope item explicitly deferred, i.e. everything the "future scope" UI surfaces. */
 export function isFutureScopeItem(item: WorkItem) {
   return item.scope_state === "future_scope" && item.work_item_role !== "reference";
@@ -324,7 +395,7 @@ export type GroupDecision = {
 export type WorkItemDecision = {
   work_item_ref: string;
   claimed_group_ref: string | null;
-  disposition: "child" | "acceptance_criterion" | "standalone" | "excluded_ineligible";
+  disposition: "child" | "acceptance_criterion" | "standalone" | "completed_history" | "excluded_ineligible";
   reason: string;
 };
 
@@ -552,6 +623,7 @@ export function assembleExecutionTree(input: {
 
   const workItemDecisions: WorkItemDecision[] = [];
   const standaloneTasks: WorkItem[] = [];
+  const completedWork: WorkItem[] = [];
   for (const item of input.workItems) {
     if (isEligibleAcceptanceCriterion(item)) {
       const owningGroup = commitments.find((commitment) =>
@@ -568,6 +640,16 @@ export function assembleExecutionTree(input: {
       continue;
     }
     if (!isExecutionEligible(item)) {
+      if (isCompletedDuringMeeting(item, validSegments)) {
+        completedWork.push(item);
+        workItemDecisions.push({
+          work_item_ref: item.ref,
+          claimed_group_ref: null,
+          disposition: "completed_history",
+          reason: `Genuinely completed during this meeting (status=${item.status}, classification=${item.classification}, scope_state=${item.scope_state}, work_item_role=${item.work_item_role}); recorded as completed history, not active work.`
+        });
+        continue;
+      }
       workItemDecisions.push({
         work_item_ref: item.ref,
         claimed_group_ref: null,
@@ -598,7 +680,11 @@ export function assembleExecutionTree(input: {
   const recovery = recoverExplicitDeliverables(commitments, standaloneTasks, validSegments);
 
   return {
-    tree: { commitments: recovery.commitments, standalone_tasks: recovery.standaloneTasks },
+    tree: {
+      commitments: recovery.commitments,
+      standalone_tasks: recovery.standaloneTasks,
+      completed_work: dedupeCompletedWork(completedWork)
+    },
     groupDecisions,
     workItemDecisions,
     recoveryDecisions: recovery.decisions
@@ -649,8 +735,20 @@ export function validateFinalTree(tree: ExecutionTree): { ok: true } | { ok: fal
       errors.push(`Standalone task ${task.ref} is not eligible.`);
     }
   }
+  for (const item of tree.completed_work ?? []) {
+    countRef(item.ref);
+    // Structural-only re-check (no `validSegments` here, unlike `isCompletedDuringMeeting` itself)
+    // -- this is Phase 6's cheap corruption catch, not a re-derivation of assembly's own grounding
+    // check against the transcript.
+    if (item.status !== "completed" || item.classification !== "completed_work") {
+      errors.push(`Completed-history item ${item.ref} does not have status=completed/classification=completed_work.`);
+    }
+    if (isExecutionEligible(item)) {
+      errors.push(`Completed-history item ${item.ref} is also execution-eligible active work -- these must be mutually exclusive.`);
+    }
+  }
   for (const [ref, count] of taskRefCounts) {
-    if (count > 1) errors.push(`Task ${ref} appears ${count} times across the tree (child and/or standalone).`);
+    if (count > 1) errors.push(`Task ${ref} appears ${count} times across the tree (child and/or standalone and/or completed).`);
   }
 
   return errors.length > 0 ? { ok: false, errors } : { ok: true };

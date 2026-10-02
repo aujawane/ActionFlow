@@ -175,6 +175,10 @@ export type V4ExecutionTrace = {
   acceptance_criteria_items: WorkItem[];
   future_scope_items: WorkItem[];
   excluded_work_items: Array<WorkItem & { exclusion_reason: string | null }>;
+  /** Grounded, owned, genuinely-completed-during-this-meeting items -- see isCompletedDuringMeeting
+   * in execution-tree.ts. Disjoint from excluded_work_items by construction (these ARE persisted,
+   * as closed commitments, never as open tasks; excluded_work_items never are). */
+  completed_work_items: WorkItem[];
   draft_groups: GroupProposal[];
   verified_groups: VerifiedGroup[];
   group_decisions: GroupDecision[];
@@ -534,6 +538,7 @@ export async function runV4TreeAssembly(state: V4ExecutionState): Promise<V4Exec
     commitments: assembled.tree.commitments.length,
     linked_tasks: assembled.tree.commitments.reduce((sum, c) => sum + c.tasks.length, 0),
     standalone_tasks: assembled.tree.standalone_tasks.length,
+    completed_work: assembled.tree.completed_work?.length ?? 0,
     explicit_deliverables_recovered: recovered.length,
     recovered_refs: recovered.map((d) => d.created_commitment_ref)
   });
@@ -651,10 +656,12 @@ export async function finalizeV4Execution(state: V4ExecutionState): Promise<V4Ex
     future_scope_items: finalState.workItems.filter(isFutureScopeItem),
     excluded_work_items: finalState.workItems
       .filter((item) => !isExecutionEligible(item) && !isEligibleAcceptanceCriterion(item))
+      .filter((item) => decisionByWorkItemRef.get(item.ref)?.disposition !== "completed_history")
       .map((item) => ({
         ...item,
         exclusion_reason: decisionByWorkItemRef.get(item.ref)?.reason ?? null
       })),
+    completed_work_items: finalState.tree.completed_work ?? [],
     draft_groups: finalState.draftGroups,
     verified_groups: finalState.verifiedGroups,
     group_decisions: finalState.groupDecisions,

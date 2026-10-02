@@ -415,6 +415,15 @@ export type ExecutionTree = {
     }
   >;
   standalone_tasks: WorkItem[];
+  /** Grounded, owned, genuinely-execution-like work items that are already DONE -- completed
+   * during this meeting (whether in the same breath as being proposed, or via a later lifecycle
+   * correction of an initially-open item). Never participates in grouping, consolidation,
+   * dependency execution, or active-work recovery (see isCompletedDuringMeeting in
+   * execution-tree.ts) -- it exists purely so a genuine in-meeting completion still produces a
+   * persisted historical record instead of silently vanishing. Deliberately a separate bucket from
+   * `standalone_tasks`/`commitments`, never merged into them, so active-work consumers of this type
+   * never need to re-filter out completed items themselves. */
+  completed_work?: WorkItem[];
 };
 
 // --- JSON Schemas for OpenAI structured outputs ---

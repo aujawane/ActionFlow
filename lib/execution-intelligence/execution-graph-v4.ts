@@ -2,6 +2,49 @@ import type { CommitmentCandidate, ExecutionGraph, TaskCandidate } from "./schem
 import type { ExecutionTree, TaskMergeProvenance, WorkItem } from "./work-item-schemas";
 
 /**
+ * A genuinely completed-during-meeting WorkItem (see isCompletedDuringMeeting in
+ * execution-tree.ts) becomes its own zero-task commitment with `completion_state: "completed"` --
+ * the one commitment shape that already has a real, working path to a persisted `status:
+ * "completed"` row (see persistence.ts / the `replace_meeting_execution_graph` RPC's existing
+ * completion_state -> status mapping). Deliberately NOT routed through the regular
+ * commitment-mapping below, which hardcodes `completion_state: "open"` for every entry -- that
+ * hardcoding is correct for `tree.commitments` (by construction, by the time an item reaches that
+ * array it has already cleared `isExecutionEligible`, which itself requires status to be
+ * open/in_progress/blocked, never completed), so it is intentionally left unchanged here; this is
+ * a separate, additive construction path for the separate `completed_work` bucket only.
+ */
+function completedWorkItemToCommitmentCandidate(item: WorkItem): CommitmentCandidate {
+  return {
+    client_ref: item.ref,
+    topic_id: item.topic_id,
+    title: item.title,
+    description: item.description,
+    owner: item.owner,
+    owners: item.owners,
+    due_date: item.due_date,
+    due_date_text: item.due_date_text,
+    priority: "medium",
+    confidence: item.confidence ?? 0.75,
+    source_quote: item.source_quote,
+    source_segment_ids: item.source_segment_ids,
+    evidence_source: "transcript",
+    conversation_event_ids: [],
+    type: item.owner ? "personal" : "unassigned",
+    completion_state: "completed",
+    execution_classification: "committed",
+    consolidated_from_refs: [],
+    supporting_action_refs: [item.ref],
+    commitment_reason: item.extraction_reason ?? item.classification_reason,
+    scope_added_beyond_actions: null,
+    acceptance_criteria: [],
+    group_basis: "completed_during_meeting",
+    primary_owner_reason: item.owner
+      ? "Completed work's own owner is the accountable owner."
+      : "No owner resolved for this completed action."
+  };
+}
+
+/**
  * Flattens the V4 execution tree into the legacy ExecutionGraph shape (commitments + tasks with a
  * nullable commitment_ref) purely so the existing `meeting_commitments` / `meeting_tasks`
  * persistence path can be reused without a schema migration. The tree, not this flat shape, is the
@@ -105,5 +148,12 @@ export function treeToExecutionGraph(
     ...tree.standalone_tasks.map((task) => toTaskCandidate(task, null))
   ];
 
-  return { commitments, tasks };
+  // Completed-during-meeting history: one zero-task, completion_state="completed" commitment per
+  // item, appended to (never merged with) the active commitments above -- see
+  // completedWorkItemToCommitmentCandidate. Never produces a task candidate for the same ref, so
+  // a genuine in-meeting completion persists exactly once, as a closed commitment, never as an
+  // open task.
+  const completedCommitments = (tree.completed_work ?? []).map(completedWorkItemToCommitmentCandidate);
+
+  return { commitments: [...commitments, ...completedCommitments], tasks };
 }
