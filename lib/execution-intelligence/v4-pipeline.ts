@@ -430,6 +430,11 @@ export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4
   state.metrics.completionRejectedMissingEvidence += passB.completionRejectedMissingEvidence;
   state.metrics.completionRejectedChronology += passB.completionRejectedChronology;
   state.metrics.completionRejectedVerifier += passB.completionRejectedVerifier;
+  state.metrics.scopeDeferralProposals += passB.scopeDeferralProposals;
+  state.metrics.scopeDeferralVerified += passB.scopeDeferralVerified;
+  state.metrics.scopeDeferralRejectedMissingEvidence += passB.scopeDeferralRejectedMissingEvidence;
+  state.metrics.scopeDeferralRejectedChronology += passB.scopeDeferralRejectedChronology;
+  state.metrics.scopeDeferralRejectedVerifier += passB.scopeDeferralRejectedVerifier;
   state.metrics.lifecycleCandidatesConsidered += passB.lifecycleCandidatesConsidered;
   state.metrics.lifecycleCandidatesAdmittedViaProposal += passB.lifecycleCandidatesAdmittedViaProposal;
   state.metrics.lifecycleCandidatesAdmittedViaFutureScope += passB.lifecycleCandidatesAdmittedViaFutureScope;
@@ -450,6 +455,15 @@ export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4
       completion_rejected_missing_evidence: passB.completionRejectedMissingEvidence,
       completion_rejected_chronology: passB.completionRejectedChronology,
       completion_rejected_verifier: passB.completionRejectedVerifier
+    });
+  }
+  if (passB.scopeDeferralProposals > 0) {
+    logExecutionStage(state.metrics, "v4_lifecycle_scope_deferral_safety", {
+      scope_deferral_proposals: passB.scopeDeferralProposals,
+      scope_deferral_verified: passB.scopeDeferralVerified,
+      scope_deferral_rejected_missing_evidence: passB.scopeDeferralRejectedMissingEvidence,
+      scope_deferral_rejected_chronology: passB.scopeDeferralRejectedChronology,
+      scope_deferral_rejected_verifier: passB.scopeDeferralRejectedVerifier
     });
   }
   logExecutionStage(state.metrics, "v4_lifecycle_candidate_selection", {

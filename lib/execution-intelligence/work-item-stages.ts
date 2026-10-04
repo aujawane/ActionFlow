@@ -6,6 +6,7 @@ import {
   GROUPING_PROMPT,
   GROUPING_VERIFICATION_PROMPT,
   LIFECYCLE_RECONCILIATION_PROMPT,
+  SCOPE_DEFERRAL_VERIFICATION_PROMPT,
   WORK_ITEM_EXTRACTION_PROMPT
 } from "./work-item-prompts";
 import {
@@ -15,6 +16,7 @@ import {
   runGroupingModel,
   runGroupingVerificationModel,
   runLifecycleReconciliationModel,
+  runScopeDeferralVerificationModel,
   runWorkItemExtractionModel,
   type CreateStructuredResponse,
   type TokenUsage
@@ -1348,6 +1350,240 @@ async function applyCompletionSafety(input: {
   };
 }
 
+/**
+ * ===========================================================================
+ * Later-scope-supersession precision (forensic-audit follow-up, generation-3 production trace).
+ *
+ * The audit found a real item ("Develop character generator...") correctly extracted as
+ * current_scope early in a meeting, then explicitly deferred later ("that's not a feature we're
+ * doing in phase one... put that in phase three") -- the lifecycle pass has the full transcript and
+ * its own prompt already instructs it to apply later scope/sequencing statements (see the
+ * CHRONOLOGY AND SCOPE OVERRIDE RULE in work-item-prompts.ts), but nothing downstream ever checked
+ * a proposed deferral before trusting it, unlike completion decisions. This section adds the exact
+ * same shape of programmatic gate (no completion without non-empty, meeting-valid, strictly-later
+ * evidence) plus a narrow, separate targeted verifier call for exactly that one semantic question,
+ * fully isolated to this pass -- applyGlobalCorrections and everything downstream of it is
+ * untouched, and this gate only ever touches scope_state, never status/classification/
+ * acceptance_state, even when it rejects a proposed deferral.
+ * ===========================================================================
+ */
+
+/** A review proposes a scope deferral exactly when it moves an item from current_scope to
+ * future_scope -- the one transition this audit's fix targets. Any other scope_state transition
+ * (e.g. to superseded/optional/informational, or future_scope back to current_scope) is left to the
+ * broad lifecycle judgment alone, exactly as before this fix. */
+export function isScopeDeferralDecision(originalItem: WorkItem, correction: GlobalWorkItemCorrection): boolean {
+  return originalItem.scope_state === "current_scope" && correction.scope_state === "future_scope";
+}
+
+export type ScopeDeferralEvidenceRejectionReason = "missing_evidence" | "invalid_segment" | "chronology";
+
+/**
+ * Programmatic gate a scope-deferral decision must pass before it is even eligible for the
+ * targeted verifier call: non-empty superseding_segment_ids, every one of them a real segment ID in
+ * this meeting's transcript, every one of them strictly later than the LATEST segment already
+ * backing this item's own existing evidence, and a non-empty reconciliation_reason naming the later
+ * statement. Never trusted on prompt wording alone -- this runs regardless of what the model claims
+ * in reconciliation_reason. Mirrors validateCompletionEvidence exactly, reading
+ * superseding_segment_ids (this pass's evidence field for a scope change) instead of
+ * completion_segment_ids.
+ */
+export function validateScopeDeferralEvidence(input: {
+  originalItem: WorkItem;
+  correction: GlobalWorkItemCorrection;
+  transcriptPositionIndex: Map<string, number>;
+}): { ok: true } | { ok: false; reason: ScopeDeferralEvidenceRejectionReason } {
+  const { originalItem, correction, transcriptPositionIndex } = input;
+  if (correction.superseding_segment_ids.length === 0 || !correction.reconciliation_reason?.trim()) {
+    return { ok: false, reason: "missing_evidence" };
+  }
+  const deferralPositions = correction.superseding_segment_ids.map((id) => transcriptPositionIndex.get(id));
+  if (deferralPositions.some((position) => position === undefined)) {
+    return { ok: false, reason: "invalid_segment" };
+  }
+  const originPositions = originalItem.source_segment_ids.map((id) => transcriptPositionIndex.get(id));
+  if (originPositions.length === 0 || originPositions.some((position) => position === undefined)) {
+    // Cannot safely establish when this item's own commitment/acceptance evidence occurred.
+    return { ok: false, reason: "chronology" };
+  }
+  const originPosition = Math.max(...(originPositions as number[]));
+  const earliestDeferralPosition = Math.min(...(deferralPositions as number[]));
+  if (!(earliestDeferralPosition > originPosition)) {
+    return { ok: false, reason: "chronology" };
+  }
+  return { ok: true };
+}
+
+/**
+ * Fail-closed rewrite: when a scope-deferral decision is rejected (by the evidence gate or the
+ * targeted verifier), the ref's scope_state reverts to whatever it was BEFORE this lifecycle pass
+ * ran -- not whatever else the model proposed alongside the rejected deferral -- so a malformed
+ * deferral attempt can never leave the item stranded in an inconsistent state. Every other field the
+ * model proposed (status, classification, acceptance_state, owner, completion fields) is left
+ * untouched, since this gate is scoped to scope-deferral safety only, not a general veto -- mirrors
+ * revertCompletionFields exactly, for the opposite field.
+ */
+export function revertScopeDeferralField(
+  correction: GlobalWorkItemCorrection,
+  originalItem: WorkItem,
+  reason: string
+): GlobalWorkItemCorrection {
+  return {
+    ...correction,
+    scope_state: originalItem.scope_state,
+    superseding_segment_ids: [],
+    reconciliation_reason: reason
+  };
+}
+
+const SCOPE_DEFERRAL_VERIFICATION_CONCURRENCY = 2;
+
+async function runTargetedScopeDeferralVerification(input: {
+  source: ExecutionSourceContext;
+  originalItem: WorkItem;
+  correction: GlobalWorkItemCorrection;
+  createResponse?: CreateStructuredResponse;
+}) {
+  const contextTurns = neighboringTranscriptTurns(
+    input.source.transcript,
+    [...input.originalItem.source_segment_ids, ...input.correction.superseding_segment_ids],
+    1
+  );
+  return runScopeDeferralVerificationModel({
+    systemPrompt: SCOPE_DEFERRAL_VERIFICATION_PROMPT,
+    timeoutMs: Math.max(getV4StageTimeoutMs("scope_deferral_verification"), 60_000),
+    createResponse: input.createResponse,
+    context: {
+      meeting_id: input.source.meetingId,
+      work_item: {
+        ref: input.originalItem.ref,
+        title: input.originalItem.title,
+        owner: input.originalItem.owner,
+        classification: input.originalItem.classification
+      },
+      originating_evidence: {
+        source_quote: input.originalItem.source_quote,
+        source_segment_ids: input.originalItem.source_segment_ids
+      },
+      proposed_deferral_evidence: {
+        reconciliation_reason: input.correction.reconciliation_reason,
+        superseding_segment_ids: input.correction.superseding_segment_ids
+      },
+      context_turns: contextTurns
+    }
+  });
+}
+
+export type ScopeDeferralSafetyCounts = {
+  scopeDeferralProposals: number;
+  scopeDeferralVerified: number;
+  scopeDeferralRejectedMissingEvidence: number;
+  scopeDeferralRejectedChronology: number;
+  scopeDeferralRejectedVerifier: number;
+};
+
+/**
+ * Applies the later-scope-supersession precision gate to a batch of already-covered lifecycle
+ * reviews (run after applyCompletionSafety, over its output). Every review that isn't a
+ * current_scope -> future_scope deferral passes through unchanged. Every review that IS such a
+ * deferral must pass the programmatic evidence/chronology gate (no model call) and then the
+ * targeted verifier (one focused model call) before the deferral is allowed to stand; failing either
+ * reverts that ref's scope_state via revertScopeDeferralField, keeping the item exactly as it was
+ * before this pass ran. A verifier call failure (timeout, malformed response) is treated as
+ * non-confirmation, not a pipeline failure -- ambiguous/malformed/missing always means "keep the
+ * item at its current scope," never "propagate an error." Mirrors applyCompletionSafety exactly.
+ */
+async function applyScopeDeferralSafety(input: {
+  source: ExecutionSourceContext;
+  reviews: GlobalWorkItemCorrection[];
+  itemsByRef: Map<string, WorkItem>;
+  createVerificationResponse?: CreateStructuredResponse;
+}): Promise<{ reviews: GlobalWorkItemCorrection[]; counts: ScopeDeferralSafetyCounts; usages: Array<TokenUsage | null> }> {
+  const transcriptPositionIndex = buildTranscriptPositionIndex(input.source.transcript);
+  const passthrough: GlobalWorkItemCorrection[] = [];
+  const structurallyRejected: GlobalWorkItemCorrection[] = [];
+  const structurallyValid: GlobalWorkItemCorrection[] = [];
+  const counts: ScopeDeferralSafetyCounts = {
+    scopeDeferralProposals: 0,
+    scopeDeferralVerified: 0,
+    scopeDeferralRejectedMissingEvidence: 0,
+    scopeDeferralRejectedChronology: 0,
+    scopeDeferralRejectedVerifier: 0
+  };
+
+  for (const review of input.reviews) {
+    const originalItem = input.itemsByRef.get(review.ref);
+    if (!originalItem || !isScopeDeferralDecision(originalItem, review)) {
+      passthrough.push(review);
+      continue;
+    }
+    counts.scopeDeferralProposals += 1;
+    const evidenceCheck = validateScopeDeferralEvidence({ originalItem, correction: review, transcriptPositionIndex });
+    if (!evidenceCheck.ok) {
+      if (evidenceCheck.reason === "missing_evidence") counts.scopeDeferralRejectedMissingEvidence += 1;
+      else counts.scopeDeferralRejectedChronology += 1;
+      structurallyRejected.push(
+        revertScopeDeferralField(
+          review,
+          originalItem,
+          `Lifecycle proposed a current_scope -> future_scope deferral but its evidence failed programmatic validation (${evidenceCheck.reason}); kept at its prior scope_state.`
+        )
+      );
+      continue;
+    }
+    structurallyValid.push(review);
+  }
+
+  const usages: Array<TokenUsage | null> = [];
+  const verifiedResults: GlobalWorkItemCorrection[] = new Array(structurallyValid.length);
+  let next = 0;
+  async function verifierWorker() {
+    while (next < structurallyValid.length) {
+      const index = next++;
+      const review = structurallyValid[index];
+      const originalItem = input.itemsByRef.get(review.ref)!;
+      const verification = await runTargetedScopeDeferralVerification({
+        source: input.source,
+        originalItem,
+        correction: review,
+        createResponse: input.createVerificationResponse
+      });
+      if (verification.ok) {
+        usages.push(verification.usage);
+        if (verification.confirmed) {
+          counts.scopeDeferralVerified += 1;
+          verifiedResults[index] = review;
+          continue;
+        }
+        counts.scopeDeferralRejectedVerifier += 1;
+        verifiedResults[index] = revertScopeDeferralField(
+          review,
+          originalItem,
+          `Targeted scope-deferral verifier did not confirm this specific feature was actually deferred: ${verification.reasoning}`
+        );
+      } else {
+        counts.scopeDeferralRejectedVerifier += 1;
+        verifiedResults[index] = revertScopeDeferralField(
+          review,
+          originalItem,
+          `Targeted scope-deferral verifier call failed (${verification.error}); kept at its prior scope_state rather than trusting the unverified deferral.`
+        );
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(SCOPE_DEFERRAL_VERIFICATION_CONCURRENCY, structurallyValid.length) }, () =>
+      verifierWorker()
+    )
+  );
+
+  return {
+    reviews: [...passthrough, ...structurallyRejected, ...verifiedResults],
+    counts,
+    usages
+  };
+}
+
 async function requestLifecycleReviews(input: {
   source: ExecutionSourceContext;
   itemsByRef: Map<string, WorkItem>;
@@ -1436,6 +1672,7 @@ export type LifecycleReconciliationPassResult =
       salvagedItems: number;
       usage: TokenUsage | null;
     } & CompletionSafetyCounts &
+      ScopeDeferralSafetyCounts &
       LifecycleCandidateObservability)
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
@@ -1456,6 +1693,7 @@ export async function runLifecycleReconciliationPass(input: {
   workItems: WorkItem[];
   createResponse?: CreateStructuredResponse;
   createVerificationResponse?: CreateStructuredResponse;
+  createScopeDeferralVerificationResponse?: CreateStructuredResponse;
 }): Promise<LifecycleReconciliationPassResult> {
   const startedAt = Date.now();
   const itemsByRef = new Map(input.workItems.map((item) => [item.ref, item]));
@@ -1475,6 +1713,11 @@ export async function runLifecycleReconciliationPass(input: {
       completionRejectedMissingEvidence: 0,
       completionRejectedChronology: 0,
       completionRejectedVerifier: 0,
+      scopeDeferralProposals: 0,
+      scopeDeferralVerified: 0,
+      scopeDeferralRejectedMissingEvidence: 0,
+      scopeDeferralRejectedChronology: 0,
+      scopeDeferralRejectedVerifier: 0,
       ...computeLifecycleCandidateObservability([], [])
     };
   }
@@ -1543,14 +1786,23 @@ export async function runLifecycleReconciliationPass(input: {
   });
   usages.push(...completionSafety.usages);
 
+  const scopeDeferralSafety = await applyScopeDeferralSafety({
+    source: input.source,
+    reviews: completionSafety.reviews,
+    itemsByRef,
+    createVerificationResponse: input.createScopeDeferralVerificationResponse
+  });
+  usages.push(...scopeDeferralSafety.usages);
+
   return {
     ok: true,
-    reviews: completionSafety.reviews,
+    reviews: scopeDeferralSafety.reviews,
     missingRefsAfterRetry,
     latencyMs: Date.now() - startedAt,
     salvagedItems,
     usage: sumUsage(usages),
     ...completionSafety.counts,
+    ...scopeDeferralSafety.counts,
     ...candidateObservability
   };
 }
