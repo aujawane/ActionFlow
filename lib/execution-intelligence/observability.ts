@@ -25,6 +25,15 @@ export type ExecutionMetrics = {
   completionRejectedMissingEvidence: number;
   completionRejectedChronology: number;
   completionRejectedVerifier: number;
+  /** Later-scope-supersession precision (forensic-audit follow-up): how many lifecycle reviews
+   * proposed moving an item from current_scope to future_scope, and how each was resolved.
+   * scopeDeferralVerified + scopeDeferralRejectedMissingEvidence + scopeDeferralRejectedChronology +
+   * scopeDeferralRejectedVerifier should always sum to scopeDeferralProposals. */
+  scopeDeferralProposals: number;
+  scopeDeferralVerified: number;
+  scopeDeferralRejectedMissingEvidence: number;
+  scopeDeferralRejectedChronology: number;
+  scopeDeferralRejectedVerifier: number;
   /** Lifecycle candidate-selection widening (generation-9 recall-benchmark follow-up): how many
    * candidates were admitted only because of the broadened classification/scope_state/
    * execution_scope/acceptance_state rules, and how many of those fields lifecycle actually
@@ -102,6 +111,11 @@ export function createExecutionMetrics(
     completionRejectedMissingEvidence: 0,
     completionRejectedChronology: 0,
     completionRejectedVerifier: 0,
+    scopeDeferralProposals: 0,
+    scopeDeferralVerified: 0,
+    scopeDeferralRejectedMissingEvidence: 0,
+    scopeDeferralRejectedChronology: 0,
+    scopeDeferralRejectedVerifier: 0,
     lifecycleCandidatesConsidered: 0,
     lifecycleCandidatesAdmittedViaProposal: 0,
     lifecycleCandidatesAdmittedViaFutureScope: 0,

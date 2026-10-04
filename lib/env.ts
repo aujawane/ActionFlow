@@ -95,6 +95,7 @@ export type V4Stage =
   | "completeness_adjudication"
   | "lifecycle_reconciliation"
   | "completion_verification"
+  | "scope_deferral_verification"
   | "grouping"
   | "grouping_verification"
   | "task_consolidation";
@@ -106,6 +107,7 @@ const V4_STAGE_MODEL_ENV: Record<V4Stage, string> = {
   completeness_adjudication: "OPENAI_MODEL_V4_COMPLETENESS_ADJUDICATION",
   lifecycle_reconciliation: "OPENAI_MODEL_V4_LIFECYCLE_RECONCILIATION",
   completion_verification: "OPENAI_MODEL_V4_COMPLETION_VERIFICATION",
+  scope_deferral_verification: "OPENAI_MODEL_V4_SCOPE_DEFERRAL_VERIFICATION",
   grouping: "OPENAI_MODEL_V4_GROUPING",
   grouping_verification: "OPENAI_MODEL_V4_VERIFICATION",
   task_consolidation: "EXECUTION_TASK_CONSOLIDATION_MODEL"
@@ -118,6 +120,7 @@ const V4_STAGE_TIMEOUT_ENV: Record<V4Stage, string> = {
   completeness_adjudication: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETENESS_ADJUDICATION",
   lifecycle_reconciliation: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_LIFECYCLE_RECONCILIATION",
   completion_verification: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_COMPLETION_VERIFICATION",
+  scope_deferral_verification: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_SCOPE_DEFERRAL_VERIFICATION",
   grouping: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_GROUPING",
   grouping_verification: "EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_VERIFICATION",
   task_consolidation: "EXECUTION_TASK_CONSOLIDATION_TIMEOUT_MS"

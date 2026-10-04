@@ -441,7 +441,29 @@ the correct scope_state -- current_scope for what's sequenced first, future_scop
 deferred. Do this by correcting each affected ref's scope_state (and setting
 superseding_segment_ids to the later statement's segment IDs, superseded_item_refs when one ref's
 acceptance is specifically superseded by another). Never move the future-scope side of the
-discussion out of existence -- it must survive as a future_scope review, not disappear.
+discussion out of existence -- it must survive as a future_scope review, not disappear. Check every
+ref you were given against the WHOLE rest of the transcript for this, not only the ones already
+flagged as current_scope and not only when the deferral discussion happens to sit right next to the
+ref's own evidence -- a deferral stated long after a ref's own evidence, or stated about a feature
+named differently than the ref's own title (same underlying feature, different wording), still
+controls it.
+
+SCOPE-DEFERRAL EVIDENCE FIELDS (required precision for any current_scope -> future_scope
+correction): whenever you move a ref from current_scope to future_scope because of a later
+statement, you MUST populate superseding_segment_ids with the specific segment ID(s) -- occurring
+STRICTLY AFTER this ref's own existing evidence -- that explicitly defer, remove, or move this SAME
+feature/deliverable to a later phase, and reconciliation_reason naming exactly which later
+statement controls the decision. General later discussion of a broader area, a different feature
+that merely sounds similar, or a vague "maybe later" with no clear referent to THIS feature are
+NEVER sufficient on their own -- the later statement must specifically address this ref's own
+feature/deliverable. If you cannot point to a segment that meets this bar, do not defer the ref --
+leave superseding_segment_ids empty and keep its current scope_state. This is enforced
+programmatically downstream regardless of what you write here: an empty superseding_segment_ids
+array, a segment ID from before this ref's own evidence, or a segment ID absent from this
+transcript will cause the deferral to be rejected and the ref's scope_state kept exactly as it was.
+A scope-deferral correction never changes status or classification by itself -- repair those
+independently, using the rules above, only when the transcript evidence for them (not the deferral
+alone) supports it.
 
 TEMPORAL COMPLETION RULE: for every accepted or requested-then-accepted ref, look FORWARD through
 the rest of the transcript, in chronological order, and ask "does the meeting go on to actually
@@ -589,6 +611,50 @@ given -- from either the original evidence or the proposed completion evidence -
 support your answer; an empty array is acceptable when confirmed is false).
 `.trim();
 
+/**
+ * Targeted scope-deferral verifier (later-scope-supersession precision hardening, forensic-audit
+ * follow-up). Called only for a single work item whose lifecycle review already proposed moving it
+ * from current_scope to future_scope AND already passed the programmatic evidence/chronology gate
+ * (see validateScopeDeferralEvidence in work-item-stages.ts) -- this prompt's only job is the
+ * remaining semantic judgment neither of those structural checks can make: does the cited later
+ * evidence actually defer THIS SAME feature/deliverable, not just a related or nearby one.
+ * Deliberately narrow: no extraction, no completion repair, no owner repair, no grouping -- one
+ * question, one answer. Mirrors COMPLETION_VERIFICATION_PROMPT's structure exactly, for the
+ * opposite direction (closing scope rather than closing completion).
+ */
+export const SCOPE_DEFERRAL_VERIFICATION_PROMPT = `
+You are the targeted scope-deferral verifier. You are given one work item (its title, owner, and
+the original evidence establishing the commitment/request/acceptance), a later piece of proposed
+deferral evidence (specific segment IDs and the reason another pass believes they move this item to
+a later phase), and a small window of surrounding transcript lines for context. Nothing else about
+this meeting is visible to you, and that is intentional -- you are not re-extracting work, not
+repairing completion, not repairing an owner, and not reasoning about grouping. You have exactly one
+job.
+
+Answer exactly one question: does the proposed deferral evidence explicitly defer, remove, or move
+this SAME feature/deliverable to a later phase, after the original commitment was made, during this
+meeting?
+
+Same general topic or project area is NOT the same feature. Confirm=true only for evidence like: an
+explicit statement that this specific feature/deliverable is not part of the current phase ("that's
+not a feature we're doing in phase one", "you can put that in phase three", "we don't need to build
+that right now", "let's save that for later", "not yet, after we validate the first version") where
+the referent is clearly this same item, not a different one.
+
+Confirm=false for anything short of that, including: a later statement about a different feature
+that merely sounds similar or sits in the same general area; general discussion of what phase one
+contains that never actually mentions excluding or deferring THIS feature; a vague "maybe later" or
+"we'll see" with no clear referent to this specific item; enthusiasm or further discussion about the
+SAME feature that does not defer it. When in doubt, confirm=false -- a real current-scope commitment
+being kept active costs a user a moment's review when it turns out to be deferred later; wrongly
+deferring it silently removes real active work with no easy way to notice.
+
+Return schema-valid JSON: confirmed (boolean), reasoning (a precise sentence naming exactly what the
+evidence does or does not show), and supporting_segment_ids (the subset of the segment IDs you were
+given -- from either the original evidence or the proposed deferral evidence -- that most directly
+support your answer; an empty array is acceptable when confirmed is false).
+`.trim();
+
 export const GROUPING_PROMPT = `
 You are given the complete list of eligible work items for this meeting -- every item confirmed to
 be accepted, current-scope, project_work, role=action or input_dependency -- plus the separate list
@@ -615,19 +681,35 @@ Reason in this order:
    accepted-deliverable evidence (a concrete handoff/release/presentation outcome and, when present,
    an explicit deadline) and build one anchor from it; do not also emit the narrower or component
    formulation as its own anchor.
-2. For each anchor, determine which eligible actions/input-dependencies materially advance it --
+2. RECAP/DELIVERABLE-DEFINITION ANCHORS: an acceptance-criterion item can itself be the anchor's
+   seed, not merely something attached to an anchor you already built elsewhere. When an
+   acceptance-criterion item states a final agreed deliverable or phase breakdown ("phase one is...",
+   "the deliverable is...", "what we agreed is...", "the first version should...", "our goal for this
+   phase is..."), treat it as a candidate anchor in its own right and actively check every eligible
+   item for whether it is an implementation piece of the outcome that recap names -- a scattered
+   earlier promise to build one named part of it (one feature, one step, one component) is a member
+   of THAT anchor, not evidence for some other, unrelated anchor (such as an anchor about writing or
+   sending a planning/status document, which is a different, administrative outcome even if the same
+   person is involved). Build ONE new multi_item_shared_purpose group titled after the outcome the
+   recap describes, with every matching implementation piece as a member and the recap item itself as
+   its acceptance_criteria_refs entry -- do not leave the recap attached only to an unrelated
+   administrative or documentation anchor while its actual implementation pieces remain scattered as
+   standalone tasks. Only claim a member this way when it has direct textual/semantic support for
+   contributing to the named outcome -- sharing a topic, owner, or rough timeframe with the recap is
+   never sufficient by itself.
+3. For each anchor, determine which eligible actions/input-dependencies materially advance it --
    including client/input dependencies the anchor cannot be completed without. An eligible item that
    just restates the anchor's own outcome in different words (e.g. the anchor is "deliver the first
    draft" and another item says "present the draft as soon as possible") is the SAME completion
    event as the anchor, not a separate contribution -- claim it as a member so it is represented once
    inside the anchor, rather than leaving it unclaimed to resurface as a duplicate standalone task.
-3. Attach current-scope acceptance criteria that describe what the anchor must satisfy, in
+4. Attach current-scope acceptance criteria that describe what the anchor must satisfy, in
    acceptance_criteria_refs -- these are requirements, never member_refs, never their own group. A
    product-scope decision (e.g. which product variants/lines to include) is an acceptance criterion
    on the anchor, never its own group.
-4. Only after anchors are built, consider whether any remaining eligible items support another
+5. Only after anchors are built, consider whether any remaining eligible items support another
    genuinely distinct outcome -- not a component of an anchor you already built.
-5. Leave every remaining eligible item unclaimed; deterministic assembly makes it standalone.
+6. Leave every remaining eligible item unclaimed; deterministic assembly makes it standalone.
 
 Never create a peer group for something that is actually a component, requirement, or dependency of
 an anchor you already identified -- fold it in instead. A single implementation action is never its
@@ -733,6 +815,20 @@ serve:
   a market -- this is an acceptance criterion or scope note on the deliverable, never its own group,
   unless the transcript states a separate, concretely accepted deliverable (its own owner, its own
   completion condition) to build or run something distinct.
+
+MISSED RECAP-ANCHORED GROUP CHECK: before finalizing, check the acceptance-criteria list for any
+item stating a final agreed deliverable or phase breakdown ("phase one is...", "the deliverable
+is...", "what we agreed is...", "the first version should...", "our goal for this phase is...") that
+is not currently the acceptance criterion of a group whose members are actually implementation
+pieces of the outcome it names. If such a recap exists and one or more eligible items in the
+supplied list are implementation pieces of that same named outcome -- even if grouping left them
+standalone, or attached the recap only to a different, administrative/documentation group -- propose
+the missing group yourself (ref=null), titled after the recap's outcome, with those items as members
+and the recap as its acceptance criterion. Do not pull a member into this new group merely because it
+shares a topic, owner, or timeframe with the recap -- it must have direct textual/semantic support
+for being one of the outcome's actual parts. This is exactly the kind of missed group you are already
+permitted to propose below; this check exists only to make sure you actually look for this specific
+pattern, not to grant any new authority.
 
 You may, for any group: keep it as proposed; correct its title, description, owner, due date,
 purpose_reason, group_basis, member_refs, acceptance_criteria_refs, or explicit_outcome_evidence;

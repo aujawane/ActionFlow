@@ -15,6 +15,8 @@ import {
   lifecycleReviewJsonSchema,
   rawGroupProposalSchema,
   rawWorkItemSchema,
+  scopeDeferralVerificationJsonSchema,
+  scopeDeferralVerificationSchema,
   taskConsolidationJsonSchema,
   taskConsolidationProposalSchema,
   transcriptCorrectionSchema,
@@ -416,6 +418,56 @@ export async function runCompletionVerificationModel(input: {
     return {
       ok: false,
       error: "OpenAI returned invalid completion_verification JSON.",
+      details: JSON.stringify(result.raw).slice(0, 500),
+      latencyMs: result.latencyMs,
+      validationFailure: true
+    };
+  }
+  return {
+    ok: true,
+    confirmed: parsed.data.confirmed,
+    reasoning: parsed.data.reasoning,
+    supportingSegmentIds: parsed.data.supporting_segment_ids,
+    latencyMs: result.latencyMs,
+    usage: result.usage
+  };
+}
+
+export type ScopeDeferralVerificationModelResult =
+  | {
+      ok: true;
+      confirmed: boolean;
+      reasoning: string;
+      supportingSegmentIds: string[];
+      latencyMs: number;
+      usage: TokenUsage | null;
+    }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+/** Targeted scope-deferral verifier: one work item, one question, one schema-valid object -- not
+ * an array, so no salvageArray here. A malformed response is treated as a hard failure by the
+ * caller (work-item-stages.ts's runLifecycleReconciliationPass), which fails closed (keeps the
+ * item at its current scope_state) rather than propagating the failure as a whole-meeting error. */
+export async function runScopeDeferralVerificationModel(input: {
+  systemPrompt: string;
+  context: unknown;
+  timeoutMs?: number;
+  createResponse?: CreateStructuredResponse;
+}): Promise<ScopeDeferralVerificationModelResult> {
+  const result = await requestStructuredJson({
+    stage: "scope_deferral_verification",
+    systemPrompt: input.systemPrompt,
+    context: input.context,
+    jsonSchema: scopeDeferralVerificationJsonSchema,
+    timeoutMs: input.timeoutMs,
+    createResponse: input.createResponse
+  });
+  if (!result.ok) return result;
+  const parsed = scopeDeferralVerificationSchema.safeParse(result.raw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: "OpenAI returned invalid scope_deferral_verification JSON.",
       details: JSON.stringify(result.raw).slice(0, 500),
       latencyMs: result.latencyMs,
       validationFailure: true

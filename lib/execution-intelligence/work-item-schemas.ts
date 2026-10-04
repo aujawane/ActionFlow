@@ -332,6 +332,22 @@ export const completionVerificationSchema = z
   .strict();
 export type CompletionVerification = z.infer<typeof completionVerificationSchema>;
 
+/**
+ * Targeted scope-deferral verifier (later-scope-supersession precision hardening). One call, one
+ * work item, one question: does the cited later evidence explicitly defer, remove, or move this
+ * SAME feature/deliverable to a later phase -- not just nearby/related discussion? Mirrors
+ * completionVerificationSchema's shape exactly, since it is the same kind of narrow, isolated
+ * semantic check, just for the opposite direction (closing scope rather than closing completion).
+ */
+export const scopeDeferralVerificationSchema = z
+  .object({
+    confirmed: z.boolean(),
+    reasoning: z.string().min(1),
+    supporting_segment_ids: z.array(z.string().uuid())
+  })
+  .strict();
+export type ScopeDeferralVerification = z.infer<typeof scopeDeferralVerificationSchema>;
+
 // --- Phase 0: transcript normalization ---
 
 export const transcriptCorrectionSchema = z
@@ -636,6 +652,19 @@ export const completionVerificationJsonSchema: Record<string, unknown> = {
   additionalProperties: false,
   properties: completionVerificationProperties,
   required: Object.keys(completionVerificationProperties)
+};
+
+const scopeDeferralVerificationProperties = {
+  confirmed: { type: "boolean" },
+  reasoning: { type: "string" },
+  supporting_segment_ids: { type: "array", items: { type: "string" } }
+} as const;
+
+export const scopeDeferralVerificationJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: scopeDeferralVerificationProperties,
+  required: Object.keys(scopeDeferralVerificationProperties)
 };
 
 const transcriptCorrectionProperties = {
