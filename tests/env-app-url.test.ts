@@ -71,15 +71,15 @@ test("execution-intelligence timeout is clamped so 2 model attempts can never ex
 });
 
 test("per-V4-stage timeout overrides are clamped the same way as the global default", () => {
-  const previous = process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION;
+  const previous = process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_ATOMIC_ACTION_HARVEST;
   try {
-    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION", "250000");
-    assert.equal(getV4StageTimeoutMs("global_correction"), MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS);
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_ATOMIC_ACTION_HARVEST", "250000");
+    assert.equal(getV4StageTimeoutMs("atomic_action_harvest"), MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS);
 
-    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION", undefined);
-    assert.equal(getV4StageTimeoutMs("global_correction"), getExecutionIntelligenceTimeoutMs());
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_ATOMIC_ACTION_HARVEST", undefined);
+    assert.equal(getV4StageTimeoutMs("atomic_action_harvest"), getExecutionIntelligenceTimeoutMs());
   } finally {
-    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_CORRECTION", previous);
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_ATOMIC_ACTION_HARVEST", previous);
   }
 });
 

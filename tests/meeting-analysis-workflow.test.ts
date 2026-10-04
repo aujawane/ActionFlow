@@ -71,6 +71,7 @@ test("the workflow orchestrator preserves the exact existing stage sequence", as
   assert.match(source, /await runAnalysisStageStep\(\{ \.\.\.input, stage \}\);/);
 
   assert.deepEqual(ANALYSIS_STAGE_ORDER, [
+    "transcript_normalization",
     "topic_extraction",
     "conversation_events",
     "candidates",

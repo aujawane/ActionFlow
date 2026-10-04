@@ -45,15 +45,33 @@ All API routes that use Node APIs (`crypto`, Supabase admin, OpenAI) run on the
 Set these in Vercel → Project → Settings → Environment Variables
 for **Production** (and Preview if you want preview deploys to work).
 
+### Supabase environment selection (required, explicit, no default)
+
+Parfait resolves to exactly one Supabase project via `NEXT_PUBLIC_SUPABASE_ENV` — never via
+`NODE_ENV` (a Preview deployment builds with `NODE_ENV=production` too, so a `NODE_ENV`-based
+default would risk a Preview build silently reading/writing the Production database). There is
+no implicit default: the app throws a clear error at first Supabase use if this is unset.
+
+| Environment scope in Vercel | `NEXT_PUBLIC_SUPABASE_ENV` |
+|---|---|
+| Production | `production` |
+| Preview | `staging` — set this explicitly; do **not** leave it unset or copy Production's value |
+
+| Name | Example | Notes |
+|------|---------|-------|
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://xxxx.supabase.co` | **Production** Supabase project URL. Required when `NEXT_PUBLIC_SUPABASE_ENV=production` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` | **Production** public anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | **Production**, server only — never expose to the browser |
+| `NEXT_PUBLIC_STAGING_SUPABASE_URL` | `https://yyyy.supabase.co` | **Staging** (`parfait-staging`) project URL. Required when `NEXT_PUBLIC_SUPABASE_ENV=staging` |
+| `NEXT_PUBLIC_STAGING_SUPABASE_ANON_KEY` | `eyJ...` | **Staging** public anon key |
+| `STAGING_SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | **Staging**, server only |
+
 ### Core (required)
 
 | Name | Example | Notes |
 |------|---------|-------|
 | `NEXT_PUBLIC_APP_URL` | `https://your-app.vercel.app` | Public site URL, no trailing slash |
 | `INTERNAL_APP_URL` | `https://your-app.vercel.app` | Server self-calls (analyze). Prefer same as public URL |
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://xxxx.supabase.co` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` | Public anon key |
-| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | **Server only** — never expose to the browser |
 | `OPENAI_API_KEY` | OpenAI API key | Server only |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | Optional; defaults to `gpt-4.1-mini` |
 | `RECALL_API_KEY` | Recall token | Server only |

@@ -4,10 +4,15 @@ import { getV4StageModel, getV4StageTimeoutMs, type V4Stage } from "@/lib/env";
 import { openai } from "@/lib/openai";
 import { logExecutionModelEvent } from "./observability";
 import {
-  globalCorrectionJsonSchema,
-  globalWorkItemAdditionSchema,
+  atomicActionHarvestCandidateSchema,
+  atomicActionHarvestJsonSchema,
+  completenessAdjudicationDecisionSchema,
+  completenessAdjudicationJsonSchema,
+  completionVerificationJsonSchema,
+  completionVerificationSchema,
   globalWorkItemCorrectionSchema,
   groupingJsonSchema,
+  lifecycleReviewJsonSchema,
   rawGroupProposalSchema,
   rawWorkItemSchema,
   taskConsolidationJsonSchema,
@@ -16,14 +21,17 @@ import {
   transcriptNormalizationJsonSchema,
   verificationJsonSchema,
   verifiedGroupSchema,
+  vocabularyCandidateSchema,
   workItemExtractionJsonSchema,
-  type GlobalWorkItemAddition,
+  type AtomicActionHarvestCandidate,
+  type CompletenessAdjudicationDecision,
   type GlobalWorkItemCorrection,
   type RawGroupProposal,
   type RawWorkItem,
   type TaskConsolidationProposal,
   type TranscriptCorrection,
-  type VerifiedGroup
+  type VerifiedGroup,
+  type VocabularyCandidate
 } from "./work-item-schemas";
 
 const MODEL_MAX_OUTPUT_TOKENS = 16_000;
@@ -44,7 +52,7 @@ type StructuredResponse = {
     total_tokens?: number | null;
   } | null;
 };
-type CreateStructuredResponse = (signal: AbortSignal) => Promise<StructuredResponse>;
+export type CreateStructuredResponse = (signal: AbortSignal) => Promise<StructuredResponse>;
 
 function extractUsage(response: StructuredResponse): TokenUsage | null {
   if (!response.usage) return null;
@@ -258,40 +266,167 @@ export async function runWorkItemExtractionModel(input: {
   };
 }
 
-export type GlobalCorrectionModelResult =
+export type AtomicActionHarvestModelResult =
   | {
       ok: true;
-      corrections: GlobalWorkItemCorrection[];
-      additions: GlobalWorkItemAddition[];
+      candidates: AtomicActionHarvestCandidate[];
       latencyMs: number;
       salvagedItems: number;
       usage: TokenUsage | null;
     }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
-export async function runGlobalCorrectionModel(input: {
+/** Pass A: atomic action harvest. Ledger-blind, high-recall enumeration of grounded action
+ * candidates -- never decides whether something is already known, never repairs an existing item. */
+export async function runAtomicActionHarvestModel(input: {
   systemPrompt: string;
   context: unknown;
   timeoutMs?: number;
   createResponse?: CreateStructuredResponse;
-}): Promise<GlobalCorrectionModelResult> {
+}): Promise<AtomicActionHarvestModelResult> {
   const result = await requestStructuredJson({
-    stage: "global_correction",
+    stage: "atomic_action_harvest",
     systemPrompt: input.systemPrompt,
     context: input.context,
-    jsonSchema: globalCorrectionJsonSchema,
+    jsonSchema: atomicActionHarvestJsonSchema,
     timeoutMs: input.timeoutMs,
     createResponse: input.createResponse
   });
   if (!result.ok) return result;
-  const corrections = salvageArray(result.raw, "corrections", globalWorkItemCorrectionSchema);
-  const additions = salvageArray(result.raw, "additions", globalWorkItemAdditionSchema);
+  const candidates = salvageArray(result.raw, "candidates", atomicActionHarvestCandidateSchema);
   return {
     ok: true,
-    corrections: corrections.items,
-    additions: additions.items,
+    candidates: candidates.items,
     latencyMs: result.latencyMs,
-    salvagedItems: corrections.dropped + additions.dropped,
+    salvagedItems: candidates.dropped,
+    usage: result.usage
+  };
+}
+
+export type CompletenessAdjudicationModelResult =
+  | {
+      ok: true;
+      decisions: CompletenessAdjudicationDecision[];
+      latencyMs: number;
+      salvagedItems: number;
+      usage: TokenUsage | null;
+    }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+/** Pass B: missing-work adjudication. Given harvested candidates (never rediscovered from the
+ * transcript itself) plus the existing ledger, decides per candidate whether it represents genuine,
+ * currently-absent execution work -- exhaustive coverage is enforced by the caller
+ * (work-item-stages.ts's runCompletenessAdjudicationPass), not here. */
+export async function runCompletenessAdjudicationModel(input: {
+  systemPrompt: string;
+  context: unknown;
+  timeoutMs?: number;
+  createResponse?: CreateStructuredResponse;
+}): Promise<CompletenessAdjudicationModelResult> {
+  const result = await requestStructuredJson({
+    stage: "completeness_adjudication",
+    systemPrompt: input.systemPrompt,
+    context: input.context,
+    jsonSchema: completenessAdjudicationJsonSchema,
+    timeoutMs: input.timeoutMs,
+    createResponse: input.createResponse
+  });
+  if (!result.ok) return result;
+  const decisions = salvageArray(result.raw, "decisions", completenessAdjudicationDecisionSchema);
+  return {
+    ok: true,
+    decisions: decisions.items,
+    latencyMs: result.latencyMs,
+    salvagedItems: decisions.dropped,
+    usage: result.usage
+  };
+}
+
+export type LifecycleReconciliationModelResult =
+  | {
+      ok: true;
+      reviews: GlobalWorkItemCorrection[];
+      latencyMs: number;
+      salvagedItems: number;
+      usage: TokenUsage | null;
+    }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+/** Pass B: exhaustive lifecycle reconciliation. One review per submitted ref -- exhaustive
+ * coverage is enforced by the caller (work-item-stages.ts's runLifecycleReconciliationPass), not
+ * here; this function only makes the model call and salvages whatever schema-valid reviews come
+ * back. */
+export async function runLifecycleReconciliationModel(input: {
+  systemPrompt: string;
+  context: unknown;
+  timeoutMs?: number;
+  createResponse?: CreateStructuredResponse;
+}): Promise<LifecycleReconciliationModelResult> {
+  const result = await requestStructuredJson({
+    stage: "lifecycle_reconciliation",
+    systemPrompt: input.systemPrompt,
+    context: input.context,
+    jsonSchema: lifecycleReviewJsonSchema,
+    timeoutMs: input.timeoutMs,
+    createResponse: input.createResponse
+  });
+  if (!result.ok) return result;
+  const reviews = salvageArray(result.raw, "reviews", globalWorkItemCorrectionSchema);
+  return {
+    ok: true,
+    reviews: reviews.items,
+    latencyMs: result.latencyMs,
+    salvagedItems: reviews.dropped,
+    usage: result.usage
+  };
+}
+
+export type CompletionVerificationModelResult =
+  | {
+      ok: true;
+      confirmed: boolean;
+      reasoning: string;
+      supportingSegmentIds: string[];
+      latencyMs: number;
+      usage: TokenUsage | null;
+    }
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+/** Targeted completion verifier: one work item, one question, one schema-valid object -- not an
+ * array, so no salvageArray here. A malformed response is treated as a hard failure by the caller
+ * (work-item-stages.ts's runLifecycleReconciliationPass), which fails closed (keeps the item open)
+ * rather than propagating the failure as a whole-meeting error. */
+export async function runCompletionVerificationModel(input: {
+  systemPrompt: string;
+  context: unknown;
+  timeoutMs?: number;
+  createResponse?: CreateStructuredResponse;
+}): Promise<CompletionVerificationModelResult> {
+  const result = await requestStructuredJson({
+    stage: "completion_verification",
+    systemPrompt: input.systemPrompt,
+    context: input.context,
+    jsonSchema: completionVerificationJsonSchema,
+    timeoutMs: input.timeoutMs,
+    createResponse: input.createResponse
+  });
+  if (!result.ok) return result;
+  const parsed = completionVerificationSchema.safeParse(result.raw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: "OpenAI returned invalid completion_verification JSON.",
+      details: JSON.stringify(result.raw).slice(0, 500),
+      latencyMs: result.latencyMs,
+      validationFailure: true
+    };
+  }
+  return {
+    ok: true,
+    confirmed: parsed.data.confirmed,
+    reasoning: parsed.data.reasoning,
+    supportingSegmentIds: parsed.data.supporting_segment_ids,
+    latencyMs: result.latencyMs,
     usage: result.usage
   };
 }
@@ -355,7 +490,14 @@ export async function runGroupingVerificationModel(input: {
 }
 
 export type TranscriptNormalizationModelResult =
-  | { ok: true; corrections: TranscriptCorrection[]; latencyMs: number; salvagedItems: number; usage: TokenUsage | null }
+  | {
+      ok: true;
+      corrections: TranscriptCorrection[];
+      vocabularyCandidates: VocabularyCandidate[];
+      latencyMs: number;
+      salvagedItems: number;
+      usage: TokenUsage | null;
+    }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
 export async function runTranscriptNormalizationModel(input: {
@@ -374,11 +516,17 @@ export async function runTranscriptNormalizationModel(input: {
   });
   if (!result.ok) return result;
   const corrections = salvageArray(result.raw, "corrections", transcriptCorrectionSchema);
+  const vocabularyCandidates = salvageArray(
+    result.raw,
+    "vocabulary_candidates",
+    vocabularyCandidateSchema
+  );
   return {
     ok: true,
     corrections: corrections.items,
+    vocabularyCandidates: vocabularyCandidates.items,
     latencyMs: result.latencyMs,
-    salvagedItems: corrections.dropped,
+    salvagedItems: corrections.dropped + vocabularyCandidates.dropped,
     usage: result.usage
   };
 }

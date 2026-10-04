@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-import { getPublicSupabaseUrl, requireEnv } from "@/lib/env";
+import { getPublicSupabaseUrl, getSupabaseServiceRoleKey } from "@/lib/env";
 
 /**
  * Lazy Supabase service-role client.
@@ -17,7 +17,7 @@ export function getSupabaseAdmin(): SupabaseClient {
   }
 
   const supabaseUrl = getPublicSupabaseUrl();
-  const serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const serviceRoleKey = getSupabaseServiceRoleKey();
 
   supabaseAdminClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: {

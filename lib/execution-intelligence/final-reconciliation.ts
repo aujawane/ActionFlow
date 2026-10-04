@@ -563,7 +563,8 @@ export function reconcileFinalGraph(input: { tree: ExecutionTree }): FinalReconc
     reconcileCommitmentDates(descriptionCleaned);
 
   return {
-    tree: { commitments: finalCommitments, standalone_tasks: standaloneTasks },
+    // `completed_work` never participates in reconciliation -- passed through unchanged.
+    tree: { commitments: finalCommitments, standalone_tasks: standaloneTasks, completed_work: input.tree.completed_work },
     commitmentDecisions,
     standaloneDecisions,
     ownershipDecisions,

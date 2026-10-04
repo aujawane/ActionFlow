@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { resolveSupabasePublicConfig } from "@/lib/env";
 import { recoveryErrorPath } from "@/lib/password-recovery";
 
 export function authRedirectFor(input: {
@@ -30,9 +31,22 @@ export async function updateSession(request: NextRequest) {
     request
   });
 
+  // Literal process.env.NEXT_PUBLIC_* reads here (not a dynamic lookup) -- see
+  // lib/supabase/client.ts for why, and resolveSupabasePublicConfig in lib/env.ts for the shared
+  // staging-vs-production decision logic this delegates to. Fails fast (throws) on a missing/
+  // invalid NEXT_PUBLIC_SUPABASE_ENV or a missing URL/key, instead of the previous silent `|| ""`
+  // fallback to an empty string.
+  const { url, anonKey } = resolveSupabasePublicConfig({
+    supabaseEnv: process.env.NEXT_PUBLIC_SUPABASE_ENV,
+    productionUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    productionAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    stagingUrl: process.env.NEXT_PUBLIC_STAGING_SUPABASE_URL,
+    stagingAnonKey: process.env.NEXT_PUBLIC_STAGING_SUPABASE_ANON_KEY
+  });
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || "",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || "",
+    url,
+    anonKey,
     {
       cookies: {
         getAll() {

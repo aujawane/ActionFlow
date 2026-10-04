@@ -29,14 +29,19 @@ import {
   type CommitmentReconciliationDecision,
   type StandaloneReconciliationDecision
 } from "./final-reconciliation";
-import { normalizeTranscriptSafely, type NormalizationResult } from "./transcript-normalization";
+import { isTranscriptNormalizationEnabled } from "@/lib/env";
+import type { NormalizationResult } from "./transcript-normalization";
 import {
   extractTopicWorkItems,
-  runGlobalCorrectionPass,
+  runCompletenessRecoveryPass,
   runGroupingPass,
-  runGroupingVerificationPass
+  runGroupingVerificationPass,
+  runLifecycleReconciliationPass,
+  type PassAGroundingRejectionTraceEntry,
+  type PassAHarvestTraceEntry,
+  type PassBAdjudicationTraceEntry
 } from "./work-item-stages";
-import { participantMap, type ExecutionSourceContext } from "./stages";
+import type { ExecutionSourceContext } from "./stages";
 import type {
   ExecutionTree,
   GlobalWorkItemAddition,
@@ -50,12 +55,6 @@ import type { ExecutionGraph } from "./schemas";
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? "").trim();
-}
-
-function buildProjectGlossary(source: ExecutionSourceContext): string[] {
-  const glossary = new Set<string>();
-  if (source.project?.name) glossary.add(source.project.name);
-  return Array.from(glossary);
 }
 
 /**
@@ -110,6 +109,46 @@ export function applyGlobalCorrections(input: {
   return [...corrected, ...additions];
 }
 
+/** Pass B's diagnostic decision, joined (in runV4GlobalCorrection, via
+ * resolveCompletenessAdjudicationTrace) with the final WorkItem ref its "add" disposition produced
+ * -- generation-12 forensic-audit follow-up, so a future benchmark can trace Pass A candidate ->
+ * grounding -> Pass B decision -> resulting WorkItem purely by candidate_id, without inference.
+ * resulting_work_item_ref is null for every non-"add" disposition, and also null (rather than
+ * guessed) if the addition/candidate match could not be resolved. */
+export type PassBAdjudicationTraceEntryResolved = {
+  candidate_id: string;
+  disposition: string;
+  reason: string;
+  resulting_work_item_ref: string | null;
+};
+
+/**
+ * Pure join: resolves each Pass-B diagnostic decision's resulting WorkItem ref by mirroring (never
+ * modifying) applyGlobalCorrections's own `wi_g${index + 1}` ref-assignment convention --
+ * `additions[i]` becomes `wi_g${i + 1}` there (both already grounded upstream, so the index
+ * alignment holds in the normal case). Extracted as its own pure function, independent of
+ * runV4GlobalCorrection's full V4ExecutionState/model-call plumbing, specifically so this join is
+ * unit-testable on its own -- see tests/v4-completeness-atomicity.test.ts's trace-linkage tests.
+ */
+export function resolveCompletenessAdjudicationTrace(input: {
+  additions: GlobalWorkItemAddition[];
+  additionCandidateIds: Array<string | null>;
+  adjudicationTrace: PassBAdjudicationTraceEntry[];
+}): PassBAdjudicationTraceEntryResolved[] {
+  const additionRefByCandidateId = new Map<string, string>();
+  input.additions.forEach((_addition, index) => {
+    const candidateId = input.additionCandidateIds[index];
+    if (candidateId) additionRefByCandidateId.set(candidateId, `wi_g${index + 1}`);
+  });
+  return input.adjudicationTrace.map((decision) => ({
+    candidate_id: decision.candidateId,
+    disposition: decision.disposition,
+    reason: decision.reason,
+    resulting_work_item_ref:
+      decision.disposition === "add" ? additionRefByCandidateId.get(decision.candidateId) ?? null : null
+  }));
+}
+
 export type V4ExecutionTrace = {
   version: "execution-tree-v4-hardened-2";
   normalization: {
@@ -123,12 +162,23 @@ export type V4ExecutionTrace = {
   merged_work_items: WorkItem[];
   global_corrections: GlobalWorkItemCorrection[];
   global_additions: GlobalWorkItemAddition[];
+  /** Diagnostic-only Pass-A/Pass-B trace (see PASS_A_TRACE_MAX_ENTRIES in work-item-stages.ts).
+   * Never used by any downstream decision -- these fields exist solely so a live run can be audited
+   * after the fact without re-running anything. */
+  completeness_harvest_trace: PassAHarvestTraceEntry[];
+  completeness_grounding_rejection_trace: PassAGroundingRejectionTraceEntry[];
+  completeness_adjudication_trace: PassBAdjudicationTraceEntryResolved[];
+  completeness_trace_truncated: boolean;
   corrected_work_items: WorkItem[];
   superseded_work_items: WorkItem[];
   eligible_work_items: WorkItem[];
   acceptance_criteria_items: WorkItem[];
   future_scope_items: WorkItem[];
   excluded_work_items: Array<WorkItem & { exclusion_reason: string | null }>;
+  /** Grounded, owned, genuinely-completed-during-this-meeting items -- see isCompletedDuringMeeting
+   * in execution-tree.ts. Disjoint from excluded_work_items by construction (these ARE persisted,
+   * as closed commitments, never as open tasks; excluded_work_items never are). */
+  completed_work_items: WorkItem[];
   draft_groups: GroupProposal[];
   verified_groups: VerifiedGroup[];
   group_decisions: GroupDecision[];
@@ -159,6 +209,10 @@ export type V4ExecutionState = {
   mergedWorkItems: WorkItem[];
   globalCorrections: GlobalWorkItemCorrection[];
   globalAdditions: GlobalWorkItemAddition[];
+  completenessHarvestTrace: PassAHarvestTraceEntry[];
+  completenessGroundingRejectionTrace: PassAGroundingRejectionTraceEntry[];
+  completenessAdjudicationTrace: PassBAdjudicationTraceEntryResolved[];
+  completenessTraceTruncated: boolean;
   workItems: WorkItem[];
   eligibleWorkItems: WorkItem[];
   acceptanceCriteriaItems: WorkItem[];
@@ -193,26 +247,32 @@ export async function runV4WorkItemExtraction(input: {
 }): Promise<V4ExecutionState> {
   const metrics = createExecutionMetrics(input.source.meetingId, input.fallbackUsed);
 
-  // Phase 0: optional, non-blocking transcript normalization. Never blocks or fails the run --
-  // any problem falls back to the untouched raw transcript.
-  const normalization = await normalizeTranscriptSafely({
-    meetingId: input.source.meetingId,
-    meetingDate: input.source.meetingDate,
-    transcript: input.source.transcript,
-    participants: participantMap(input.source.transcript).map((participant) => participant.name),
-    projectGlossary: buildProjectGlossary(input.source)
-  });
-  metrics.openAiLatencyMs.transcriptNormalization = normalization.latencyMs;
-  if (normalization.usage) metrics.openAiUsage.transcriptNormalization = normalization.usage;
-  const normalizedSource: ExecutionSourceContext = {
-    ...input.source,
-    transcript: normalization.normalizedTranscript
+  // Transcript normalization now runs exactly once, upstream of both execution-intelligence
+  // engines, as its own analysis stage (lib/meeting-analysis/normalization.ts,
+  // ANALYSIS_STAGE_ORDER's "transcript_normalization") -- by the time this function runs,
+  // input.source.transcript already reflects any applied corrections (persisted onto
+  // transcript_segments and re-read by prepareMeetingAnalysis). Calling
+  // normalizeTranscriptSafely a second time here would be a wasted duplicate model call against
+  // already-normalized text; this stub preserves the NormalizationResult shape the rest of this
+  // module and its debug trace/tests expect, without making a second call.
+  const normalization: NormalizationResult = {
+    enabled: isTranscriptNormalizationEnabled(),
+    normalizedTranscript: input.source.transcript,
+    corrections: [],
+    appliedCorrections: [],
+    failed: false,
+    failureReason: null,
+    latencyMs: 0,
+    usage: null
   };
+  metrics.openAiLatencyMs.transcriptNormalization = normalization.latencyMs;
+  const normalizedSource: ExecutionSourceContext = input.source;
   logExecutionStage(metrics, "v4_transcript_normalized", {
     enabled: normalization.enabled,
     failed: normalization.failed,
     proposed_corrections: normalization.corrections.length,
-    applied_corrections: normalization.appliedCorrections.length
+    applied_corrections: normalization.appliedCorrections.length,
+    ran_at_this_stage: false
   });
 
   const extracted = await extractTopicWorkItems(normalizedSource);
@@ -241,6 +301,10 @@ export async function runV4WorkItemExtraction(input: {
     mergedWorkItems: merged.items,
     globalCorrections: [],
     globalAdditions: [],
+    completenessHarvestTrace: [],
+    completenessGroundingRejectionTrace: [],
+    completenessAdjudicationTrace: [],
+    completenessTraceTruncated: false,
     workItems: merged.items,
     eligibleWorkItems: [],
     acceptanceCriteriaItems: [],
@@ -279,34 +343,149 @@ export async function runV4ConversationEventExtraction(
   return { ...source, conversationEvents: result.events };
 }
 
+/**
+ * Global correction, run as two focused passes instead of one combined call (generation-6
+ * staging benchmark follow-up -- see work-item-stages.ts's header comment for the full rationale).
+ * Pass A (completeness recovery) runs first and its grounded additions are merged into the ledger
+ * via the existing applyGlobalCorrections(); Pass B (lifecycle reconciliation) then reviews the
+ * UPDATED ledger (so a newly-recovered item is itself eligible for lifecycle review in the same
+ * meeting) and its reviews are merged the same way. Everything from isExecutionEligible onward is
+ * unchanged: this function still returns exactly the same state shape it always did.
+ */
 export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4ExecutionState> {
-  const result = await runGlobalCorrectionPass({ source: state.source, workItems: state.mergedWorkItems });
-  state.metrics.openAiLatencyMs.globalCorrection = result.latencyMs;
-  if (!result.ok) {
-    state.metrics.validationFailures += Number(result.validationFailure);
-    stageFailure("v4_global_correction", result.error, result.details);
+  const passA = await runCompletenessRecoveryPass({ source: state.source, workItems: state.mergedWorkItems });
+  state.metrics.openAiLatencyMs.completenessRecovery = passA.latencyMs;
+  if (!passA.ok) {
+    state.metrics.validationFailures += Number(passA.validationFailure);
+    stageFailure("v4_completeness_recovery", passA.error, passA.details);
   }
-  if (result.usage) state.metrics.openAiUsage.globalCorrection = result.usage;
-  state.metrics.salvagedItems += result.salvagedItems ?? 0;
-  const workItems = applyGlobalCorrections({
+  if (passA.usage) state.metrics.openAiUsage.completenessRecovery = passA.usage;
+  state.metrics.salvagedItems += passA.salvagedItems ?? 0;
+  const completenessProposed = passA.proposedByWindow.reduce((sum, w) => sum + w.proposed, 0);
+  state.metrics.completenessAdditionsProposed += completenessProposed;
+  state.metrics.completenessAdditionsGrounded += passA.groundedCount;
+  state.metrics.completenessAdditionsAccepted += passA.additions.length;
+  state.metrics.completenessAdditionsRemovedAsDuplicate += passA.duplicatesRemoved.length;
+  state.metrics.completenessCandidatesHarvested += passA.candidatesHarvested;
+  state.metrics.completenessCandidatesGroundingRejected += passA.candidatesGroundingRejected;
+  state.metrics.completenessCandidatesExpectedForAdjudication += passA.candidatesExpectedForAdjudication;
+  state.metrics.completenessDecisionsReceived += passA.decisionsReceived;
+  state.metrics.completenessMissingCandidatesAfterRetry += passA.missingCandidateRefsAfterRetry.length;
+  state.metrics.completenessDecisionAdd += passA.adjudicationCounts.completenessDecisionAdd;
+  state.metrics.completenessDecisionAlreadyRepresented += passA.adjudicationCounts.completenessDecisionAlreadyRepresented;
+  state.metrics.completenessDecisionSpeculativeOrInactive += passA.adjudicationCounts.completenessDecisionSpeculativeOrInactive;
+  state.metrics.completenessDecisionRetrospectiveOrCompleted += passA.adjudicationCounts.completenessDecisionRetrospectiveOrCompleted;
+  state.metrics.completenessDecisionNonExecution += passA.adjudicationCounts.completenessDecisionNonExecution;
+  state.metrics.completenessDecisionInsufficientGrounding += passA.adjudicationCounts.completenessDecisionInsufficientGrounding;
+  state.metrics.completenessDuplicatesRemovedDeterministic += passA.duplicatesRemovedDeterministic.length;
+  state.metrics.completenessDuplicatesRemovedSemantic += passA.duplicatesRemovedSemantic.length;
+  logExecutionStage(state.metrics, "v4_completeness_recovery_diagnostics", {
+    proposed_by_window: passA.proposedByWindow,
+    accepted_by_window: passA.acceptedByWindow,
+    duplicates_removed: passA.duplicatesRemoved,
+    duplicates_removed_deterministic: passA.duplicatesRemovedDeterministic,
+    duplicates_removed_semantic: passA.duplicatesRemovedSemantic,
+    candidates_harvested: passA.candidatesHarvested,
+    candidates_grounding_rejected: passA.candidatesGroundingRejected,
+    candidates_expected_for_adjudication: passA.candidatesExpectedForAdjudication,
+    decisions_received: passA.decisionsReceived,
+    missing_candidate_refs_after_retry: passA.missingCandidateRefsAfterRetry,
+    adjudication_counts: passA.adjudicationCounts
+  });
+
+  const ledgerAfterAdditions = applyGlobalCorrections({
     workItems: state.mergedWorkItems,
-    corrections: result.corrections,
-    additions: result.additions,
+    corrections: [],
+    additions: passA.additions,
+    transcript: state.source.transcript
+  });
+  logExecutionStage(state.metrics, "v4_completeness_recovery_applied", {
+    additions: passA.additions.length,
+    total_work_items: ledgerAfterAdditions.length
+  });
+
+  // Generation-12 forensic-audit follow-up: this is the join that makes "Pass A candidate ->
+  // grounding -> Pass B decision -> resulting WorkItem" traceable by candidate_id alone, without
+  // inference (see resolveCompletenessAdjudicationTrace).
+  const completenessAdjudicationTrace = resolveCompletenessAdjudicationTrace({
+    additions: passA.additions,
+    additionCandidateIds: passA.additionCandidateIds,
+    adjudicationTrace: passA.adjudicationTrace
+  });
+  if (passA.traceTruncated) state.metrics.completenessTraceTruncated = true;
+
+  const passB = await runLifecycleReconciliationPass({
+    source: state.source,
+    workItems: ledgerAfterAdditions
+  });
+  state.metrics.openAiLatencyMs.lifecycleReconciliation = passB.latencyMs;
+  if (!passB.ok) {
+    state.metrics.validationFailures += Number(passB.validationFailure);
+    stageFailure("v4_lifecycle_reconciliation", passB.error, passB.details);
+  }
+  if (passB.usage) state.metrics.openAiUsage.lifecycleReconciliation = passB.usage;
+  state.metrics.salvagedItems += passB.salvagedItems ?? 0;
+  state.metrics.completionProposals += passB.completionProposals;
+  state.metrics.completionVerified += passB.completionVerified;
+  state.metrics.completionRejectedMissingEvidence += passB.completionRejectedMissingEvidence;
+  state.metrics.completionRejectedChronology += passB.completionRejectedChronology;
+  state.metrics.completionRejectedVerifier += passB.completionRejectedVerifier;
+  state.metrics.lifecycleCandidatesConsidered += passB.lifecycleCandidatesConsidered;
+  state.metrics.lifecycleCandidatesAdmittedViaProposal += passB.lifecycleCandidatesAdmittedViaProposal;
+  state.metrics.lifecycleCandidatesAdmittedViaFutureScope += passB.lifecycleCandidatesAdmittedViaFutureScope;
+  state.metrics.lifecycleCandidatesAdmittedViaPersonalLogistics += passB.lifecycleCandidatesAdmittedViaPersonalLogistics;
+  state.metrics.lifecycleCandidatesAdmittedViaProposedAcceptance += passB.lifecycleCandidatesAdmittedViaProposedAcceptance;
+  state.metrics.lifecycleRepairedExecutionScope += passB.lifecycleRepairedExecutionScope;
+  state.metrics.lifecycleRepairedAcceptanceState += passB.lifecycleRepairedAcceptanceState;
+  state.metrics.lifecycleRepairedScopeState += passB.lifecycleRepairedScopeState;
+  if (passB.missingRefsAfterRetry.length > 0) {
+    logExecutionStage(state.metrics, "v4_lifecycle_reconciliation_incomplete", {
+      missing_refs: passB.missingRefsAfterRetry
+    });
+  }
+  if (passB.completionProposals > 0) {
+    logExecutionStage(state.metrics, "v4_lifecycle_completion_safety", {
+      completion_proposals: passB.completionProposals,
+      completion_verified: passB.completionVerified,
+      completion_rejected_missing_evidence: passB.completionRejectedMissingEvidence,
+      completion_rejected_chronology: passB.completionRejectedChronology,
+      completion_rejected_verifier: passB.completionRejectedVerifier
+    });
+  }
+  logExecutionStage(state.metrics, "v4_lifecycle_candidate_selection", {
+    candidates_considered: passB.lifecycleCandidatesConsidered,
+    admitted_via_proposal: passB.lifecycleCandidatesAdmittedViaProposal,
+    admitted_via_future_scope: passB.lifecycleCandidatesAdmittedViaFutureScope,
+    admitted_via_personal_logistics: passB.lifecycleCandidatesAdmittedViaPersonalLogistics,
+    admitted_via_proposed_acceptance: passB.lifecycleCandidatesAdmittedViaProposedAcceptance,
+    repaired_execution_scope: passB.lifecycleRepairedExecutionScope,
+    repaired_acceptance_state: passB.lifecycleRepairedAcceptanceState,
+    repaired_scope_state: passB.lifecycleRepairedScopeState
+  });
+
+  const workItems = applyGlobalCorrections({
+    workItems: ledgerAfterAdditions,
+    corrections: passB.reviews,
+    additions: [],
     transcript: state.source.transcript
   });
   const eligibleWorkItems = workItems.filter(isExecutionEligible);
   const acceptanceCriteriaItems = workItems.filter(isEligibleAcceptanceCriterion);
   logExecutionStage(state.metrics, "v4_global_correction_applied", {
-    corrections: result.corrections.length,
-    additions: result.additions.length,
+    corrections: passB.reviews.length,
+    additions: passA.additions.length,
     total_work_items: workItems.length,
     eligible_work_items: eligibleWorkItems.length,
     acceptance_criteria: acceptanceCriteriaItems.length
   });
   return {
     ...state,
-    globalCorrections: result.corrections,
-    globalAdditions: result.additions,
+    globalCorrections: passB.reviews,
+    globalAdditions: passA.additions,
+    completenessHarvestTrace: passA.harvestTrace,
+    completenessGroundingRejectionTrace: passA.groundingRejectionTrace,
+    completenessAdjudicationTrace,
+    completenessTraceTruncated: passA.traceTruncated,
     workItems,
     eligibleWorkItems,
     acceptanceCriteriaItems
@@ -359,6 +538,7 @@ export async function runV4TreeAssembly(state: V4ExecutionState): Promise<V4Exec
     commitments: assembled.tree.commitments.length,
     linked_tasks: assembled.tree.commitments.reduce((sum, c) => sum + c.tasks.length, 0),
     standalone_tasks: assembled.tree.standalone_tasks.length,
+    completed_work: assembled.tree.completed_work?.length ?? 0,
     explicit_deliverables_recovered: recovered.length,
     recovered_refs: recovered.map((d) => d.created_commitment_ref)
   });
@@ -465,6 +645,10 @@ export async function finalizeV4Execution(state: V4ExecutionState): Promise<V4Ex
     merged_work_items: finalState.mergedWorkItems,
     global_corrections: finalState.globalCorrections,
     global_additions: finalState.globalAdditions,
+    completeness_harvest_trace: finalState.completenessHarvestTrace,
+    completeness_grounding_rejection_trace: finalState.completenessGroundingRejectionTrace,
+    completeness_adjudication_trace: finalState.completenessAdjudicationTrace,
+    completeness_trace_truncated: finalState.completenessTraceTruncated,
     corrected_work_items: finalState.workItems,
     superseded_work_items: finalState.workItems.filter((item) => item.scope_state === "superseded"),
     eligible_work_items: finalState.eligibleWorkItems,
@@ -472,10 +656,12 @@ export async function finalizeV4Execution(state: V4ExecutionState): Promise<V4Ex
     future_scope_items: finalState.workItems.filter(isFutureScopeItem),
     excluded_work_items: finalState.workItems
       .filter((item) => !isExecutionEligible(item) && !isEligibleAcceptanceCriterion(item))
+      .filter((item) => decisionByWorkItemRef.get(item.ref)?.disposition !== "completed_history")
       .map((item) => ({
         ...item,
         exclusion_reason: decisionByWorkItemRef.get(item.ref)?.reason ?? null
       })),
+    completed_work_items: finalState.tree.completed_work ?? [],
     draft_groups: finalState.draftGroups,
     verified_groups: finalState.verifiedGroups,
     group_decisions: finalState.groupDecisions,

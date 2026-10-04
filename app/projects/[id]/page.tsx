@@ -7,6 +7,7 @@ import {
   ProjectBrainLauncher,
   ProjectBrainPanel
 } from "@/components/project-brain-panel";
+import { ProjectVocabularyPanel } from "@/components/project-vocabulary-panel";
 import { formatReadableDateTime } from "@/lib/format-date";
 import {
   buildProjectExecutionModel,
@@ -24,6 +25,7 @@ import type {
   ProjectChangeProposal,
   ProjectChatMessage,
   ProjectMemory,
+  ProjectVocabularyTerm,
   TaskArtifact,
   TaskDependency
 } from "@/lib/types";
@@ -95,7 +97,8 @@ export default async function ProjectPage({
     { data: recentChanges },
     { data: projectParticipants },
     { data: projectDecisions },
-    { data: projectConstraints }
+    { data: projectConstraints },
+    { data: projectVocabulary }
   ] = await Promise.all([
     taskIds.length
       ? supabaseAdmin
@@ -152,7 +155,12 @@ export default async function ProjectPage({
       .select("id,title,description,status")
       .eq("project_id", id)
       .neq("status", "archived")
-      .order("updated_at", { ascending: false })
+      .order("updated_at", { ascending: false }),
+    supabaseAdmin
+      .from("project_vocabulary")
+      .select("*")
+      .eq("project_id", id)
+      .order("created_at", { ascending: false })
   ]);
   const [{ data: brainMessages }, { data: brainProposals }] = brainThread
     ? await Promise.all([
@@ -383,6 +391,11 @@ export default async function ProjectPage({
           ) : null}
         </div>
       </section>
+
+      <ProjectVocabularyPanel
+        projectId={id}
+        initialTerms={(projectVocabulary ?? []) as ProjectVocabularyTerm[]}
+      />
       </section>
 
       <ProjectBrainPanel

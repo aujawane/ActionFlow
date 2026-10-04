@@ -72,6 +72,19 @@ export const GROUP_BASIS_VALUES = [
   "explicit_zero_task_outcome"
 ] as const;
 
+/** Pass B's (completeness adjudication) disposition per harvested candidate -- a small,
+ * purpose-specific taxonomy, matching the precedent set by TASK_CONSOLIDATION_DISPOSITION_VALUES
+ * rather than overloading WORK_ITEM_CLASSIFICATION_VALUES, since none of these six values describe
+ * a final WorkItem field -- they describe what Pass B decided to DO with a harvested candidate. */
+export const COMPLETENESS_ADJUDICATION_DISPOSITION_VALUES = [
+  "add",
+  "already_represented",
+  "speculative_or_inactive",
+  "retrospective_or_completed",
+  "non_execution",
+  "insufficient_grounding"
+] as const;
+
 export const workItemStatusSchema = z.enum(WORK_ITEM_STATUS_VALUES);
 export const workItemClassificationSchema = z.enum(WORK_ITEM_CLASSIFICATION_VALUES);
 export const acceptanceStateSchema = z.enum(ACCEPTANCE_STATE_VALUES);
@@ -79,6 +92,7 @@ export const executionScopeSchema = z.enum(EXECUTION_SCOPE_VALUES);
 export const scopeStateSchema = z.enum(SCOPE_STATE_VALUES);
 export const workItemRoleSchema = z.enum(WORK_ITEM_ROLE_VALUES);
 export const groupBasisSchema = z.enum(GROUP_BASIS_VALUES);
+export const completenessAdjudicationDispositionSchema = z.enum(COMPLETENESS_ADJUDICATION_DISPOSITION_VALUES);
 
 /** What the model returns per topic. `ref` and `topic_id` are assigned by application code.
  * `scope_state`/`work_item_role` are the topic-scoped pass's first guess; the global scope/role
@@ -201,9 +215,11 @@ export type GroupingOutput = z.infer<typeof groupingOutputSchema>;
 export type VerificationOutput = z.infer<typeof verificationOutputSchema>;
 
 /**
- * The one global, meeting-wide scope/role reconciliation pass. Work items only -- never groups.
- * Sees the full transcript and can resolve current-vs-future scope using later sequencing
- * statements, in addition to everything the original correction stage already did.
+ * Per-ref lifecycle review (Pass B: EXHAUSTIVE LIFECYCLE RECONCILIATION). Work items only -- never
+ * groups. Sees the full transcript and can resolve current-vs-future scope, temporal completion,
+ * duplicate-representation supersession, and owner attribution using later sequencing statements,
+ * for every ref it is asked to review. Same shape the original single-pass global correction used
+ * for its "corrections" array -- reused as-is, not a new taxonomy.
  */
 export const globalWorkItemCorrectionSchema = z
   .object({
@@ -221,22 +237,100 @@ export const globalWorkItemCorrectionSchema = z
     classification_reason: z.string().min(1),
     reconciliation_reason: z.string().nullable(),
     superseding_segment_ids: z.array(z.string().uuid()),
-    superseded_item_refs: z.array(z.string())
+    superseded_item_refs: z.array(z.string()),
+    /** Evidence that this SPECIFIC action was actually performed, distinct from
+     * superseding_segment_ids (which is about duplicate-representation reconciliation, not
+     * completion). Required (may be empty) so the model must always take a position: a review
+     * proposing status=completed/classification=completed_work with an empty array here is
+     * programmatically rejected -- see validateCompletionEvidence in work-item-stages.ts. Never
+     * trusted on its own; only a necessary precondition for the targeted completion verifier. */
+    completion_segment_ids: z.array(z.string().uuid()),
+    /** Why the cited completion_segment_ids demonstrate the same action was performed; null when
+     * this review does not propose completion. */
+    completion_reason: z.string().nullable()
   })
   .strict();
 export type GlobalWorkItemCorrection = z.infer<typeof globalWorkItemCorrectionSchema>;
 
-/** A work item the topic-scoped extraction pass missed entirely. Same shape as extraction output. */
+/** A work item completely missing from the ledger (Pass A: COMPLETENESS RECOVERY). Same shape as
+ * ordinary extraction output. */
 export const globalWorkItemAdditionSchema = rawWorkItemSchema;
 export type GlobalWorkItemAddition = z.infer<typeof globalWorkItemAdditionSchema>;
 
-export const globalCorrectionOutputSchema = z
+/**
+ * Pass A (ATOMIC ACTION HARVEST) output: a per-window, ledger-blind enumeration of every plausible
+ * grounded action/outcome candidate -- deliberately high recall, deliberately unaware of what the
+ * ledger already contains (that judgment belongs entirely to Pass B). `candidate_id` is local to
+ * this one harvest call only; application code assigns a canonical, pass-wide-unique ref
+ * immediately after receiving it (see work-item-stages.ts) -- never trusted or reused downstream.
+ */
+export const atomicActionHarvestCandidateSchema = z
   .object({
-    corrections: z.array(globalWorkItemCorrectionSchema),
-    additions: z.array(globalWorkItemAdditionSchema)
+    candidate_id: z.string().min(1),
+    owner: z.string().nullable(),
+    owners: z.array(z.string()),
+    outcome: z.string().min(1),
+    source_quote: z.string().min(1),
+    source_segment_ids: z.array(z.string().uuid()),
+    harvest_reason: z.string().min(1)
   })
   .strict();
-export type GlobalCorrectionOutput = z.infer<typeof globalCorrectionOutputSchema>;
+export type AtomicActionHarvestCandidate = z.infer<typeof atomicActionHarvestCandidateSchema>;
+
+export const atomicActionHarvestOutputSchema = z
+  .object({ candidates: z.array(atomicActionHarvestCandidateSchema) })
+  .strict();
+export type AtomicActionHarvestOutput = z.infer<typeof atomicActionHarvestOutputSchema>;
+
+/**
+ * Pass B (MISSING-WORK ADJUDICATION) output: exactly one decision per harvested candidate it was
+ * given, exhaustively -- coverage is programmatically enforced afterward (see
+ * validateCompletenessAdjudicationCoverage in work-item-stages.ts), the same pattern already used
+ * for lifecycle reconciliation's exhaustive coverage, never trusted on prompt wording alone.
+ * `addition` is populated (and required to be schema-valid) only when disposition="add"; every
+ * other disposition must leave it null. This is the ONLY place a completeness addition's final
+ * WorkItem-shaped fields (classification/acceptance_state/scope_state/execution_scope/etc.) are
+ * decided -- Pass A never assigns them.
+ */
+export const completenessAdjudicationDecisionSchema = z
+  .object({
+    candidate_id: z.string().min(1),
+    disposition: completenessAdjudicationDispositionSchema,
+    reason: z.string().min(1),
+    addition: globalWorkItemAdditionSchema.nullable()
+  })
+  .strict();
+export type CompletenessAdjudicationDecision = z.infer<typeof completenessAdjudicationDecisionSchema>;
+
+export const completenessAdjudicationOutputSchema = z
+  .object({ decisions: z.array(completenessAdjudicationDecisionSchema) })
+  .strict();
+export type CompletenessAdjudicationOutput = z.infer<typeof completenessAdjudicationOutputSchema>;
+
+/**
+ * Pass B output: one review per submitted ref, exhaustively. `reviews` (not "corrections") to make
+ * the exhaustive-coverage contract explicit -- every requested ref must appear, including a
+ * no-op review that simply echoes an item's current values back unchanged.
+ */
+export const lifecycleReviewOutputSchema = z
+  .object({ reviews: z.array(globalWorkItemCorrectionSchema) })
+  .strict();
+export type LifecycleReviewOutput = z.infer<typeof lifecycleReviewOutputSchema>;
+
+/**
+ * Targeted completion verifier (temporal-completion precision hardening). One call, one work
+ * item, one question: does the cited later evidence demonstrate the SAME real-world action was
+ * actually performed? No extraction, no scope repair, no owner repair, no duplicate reasoning --
+ * a single object, not a batch, since this is deliberately narrow.
+ */
+export const completionVerificationSchema = z
+  .object({
+    confirmed: z.boolean(),
+    reasoning: z.string().min(1),
+    supporting_segment_ids: z.array(z.string().uuid())
+  })
+  .strict();
+export type CompletionVerification = z.infer<typeof completionVerificationSchema>;
 
 // --- Phase 0: transcript normalization ---
 
@@ -254,8 +348,23 @@ export const transcriptCorrectionSchema = z
   .strict();
 export type TranscriptCorrection = z.infer<typeof transcriptCorrectionSchema>;
 
+/** A possible new project term the model noticed while normalizing -- never auto-trusted; always
+ * stored as an unapproved suggestion (see lib/project-vocabulary.ts). */
+export const vocabularyCandidateSchema = z
+  .object({
+    canonical_term: z.string().min(1),
+    observed_alias: z.string().min(1),
+    confidence: z.number().min(0).max(1),
+    evidence_segment_ids: z.array(z.string().uuid())
+  })
+  .strict();
+export type VocabularyCandidate = z.infer<typeof vocabularyCandidateSchema>;
+
 export const transcriptNormalizationOutputSchema = z
-  .object({ corrections: z.array(transcriptCorrectionSchema) })
+  .object({
+    corrections: z.array(transcriptCorrectionSchema),
+    vocabulary_candidates: z.array(vocabularyCandidateSchema)
+  })
   .strict();
 export type TranscriptNormalizationOutput = z.infer<typeof transcriptNormalizationOutputSchema>;
 
@@ -306,6 +415,15 @@ export type ExecutionTree = {
     }
   >;
   standalone_tasks: WorkItem[];
+  /** Grounded, owned, genuinely-execution-like work items that are already DONE -- completed
+   * during this meeting (whether in the same breath as being proposed, or via a later lifecycle
+   * correction of an initially-open item). Never participates in grouping, consolidation,
+   * dependency execution, or active-work recovery (see isCompletedDuringMeeting in
+   * execution-tree.ts) -- it exists purely so a genuine in-meeting completion still produces a
+   * persisted historical record instead of silently vanishing. Deliberately a separate bucket from
+   * `standalone_tasks`/`commitments`, never merged into them, so active-work consumers of this type
+   * never need to re-filter out completed items themselves. */
+  completed_work?: WorkItem[];
 };
 
 // --- JSON Schemas for OpenAI structured outputs ---
@@ -429,14 +547,72 @@ const globalWorkItemCorrectionProperties = {
   classification_reason: { type: "string" },
   reconciliation_reason: { type: ["string", "null"] },
   superseding_segment_ids: { type: "array", items: { type: "string" } },
-  superseded_item_refs: { type: "array", items: { type: "string" } }
+  superseded_item_refs: { type: "array", items: { type: "string" } },
+  completion_segment_ids: { type: "array", items: { type: "string" } },
+  completion_reason: { type: ["string", "null"] }
 } as const;
 
-export const globalCorrectionJsonSchema: Record<string, unknown> = {
+const atomicActionHarvestCandidateProperties = {
+  candidate_id: { type: "string" },
+  owner: { type: ["string", "null"] },
+  owners: { type: "array", items: { type: "string" } },
+  outcome: { type: "string" },
+  source_quote: { type: "string" },
+  source_segment_ids: { type: "array", items: { type: "string" } },
+  harvest_reason: { type: "string" }
+} as const;
+
+export const atomicActionHarvestJsonSchema: Record<string, unknown> = {
   type: "object",
   additionalProperties: false,
   properties: {
-    corrections: {
+    candidates: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: atomicActionHarvestCandidateProperties,
+        required: Object.keys(atomicActionHarvestCandidateProperties)
+      }
+    }
+  },
+  required: ["candidates"]
+};
+
+const completenessAdjudicationDecisionProperties = {
+  candidate_id: { type: "string" },
+  disposition: { type: "string", enum: COMPLETENESS_ADJUDICATION_DISPOSITION_VALUES },
+  reason: { type: "string" },
+  addition: {
+    type: ["object", "null"],
+    additionalProperties: false,
+    properties: rawWorkItemProperties,
+    required: rawWorkItemRequired
+  }
+} as const;
+
+export const completenessAdjudicationJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    decisions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: completenessAdjudicationDecisionProperties,
+        required: Object.keys(completenessAdjudicationDecisionProperties)
+      }
+    }
+  },
+  required: ["decisions"]
+};
+
+export const lifecycleReviewJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    reviews: {
       type: "array",
       items: {
         type: "object",
@@ -444,18 +620,22 @@ export const globalCorrectionJsonSchema: Record<string, unknown> = {
         properties: globalWorkItemCorrectionProperties,
         required: Object.keys(globalWorkItemCorrectionProperties)
       }
-    },
-    additions: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: rawWorkItemProperties,
-        required: rawWorkItemRequired
-      }
     }
   },
-  required: ["corrections", "additions"]
+  required: ["reviews"]
+};
+
+const completionVerificationProperties = {
+  confirmed: { type: "boolean" },
+  reasoning: { type: "string" },
+  supporting_segment_ids: { type: "array", items: { type: "string" } }
+} as const;
+
+export const completionVerificationJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: completionVerificationProperties,
+  required: Object.keys(completionVerificationProperties)
 };
 
 const transcriptCorrectionProperties = {
@@ -467,6 +647,13 @@ const transcriptCorrectionProperties = {
   reason: { type: "string" },
   confidence: { type: "number", minimum: 0, maximum: 1 },
   evidence: { type: ["string", "null"] }
+} as const;
+
+const vocabularyCandidateProperties = {
+  canonical_term: { type: "string" },
+  observed_alias: { type: "string" },
+  confidence: { type: "number", minimum: 0, maximum: 1 },
+  evidence_segment_ids: { type: "array", items: { type: "string" } }
 } as const;
 
 export const transcriptNormalizationJsonSchema: Record<string, unknown> = {
@@ -481,9 +668,18 @@ export const transcriptNormalizationJsonSchema: Record<string, unknown> = {
         properties: transcriptCorrectionProperties,
         required: Object.keys(transcriptCorrectionProperties)
       }
+    },
+    vocabulary_candidates: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: vocabularyCandidateProperties,
+        required: Object.keys(vocabularyCandidateProperties)
+      }
     }
   },
-  required: ["corrections"]
+  required: ["corrections", "vocabulary_candidates"]
 };
 
 const taskConsolidationProposalProperties = {
