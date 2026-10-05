@@ -1010,10 +1010,25 @@ const LIFECYCLE_REVIEW_CLASSIFICATIONS = new Set([
 /** future_feature/idea/incidental_troubleshooting admitted because a real accepted action can be
  * mistagged as any of these three at extraction time (a genuine commitment described in tentative
  * language reads as "idea"; a real, consequential fix reads as "incidental_troubleshooting"; a
- * feature already being built now can still be filed as "future_feature"). Structurally non-action
- * roles (acceptance_criterion, scope_decision, reference, question, status_update) stay excluded --
- * no repair to those specific roles turns them into a task lifecycle should track. */
-const LIFECYCLE_REVIEW_ROLES = new Set(["action", "input_dependency", "idea", "future_feature", "incidental_troubleshooting"]);
+ * feature already being built now can still be filed as "future_feature"). scope_decision admitted
+ * for the same reason (forensic-audit follow-up): a scheduling/logistics exchange that also
+ * contains a genuine self-committed future action ("I'll text you about timings... set up a
+ * weekly meeting") can be mistagged scope_decision purely because the surrounding exchange reads
+ * as a decision -- this does NOT make scope_decision executable by default; lifecycle only gets
+ * the CHANCE to inspect it and repair work_item_role to "action" when the item's own evidence
+ * shows a real commitment (see the FEATURE-APPROVAL/SCHEDULING guidance in
+ * LIFECYCLE_RECONCILIATION_PROMPT) -- a pure decision/cadence/timing-preference with no embedded
+ * action must be echoed back unchanged. Structurally non-action roles (acceptance_criterion,
+ * reference, question, status_update) stay excluded -- no repair to those specific roles turns
+ * them into a task lifecycle should track. */
+const LIFECYCLE_REVIEW_ROLES = new Set([
+  "action",
+  "input_dependency",
+  "idea",
+  "future_feature",
+  "incidental_troubleshooting",
+  "scope_decision"
+]);
 const LIFECYCLE_REVIEW_ACCEPTANCE_STATES = new Set(["accepted", "requested", "proposed"]);
 const LIFECYCLE_REVIEW_SCOPE_STATES = new Set(["current_scope", "future_scope"]);
 /** personal_logistics admitted because a personal-tool action performed to accomplish or enable

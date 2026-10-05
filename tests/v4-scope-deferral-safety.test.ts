@@ -564,3 +564,69 @@ test("[pipeline] a malformed scope-deferral verifier response is treated as non-
   const merged = applyGlobalCorrections({ workItems: [characterGenerator], corrections: result.reviews, additions: [], transcript });
   assert.equal(merged[0].scope_state, "current_scope", "ambiguous/malformed verification must keep the item at its current scope, never convert uncertainty into a deferral");
 });
+
+// ===========================================================================
+// PART 4 -- Generation-5 regression: a SECOND, independently-added representation of the same
+// real feature must also be deferred, not just the one the original fix was found against.
+//
+// The generation-5 production audit found a different work item ("Add feature for creating new
+// characters when Kevin decides to add one") that was introduced not by initial per-topic
+// extraction but by completeness recovery (Pass A/B) from a later utterance in the SAME meeting --
+// immediately followed, in the very next exchange, by Cameron's "that's not a feature we're doing
+// in phase one... you can put that in phase three." Lifecycle reconciliation reviewed this item and
+// echoed it back unchanged (current_scope), in the very same pass that correctly deferred a
+// different, earlier representation of the same idea. This test proves the EXISTING scope-deferral
+// gate (no new mechanism -- see the rest of this file) correctly handles this second shape too:
+// an item whose own origin is a completeness-recovery addition, not initial extraction.
+// ===========================================================================
+
+test("[Gen5 regression] a work item introduced via completeness recovery, immediately followed by an explicit 'not phase one / phase three' deferral, is correctly moved to future_scope and excluded from the current Phase-1 group", async () => {
+  const transcript = [
+    // The completeness-recovery-added item's own origin segment (mirrors wi_g1's real source quote).
+    transcriptLine(seg(1), "Aditya", "so i added like one more feature where he can make one more character"),
+    // Immediately following, in the same meeting, the explicit deferral (mirrors the real segments).
+    transcriptLine(seg(2), "Cameron", "that's not a feature we're doing in phase one"),
+    transcriptLine(seg(3), "Cameron", "so let's just you can put that in phase three")
+  ].join("\n");
+
+  // This item's own shape mirrors wi_g1 exactly: added by completeness recovery (not initial
+  // extraction), classification=assignment, scope_state=current_scope -- the SAME mis-scoped
+  // starting state found in production, on a different ref/title than the original fix's test.
+  const newCharacterFeature = lifecycleCandidate({
+    ref: "wi_g1",
+    title: "Add feature for creating new characters when Kevin decides to add one",
+    classification: "assignment",
+    source_quote: "so i added like one more feature where he can make one more character",
+    source_segment_ids: [seg(1)]
+  });
+
+  const result = await runLifecycleReconciliationPass({
+    source: source({ transcript }),
+    workItems: [newCharacterFeature],
+    createResponse: fakeModelResponse({
+      reviews: [
+        deferralCorrection({
+          ref: "wi_g1",
+          classification: "assignment",
+          superseding_segment_ids: [seg(2), seg(3)],
+          reconciliation_reason: "Cameron explicitly defers this new-character-creation feature to phase three, immediately after Aditya describes it."
+        })
+      ]
+    }),
+    createScopeDeferralVerificationResponse: verifierResponse(
+      true,
+      "Segments 2-3 explicitly state this feature is not part of phase one and belongs in phase three.",
+      [seg(2), seg(3)]
+    )
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.scopeDeferralVerified, 1);
+
+  const merged = applyGlobalCorrections({ workItems: [newCharacterFeature], corrections: result.reviews, additions: [], transcript });
+  const resolved = merged[0];
+  assert.equal(resolved.scope_state, "future_scope");
+  assert.equal(isFutureScopeItem(resolved), true);
+  assert.equal(isExecutionEligible(resolved), false, "must not remain eligible for the current Phase-1 group");
+});

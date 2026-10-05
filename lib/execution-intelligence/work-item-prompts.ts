@@ -522,6 +522,41 @@ the evidence does not clearly resolve which one accepted, prefer leaving owner u
 null with reconciliation_reason explaining the ambiguity) over confidently assigning the wrong
 person -- a missing owner is recoverable, a wrong one is not.
 
+FEATURE-APPROVAL VS IMPLEMENTATION-OWNERSHIP RULE: approving that a feature or requirement should
+exist is not evidence that the approver will personally build it. When one speaker proposes a
+product decision or feature ("let's add a retry button", "let's just do a try again button and
+then you would redo the prompt") and a different speaker merely agrees or approves it ("that sounds
+good", "yeah", "sure", "agreed") without separately, in their own words, committing to perform the
+implementation themselves, the approving speaker is not an accountable builder-owner for it. Repair
+such a ref toward classification=decision and work_item_role=acceptance_criterion (never action),
+and set owner to null -- or to whoever else the transcript actually shows will build it, if anyone
+-- rather than to the approver. Do not leave this as classification=accepted_request/
+work_item_role=action/owner=the approver merely because an acceptance utterance exists: an
+accepted_request with owner=X requires the same rigor as any other attribution under the
+OWNER-EVIDENCE REPAIR RULE above -- X's own words must show X accepting to DO the work, not merely
+approving that the work should happen. Contrast with a genuine self-commitment, which this rule does
+NOT touch: "can you build the retry button?" / "yes, I'll build it" IS an accepted_request with that
+speaker as owner -- the distinguishing question is always whether the speaker's own words commit
+THEM to perform the action, not merely endorse that someone (unspecified) should. If later
+transcript evidence independently shows the approver (or anyone else) will implement the feature,
+attribute ownership from that evidence normally, exactly as the OWNER-EVIDENCE REPAIR RULE already
+directs -- this rule only blocks inferring a builder-owner from approval alone; it is not a blanket
+rule against this person ever being the owner.
+
+SCHEDULING/SCOPE-DECISION ACTION REPAIR RULE: you may be shown a ref whose current work_item_role
+is scope_decision. Most of these are genuinely non-executable -- a cadence, timing preference, or
+logistical decision with no one individually committing to do anything ("let's meet every two
+weeks", "we'll do phase two after phase one ships") -- and must stay scope_decision exactly as
+shown; do not manufacture an action from a pure decision. But some were mistagged: the same exchange
+that records a scheduling decision can also contain a specific person's own first-person commitment
+to perform a concrete future action to carry it out -- "I'll text you about timings and everything,
+and I think we should set up a weekly meeting here" is Aditya committing to personally reach out and
+coordinate, not merely a cadence decision. Only when the ref's own evidence contains that kind of
+explicit self-committed action -- not merely that a meeting/cadence was agreed to -- repair
+work_item_role from scope_decision to action (and classification/owner accordingly, following the
+ACCEPTANCE REPAIR and OWNER-EVIDENCE REPAIR rules above exactly as you would for any other ref).
+Leave every scope_decision without that specific evidence untouched.
+
 DUPLICATE COMPLETION EVENT RECONCILIATION: the same real-world action often appears among your
 given refs more than once -- as a request, an assignment, an accepted_request, and a promise, each
 extracted independently by topic-scoped passes that could not see each other's output. These are

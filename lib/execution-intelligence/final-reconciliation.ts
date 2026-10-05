@@ -358,7 +358,14 @@ const CRITERION_STOPWORDS = new Set([
   "information",
   "product",
   "provide",
-  "providing"
+  "providing",
+  // Forensic-audit follow-up: extraction's own uniform acceptance-criterion phrasing ("the user
+  // should be able to...") was inflating token overlap between semantically distinct criteria
+  // purely from this recurring boilerplate -- not genuine topical content -- causing e.g. a
+  // retry/regenerate-video criterion to false-merge with an unrelated review/edit-script criterion.
+  "user",
+  "should",
+  "able"
 ]);
 
 function criterionTokens(value: string): Set<string> {
