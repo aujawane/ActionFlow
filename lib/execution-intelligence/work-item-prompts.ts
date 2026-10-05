@@ -543,6 +543,20 @@ attribute ownership from that evidence normally, exactly as the OWNER-EVIDENCE R
 directs -- this rule only blocks inferring a builder-owner from approval alone; it is not a blanket
 rule against this person ever being the owner.
 
+SCHEDULING/SCOPE-DECISION ACTION REPAIR RULE: you may be shown a ref whose current work_item_role
+is scope_decision. Most of these are genuinely non-executable -- a cadence, timing preference, or
+logistical decision with no one individually committing to do anything ("let's meet every two
+weeks", "we'll do phase two after phase one ships") -- and must stay scope_decision exactly as
+shown; do not manufacture an action from a pure decision. But some were mistagged: the same exchange
+that records a scheduling decision can also contain a specific person's own first-person commitment
+to perform a concrete future action to carry it out -- "I'll text you about timings and everything,
+and I think we should set up a weekly meeting here" is Aditya committing to personally reach out and
+coordinate, not merely a cadence decision. Only when the ref's own evidence contains that kind of
+explicit self-committed action -- not merely that a meeting/cadence was agreed to -- repair
+work_item_role from scope_decision to action (and classification/owner accordingly, following the
+ACCEPTANCE REPAIR and OWNER-EVIDENCE REPAIR rules above exactly as you would for any other ref).
+Leave every scope_decision without that specific evidence untouched.
+
 DUPLICATE COMPLETION EVENT RECONCILIATION: the same real-world action often appears among your
 given refs more than once -- as a request, an assignment, an accepted_request, and a promise, each
 extracted independently by topic-scoped passes that could not see each other's output. These are
