@@ -155,6 +155,11 @@ Rules:
   explicitly accepts a concrete future outcome or experiment, with an owner and a recognizable
   completion condition -- not merely because the discussion was detailed or enthusiastic.
 - Preserve requester and recipient only when supported by the transcript.
+- When a speaker explicitly contrasts something they do NOT need to do with a related, narrower or
+  already-existing version they DO need to do ("you don't need to build X in, but you do need to use
+  the existing Y"), extract BOTH halves as separate items -- the excluded/deferred part and the
+  required part -- never collapse them into one item or drop the required half just because it is
+  topically close to the excluded one.
 - Do not invent implementation steps beyond what was actually said.
 - Use exact quotes and segment UUIDs from the topic transcript.
 - In extraction_reason, explain why this item was extracted and its classification/status. In
