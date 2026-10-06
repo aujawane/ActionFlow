@@ -83,6 +83,36 @@ test("per-V4-stage timeout overrides are clamped the same way as the global defa
   }
 });
 
+test("work_item_extraction has its own 240s safe-attempt ceiling, other V4 stages are unaffected", () => {
+  const previousExtraction = process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION;
+  const previousHarvest = process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_ATOMIC_ACTION_HARVEST;
+  try {
+    // Raised ceiling: a 240_000ms override now takes effect instead of being clamped to 120s.
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION", "240000");
+    assert.equal(getV4StageTimeoutMs("work_item_extraction"), 240_000);
+
+    // A value above the 240s ceiling (but still within the schema's 300_000ms validation max)
+    // is clamped down to 240s, not passed through -- one attempt must never be able to consume
+    // the entire ~300s workflow-step budget on its own.
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION", "300000");
+    assert.equal(getV4StageTimeoutMs("work_item_extraction"), 240_000);
+
+    // A value below the ceiling still passes through unchanged.
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION", "200000");
+    assert.equal(getV4StageTimeoutMs("work_item_extraction"), 200_000);
+
+    // Every other V4 stage still clamps to the shared 120s ceiling.
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_ATOMIC_ACTION_HARVEST", "300000");
+    assert.equal(
+      getV4StageTimeoutMs("atomic_action_harvest"),
+      MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS
+    );
+  } finally {
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION", previousExtraction);
+    setEnv("EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_ATOMIC_ACTION_HARVEST", previousHarvest);
+  }
+});
+
 test("OpenAI model configuration is explicit and defaults safely", () => {
   const previous = process.env.OPENAI_MODEL;
   try {

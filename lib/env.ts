@@ -59,8 +59,25 @@ export function parseExecutionIntelligenceTimeoutMs(value: unknown) {
  */
 export const MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS = 120_000;
 
-function clampToSafeAttemptTimeout(timeoutMs: number): number {
-  return Math.min(timeoutMs, MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS);
+/**
+ * GPT-6.1 Sol production experiment: work_item_extraction was hitting the 120s safety ceiling
+ * above before the model could finish a single attempt. Every other V4 stage keeps the 120s
+ * ceiling (and its 2-attempt/300s-step-budget margin) untouched; this raises the ceiling for
+ * extraction alone so the existing EXECUTION_INTELLIGENCE_TIMEOUT_MS_V4_EXTRACTION override can
+ * take effect above 120s. Capped at 240_000ms rather than the schema's full 300_000ms max so one
+ * attempt can never consume the entire ~300s workflow-step budget on its own -- see
+ * V4_STAGE_MAX_ATTEMPTS_OVERRIDE in work-item-model.ts, which drops this stage to exactly 1
+ * attempt for the same reason.
+ */
+const V4_STAGE_SAFE_ATTEMPT_TIMEOUT_CEILING_MS: Partial<Record<V4Stage, number>> = {
+  work_item_extraction: 240_000
+};
+
+function clampToSafeAttemptTimeout(timeoutMs: number, stage?: V4Stage): number {
+  const ceiling =
+    (stage && V4_STAGE_SAFE_ATTEMPT_TIMEOUT_CEILING_MS[stage]) ??
+    MAX_SAFE_MODEL_ATTEMPT_TIMEOUT_MS;
+  return Math.min(timeoutMs, ceiling);
 }
 
 export function getExecutionIntelligenceTimeoutMs() {
@@ -139,11 +156,13 @@ export function getV4StageModel(stage: V4Stage): string {
 }
 
 /** Same override pattern as `getV4StageModel`, for per-stage timeouts. Clamped for the same
- * worker-budget-safety reason as `getExecutionIntelligenceTimeoutMs` above. */
+ * worker-budget-safety reason as `getExecutionIntelligenceTimeoutMs` above -- using the
+ * stage-specific ceiling (see `V4_STAGE_SAFE_ATTEMPT_TIMEOUT_CEILING_MS`) so a dedicated
+ * per-stage override isn't silently clamped back down to the shared 120s default. */
 export function getV4StageTimeoutMs(stage: V4Stage): number {
   const raw = readEnv(V4_STAGE_TIMEOUT_ENV[stage]);
   if (raw === undefined) return getExecutionIntelligenceTimeoutMs();
-  return clampToSafeAttemptTimeout(parseExecutionIntelligenceTimeoutMs(raw));
+  return clampToSafeAttemptTimeout(parseExecutionIntelligenceTimeoutMs(raw), stage);
 }
 
 const DEFAULT_TRANSCRIPT_NORMALIZATION_AUTO_THRESHOLD = 0.9;
