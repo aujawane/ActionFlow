@@ -40,6 +40,22 @@ const MODEL_MAX_OUTPUT_TOKENS = 16_000;
 const MODEL_MAX_ATTEMPTS = 2;
 const MODEL_SDK_MAX_RETRIES = 0;
 
+/**
+ * GPT-6.1 Sol work_item_extraction experiment: this stage's per-attempt timeout was raised to
+ * 240_000ms (see V4_STAGE_SAFE_ATTEMPT_TIMEOUT_CEILING_MS in lib/env.ts), which alone consumes
+ * most of the ~300s workflow-step budget. A second attempt starting after a long first one would
+ * risk a hard step kill mid-retry with no chance to mark the job failed, so this stage gets
+ * exactly one attempt for the duration of the experiment. Every other stage keeps
+ * MODEL_MAX_ATTEMPTS untouched.
+ */
+const V4_STAGE_MAX_ATTEMPTS_OVERRIDE: Partial<Record<V4Stage, number>> = {
+  work_item_extraction: 1
+};
+
+function getMaxAttemptsForStage(stage: V4Stage): number {
+  return V4_STAGE_MAX_ATTEMPTS_OVERRIDE[stage] ?? MODEL_MAX_ATTEMPTS;
+}
+
 export type TokenUsage = {
   input_tokens: number | null;
   output_tokens: number | null;
@@ -142,8 +158,9 @@ async function requestStructuredJson(input: {
         maxRetries: MODEL_SDK_MAX_RETRIES
       }));
 
+  const maxAttempts = getMaxAttemptsForStage(input.stage);
   let lastError: RawJsonResult | null = null;
-  for (let attempt = 1; attempt <= MODEL_MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const attemptStartedAt = Date.now();
     try {
       const response = await withRequestTimeout(createResponse, timeoutMs);
@@ -151,7 +168,7 @@ async function requestStructuredJson(input: {
         stage: input.stage,
         event: "success",
         attempt,
-        maxAttempts: MODEL_MAX_ATTEMPTS,
+        maxAttempts,
         timeoutMs,
         elapsedMs: Date.now() - attemptStartedAt
       });
@@ -187,7 +204,7 @@ async function requestStructuredJson(input: {
         stage: input.stage,
         event: timedOut ? "timeout" : "failure",
         attempt,
-        maxAttempts: MODEL_MAX_ATTEMPTS,
+        maxAttempts,
         timeoutMs,
         elapsedMs: Date.now() - attemptStartedAt,
         details: error instanceof Error ? error.message : "Unknown error"
@@ -202,7 +219,7 @@ async function requestStructuredJson(input: {
         validationFailure: false
       };
     }
-    if (attempt < MODEL_MAX_ATTEMPTS) {
+    if (attempt < maxAttempts) {
       await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
     }
   }
