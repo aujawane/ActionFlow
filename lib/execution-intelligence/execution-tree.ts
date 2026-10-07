@@ -163,6 +163,30 @@ function isEphemeralMeetingMomentEvidence(
   });
 }
 
+/** A narrow, general verb+object pattern recognizing ephemeral in-meeting mechanics -- opening,
+ * pulling up, reviewing, or asking about something purely for the current discussion -- as opposed
+ * to a durable completed deliverable. Mirrors DELIVERABLE_OUTCOME_PATTERN's precedent elsewhere in
+ * this file: a narrow lexical signal, never sufficient to promote or reclassify anything, used only
+ * as a disqualifying check on an already-completed item's own title/quote. Deliberately does not
+ * match outcome verbs like "sent"/"delivered"/"completed"/"published"/"finished"/"handed off" --
+ * those are exactly the material completions this check must never suppress. */
+const EPHEMERAL_MEETING_PROCESS_PATTERN =
+  /\b(open(?:ed|s|ing)?|pull(?:ed|s|ing)? up|review(?:ed|s|ing)?|go(?:es|ing)? through|walk(?:ed|s|ing)? through|look(?:ed|s|ing)? (?:at|over)|show(?:ed|s|ing)?|share(?:d|s|ing)?|ask(?:ed|s|ing)?)\b.{0,60}\b(template|document|doc|slide|deck|screen|form|bullet points?|agenda|goal|questions?)\b/i;
+
+/** The deterministic guard for the completed-work -> persisted-completed-commitment conversion
+ * (see completedWorkItemToCommitmentCandidate in execution-graph-v4.ts). isCompletedDuringMeeting
+ * already establishes this item was genuinely, grounded-ly completed during the meeting -- this
+ * check never touches that classification. It only decides whether a genuinely completed item is
+ * material enough to persist as its own completed commitment row, versus being an ephemeral
+ * meeting-process/admin action (opening a template, reviewing bullet points, asking someone their
+ * goal) that is true history but not something a user needs as a workspace row. Confined to this
+ * one presentation decision -- never applied to isExecutionEligible, isCompletedDuringMeeting, or
+ * any active-work path. */
+export function isEphemeralCompletedMeetingAction(item: Pick<WorkItem, "title" | "source_quote">): boolean {
+  const text = `${item.title} ${item.source_quote}`;
+  return EPHEMERAL_MEETING_PROCESS_PATTERN.test(text);
+}
+
 /** For a single-member explicit_deliverable, the member itself already carries validated
  * grounding (it would not be execution-eligible otherwise) -- the prompt tells the model to copy
  * that member's own quote/segment IDs into explicit_outcome_evidence verbatim (see

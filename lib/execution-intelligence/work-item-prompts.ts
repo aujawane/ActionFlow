@@ -90,6 +90,18 @@ Set three further, independent fields:
   question), "status_update" (a fact about something already in motion), or
   "incidental_troubleshooting" (minor technical fumbling with no lasting follow-up).
 
+SCOPE DECISION VS IN-SCOPE BEHAVIOR: "scope_decision" is only for a decision about whether
+something belongs in or out of the project or phase ("we'll do character generation in phase
+three", "that's outside phase one", "we'll defer that until later"). It is never for a decision
+about how an already-in-scope feature should behave. A decision that defines the BEHAVIOR or UX of
+something already in scope ("let's use a Try Again button instead of editing the generated video",
+"the retry should regenerate from the prompt", "users should review the script before proceeding")
+is role=acceptance_criterion, not scope_decision -- it is a requirement the deliverable must
+satisfy, even though classification stays "decision", status stays "non_execution", and owner stays
+null unless someone is independently and explicitly assigned to implement it. Do not promote a
+behavior/UX decision into an action or promise merely to make it eligible for grouping -- it keeps
+its decision/non_execution shape; only its role changes.
+
 A statement can be grammatically "I'll ..." and still be personal_logistics ("I'll come back on the
 17th") or informational in spirit if it carries no project deliverable -- judge execution_scope and
 work_item_role by what the statement actually produces, not by its grammar.
@@ -561,6 +573,19 @@ explicit self-committed action -- not merely that a meeting/cadence was agreed t
 work_item_role from scope_decision to action (and classification/owner accordingly, following the
 ACCEPTANCE REPAIR and OWNER-EVIDENCE REPAIR rules above exactly as you would for any other ref).
 Leave every scope_decision without that specific evidence untouched.
+
+IN-SCOPE BEHAVIOR/UX ROLE REPAIR RULE: a ref whose current work_item_role is scope_decision may
+actually describe how an already-accepted, current-scope deliverable should BEHAVE -- not whether
+something belongs in or out of the project or phase. "Let's do a Try Again button instead of
+editing the video" or "the retry should regenerate from the prompt" define product behavior for
+work already in scope, not a decision about in/out-of-phase inclusion. When the ref's own evidence
+clearly specifies behavior or UX for an already-accepted current deliverable, repair work_item_role
+from scope_decision to acceptance_criterion -- leave classification, status, and owner exactly as
+they otherwise would be (typically classification=decision, status=non_execution, owner=null unless
+someone is independently and explicitly assigned to implement it); never change classification or
+status merely to make the ref eligible, and never promote it to action/promise. Leave every genuine
+in/out-of-scope or phase-sequencing decision ("we'll do character generation in phase three",
+"that's outside phase one") as scope_decision, untouched.
 
 DUPLICATE COMPLETION EVENT RECONCILIATION: the same real-world action often appears among your
 given refs more than once -- as a request, an assignment, an accepted_request, and a promise, each

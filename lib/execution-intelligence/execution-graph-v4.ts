@@ -1,3 +1,4 @@
+import { isEphemeralCompletedMeetingAction } from "./execution-tree";
 import type { CommitmentCandidate, ExecutionGraph, TaskCandidate } from "./schemas";
 import type { ExecutionTree, TaskMergeProvenance, WorkItem } from "./work-item-schemas";
 
@@ -165,8 +166,14 @@ export function treeToExecutionGraph(
   // item, appended to (never merged with) the active commitments above -- see
   // completedWorkItemToCommitmentCandidate. Never produces a task candidate for the same ref, so
   // a genuine in-meeting completion persists exactly once, as a closed commitment, never as an
-  // open task.
-  const completedCommitments = (tree.completed_work ?? []).map(completedWorkItemToCommitmentCandidate);
+  // open task. isCompletedDuringMeeting's own classification is untouched -- an ephemeral
+  // meeting-process action (opening a template, reviewing bullet points, asking someone their
+  // goal) is still genuinely "completed history," it just never becomes its own persisted
+  // workspace row; a material completed deliverable (sent, delivered, published, finished, handed
+  // off) is unaffected by this filter and still persists exactly as before.
+  const completedCommitments = (tree.completed_work ?? [])
+    .filter((item) => !isEphemeralCompletedMeetingAction(item))
+    .map(completedWorkItemToCommitmentCandidate);
 
   return { commitments: [...commitments, ...completedCommitments], tasks };
 }
