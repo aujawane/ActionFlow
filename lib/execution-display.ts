@@ -1,5 +1,6 @@
 import { isCommitmentCurrentGeneration, isTaskCurrentGeneration } from "@/lib/execution-generation";
 import type {
+  CommitmentStatus,
   ExecutionClassification,
   MeetingCommitment,
   MeetingTask,
@@ -34,6 +35,23 @@ const PROGRESS_COUNTED_TASK_STATUSES: ReadonlySet<MeetingTaskStatus> = new Set([
   "blocked",
   "completed"
 ]);
+// Same allowlist shape as PROGRESS_COUNTED_TASK_STATUSES, for the commitment-level equivalent:
+// "Delete commitment" sets status="dismissed" (see lib/commitment-mutations.ts) rather than
+// removing the row, so every active-commitment list/count must explicitly exclude dismissed
+// the same way dismissed tasks already are. Completed commitments still count here (so Reopen
+// stays reachable from the active list, mirroring how a completed task still counts toward
+// progress).
+const ACTIVE_COMMITMENT_STATUSES: ReadonlySet<CommitmentStatus> = new Set([
+  "pending",
+  "in_progress",
+  "blocked",
+  "completed"
+]);
+
+/** Still part of the active execution graph -- excludes only a dismissed (deleted) commitment. */
+export function isCommitmentCountedActive(commitment: Pick<MeetingCommitment, "status">) {
+  return ACTIVE_COMMITMENT_STATUSES.has(commitment.status);
+}
 
 /** Still outstanding work: not completed, not dismissed. The single gate for "does this belong in
  * an active/standalone task list" and "can the Execute Task control run on this." */
@@ -69,7 +87,9 @@ export function partitionExecutionGraph(input: {
 }) {
   const activeCommitments = input.commitments.filter(
     (commitment) =>
-      isCommittedWork(commitment) && isCommitmentCurrentGeneration(commitment, input.currentGeneration)
+      isCommittedWork(commitment) &&
+      isCommitmentCountedActive(commitment) &&
+      isCommitmentCurrentGeneration(commitment, input.currentGeneration)
   );
   const ideaCommitments = input.commitments.filter(isIdeaOrRequirement);
 
