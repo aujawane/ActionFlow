@@ -153,7 +153,8 @@ export default async function TaskWorkspacePage({
               <span>/</span>
               <Link
                 href={`/projects/${typedProject.id}` as Route}
-                className="hover:text-brand-700"
+                title={typedProject.name}
+                className="inline-block max-w-[9rem] truncate align-bottom hover:text-brand-700 sm:max-w-[16rem]"
               >
                 {typedProject.name}
               </Link>
@@ -164,14 +165,17 @@ export default async function TaskWorkspacePage({
               <span>/</span>
               <Link
                 href={`/commitments/${typedCommitment.id}` as Route}
-                className="hover:text-brand-700"
+                title={typedCommitment.title}
+                className="inline-block max-w-[9rem] truncate align-bottom hover:text-brand-700 sm:max-w-[16rem]"
               >
                 {typedCommitment.title}
               </Link>
             </>
           ) : null}
           <span>/</span>
-          <span className="text-slate-900">{resolvedTask.task}</span>
+          {/* Current page identity -- never truncated, only wraps, so the full task title always
+              stays visible even on the narrowest phones. */}
+          <span className="break-words text-slate-900">{resolvedTask.task}</span>
         </nav>
 
         {/* A. Task Header -- what the task is, who owns it, when it's due, where it fits. */}

@@ -729,7 +729,7 @@ export function CommitmentWorkspace({
                         />
                         <Link
                           href={`/tasks/${task.id}` as Route}
-                          className="min-w-0 flex-1 text-sm font-semibold leading-5 text-slate-950 hover:text-brand-700"
+                          className="min-w-0 flex-1 break-words text-sm font-semibold leading-5 text-slate-950 hover:text-brand-700"
                         >
                           {task.task}
                         </Link>
@@ -783,7 +783,7 @@ export function CommitmentWorkspace({
                       {/* 5. Owner (reassignment) + dependency picker -- present for every task
                           (functionality preserved) but visually quiet, since it duplicates the
                           owner-group heading in the common case. */}
-                      <div className="mt-2 grid grid-cols-2 gap-1 border-t border-slate-100 pt-2">
+                      <div className="mt-2 grid grid-cols-1 gap-1 border-t border-slate-100 pt-2 sm:grid-cols-2">
                         <TaskOwnerSelect
                           ownerValue={task.owner}
                           options={meetingParticipantOptions}

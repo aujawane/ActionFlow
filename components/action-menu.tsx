@@ -140,7 +140,7 @@ export function ActionMenu({
         <div
           role="menu"
           aria-label={label}
-          className="absolute right-0 z-20 mt-1 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+          className="absolute right-0 z-20 mt-1 w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
         >
           {items.map((item, index) => (
             <button

@@ -145,7 +145,7 @@ export function MeetingActions({
           Queue transcript analysis and refresh extracted meeting intelligence.
         </p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           onClick={triggerAnalyze}
           disabled={busy !== null}

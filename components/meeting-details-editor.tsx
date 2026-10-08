@@ -169,7 +169,7 @@ export function MeetingDetailsEditor({
                 />
               </label>
             ) : (
-              <h1 className="min-w-0 text-2xl font-semibold tracking-tight text-slate-950 sm:text-[1.65rem]">
+              <h1 className="min-w-0 break-words text-2xl font-semibold tracking-tight text-slate-950 sm:text-[1.65rem]">
                 {meeting.title ?? "Untitled meeting"}
               </h1>
             )}

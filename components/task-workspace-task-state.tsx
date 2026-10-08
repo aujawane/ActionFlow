@@ -142,11 +142,11 @@ export function TaskWorkspaceHeader({
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Task Workspace
             </p>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
+            <h1 className="break-words text-2xl font-semibold tracking-tight text-slate-950">
               {task.task}
             </h1>
             {task.workspace_summary ? (
-              <p className="max-w-3xl text-sm leading-6 text-slate-600">
+              <p className="max-w-3xl break-words text-sm leading-6 text-slate-600">
                 {task.workspace_summary}
               </p>
             ) : null}
