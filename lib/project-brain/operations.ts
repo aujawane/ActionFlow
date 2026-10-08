@@ -451,6 +451,13 @@ export function validateAndCanonicalizeOperationOwners(
     if (operation.type === "update_task" && "owner" in operation.changes) {
       requested = operation.changes.owner;
     }
+    // update_milestone ("milestone" == meeting_commitments, see MILESTONE_OPERATION_TYPES)
+    // previously fell through this function unvalidated, letting a commitment-owner proposal
+    // reach the database without the same "must be an existing project person" check every
+    // task-owner change already gets -- this closes that gap.
+    if (operation.type === "update_milestone" && "owner" in operation.changes) {
+      requested = operation.changes.owner;
+    }
     if (requested === undefined || requested === null) {
       canonicalized.push(operation);
       continue;
@@ -468,6 +475,11 @@ export function validateAndCanonicalizeOperationOwners(
     if (operation.type === "assign_task_owner") {
       canonicalized.push({ ...operation, ownerName: resolution.name });
     } else if (operation.type === "update_task") {
+      canonicalized.push({
+        ...operation,
+        changes: { ...operation.changes, owner: resolution.name }
+      });
+    } else if (operation.type === "update_milestone") {
       canonicalized.push({
         ...operation,
         changes: { ...operation.changes, owner: resolution.name }
