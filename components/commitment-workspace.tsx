@@ -105,6 +105,7 @@ export function CommitmentWorkspace({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const [confirmingMerge, setConfirmingMerge] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [mergeBusy, setMergeBusy] = useState(false);
@@ -376,6 +377,16 @@ export function CommitmentWorkspace({
     element.scrollTop = element.scrollHeight;
   }, [comments, sending]);
 
+  // Keeps the title textarea sized to its content on mount and whenever the title changes from
+  // outside a keystroke (e.g. after a save round-trip) -- the onChange handler above only covers
+  // active typing.
+  useEffect(() => {
+    const element = titleRef.current;
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = `${element.scrollHeight}px`;
+  }, [commitment.title]);
+
   useEffect(() => {
     if (!completionPromptEligible) {
       setCompletionPromptDismissed(false);
@@ -432,20 +443,45 @@ export function CommitmentWorkspace({
   return (
     <div className="space-y-6">
       <section className="premium-card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        {/* flex-col by default -- NOT flex-wrap -- so the title gets its own full-width row on
+            phones. A fixed-width status select + action menu are the other flex item; with
+            flex-wrap + min-w-0 (the previous approach) flexbox is always "able" to satisfy one
+            line by shrinking the min-w-0 title toward zero, so it never actually wraps to a new
+            row -- it just squeezes the title down to a sliver next to the full-size select. An
+            explicit directional stack (column on mobile, row from sm: up) doesn't have that
+            escape hatch. Confirmed empirically: at 390px the old layout rendered the title at 89px
+            wide ("Deliver t..."); this layout gives it the full card width. */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
               Commitment Workspace
             </p>
-            <input
-              className="mt-2 w-full border-0 bg-transparent p-0 text-2xl font-semibold text-slate-950 outline-none"
+            {/* A growing textarea, not a single-line input: an <input> cannot wrap text at all
+                (it scrolls horizontally instead), which is exactly the "clipped title" symptom
+                even once it has full width. rows=1 plus the resize-on-change/resize-on-title-
+                change effect below keeps it visually identical to the old input when the title
+                is short, and grows to however many lines a long title needs. Enter is treated as
+                "confirm" (blurs, triggering the existing save-on-blur), matching the old input's
+                behavior, rather than inserting a literal newline into the title. */}
+            <textarea
+              ref={titleRef}
+              className="mt-2 w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-2xl font-semibold leading-tight text-slate-950 outline-none"
               value={commitment.title}
-              onChange={(event) =>
+              rows={1}
+              onChange={(event) => {
                 setCommitment((current) => ({
                   ...current,
                   title: event.target.value
-                }))
-              }
+                }));
+                event.target.style.height = "auto";
+                event.target.style.height = `${event.target.scrollHeight}px`;
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+              }}
               onBlur={() => void updateCommitment({ title: commitment.title })}
             />
             <textarea
@@ -673,7 +709,7 @@ export function CommitmentWorkspace({
           {taskGroups.map((group) => (
             <section key={group.owner ?? "__unassigned__"}>
               <div className="mb-3 flex items-center gap-2">
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-brand-100 text-[10px] font-bold text-brand-800">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand-100 text-[10px] font-bold text-brand-800">
                   {group.owner
                     ? group.owner
                         .split(/\s+/)
@@ -683,10 +719,10 @@ export function CommitmentWorkspace({
                         .toUpperCase()
                     : "?"}
                 </span>
-                <h3 className="text-sm font-semibold text-slate-900">
+                <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">
                   {group.owner ?? "Unassigned"}
                 </h3>
-                <span className="text-xs text-slate-400">{group.tasks.length}</span>
+                <span className="shrink-0 text-xs text-slate-400">{group.tasks.length}</span>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {group.tasks.map((task, groupIndex) => {
@@ -779,6 +815,37 @@ export function CommitmentWorkspace({
                           </span>
                         ) : null}
                       </div>
+
+                      {/* Inline completion action -- reuses the exact same updateTask ->
+                          PATCH /api/tasks/[id] path the status <select> above and Task Workspace
+                          both already call, so this is not a second completion implementation.
+                          Deliberately a separate control from "Accept" (which only applies to
+                          deliverables/artifacts -- see TaskArtifact.accepted_at -- a completely
+                          different field this never touches): marking a task complete here only
+                          ever sets status=completed, never anything acceptance-related. Full-width
+                          so it never has to compete for room in an already-dense row on a phone;
+                          a completed task shows its completion state here instead of an action,
+                          so it never looks actionable once done. */}
+                      {task.status !== "completed" ? (
+                        <button
+                          type="button"
+                          className="mt-2 w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={busy}
+                          onClick={() => void updateTask(task.id, { status: "completed" })}
+                        >
+                          Mark complete
+                        </button>
+                      ) : (
+                        <p className="mt-2 flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800">
+                          <span aria-hidden="true">✓</span>
+                          Completed
+                          {task.completed_at ? (
+                            <span className="font-normal text-emerald-700">
+                              · {formatReadableDate(task.completed_at)}
+                            </span>
+                          ) : null}
+                        </p>
+                      )}
 
                       {/* 5. Owner (reassignment) + dependency picker -- present for every task
                           (functionality preserved) but visually quiet, since it duplicates the
