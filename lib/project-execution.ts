@@ -1,4 +1,8 @@
-import { isCommittedWork, isTaskCountedForProgress } from "@/lib/execution-display";
+import {
+  isCommitmentCountedActive,
+  isCommittedWork,
+  isTaskCountedForProgress
+} from "@/lib/execution-display";
 import {
   getEffectiveDisplayGeneration,
   isCommitmentCurrentGeneration,
@@ -103,7 +107,10 @@ export function computeProjectProgress(input: {
   tasks: MeetingTask[];
 }): ExecutionProgress {
   const commitments = input.commitments.filter(
-    (commitment) => !commitment.converted_to_task_id && isCommittedWork(commitment)
+    (commitment) =>
+      !commitment.converted_to_task_id &&
+      isCommittedWork(commitment) &&
+      isCommitmentCountedActive(commitment)
   );
   const linkedTaskIds = new Set<string>();
   let completed = 0;
@@ -405,6 +412,7 @@ export function buildProjectExecutionModel(input: {
     (commitment) =>
       !commitment.converted_to_task_id &&
       isCommittedWork(commitment) &&
+      isCommitmentCountedActive(commitment) &&
       isCommitmentCurrentGeneration(
         commitment,
         currentGenerationByMeetingId.get(commitment.meeting_id) ?? null

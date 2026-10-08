@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useMemo, useState } from "react";
 import { CommitmentCorrectionMenu } from "@/components/commitment-correction-menu";
-import { commitmentProgress, isCommittedWork } from "@/lib/execution-display";
+import { commitmentProgress, isCommitmentCountedActive, isCommittedWork } from "@/lib/execution-display";
 import { getActiveChildTasks } from "@/lib/execution-corrections";
 import { formatReadableDate } from "@/lib/format-date";
 import { formatStatusLabel, statusBadgeClassName } from "@/lib/status-badge";
@@ -47,7 +47,7 @@ export function CommitmentsPanel({
   }, [initialCommitments]);
 
   const activeCommitments = useMemo(
-    () => commitments.filter(isCommittedWork),
+    () => commitments.filter((commitment) => isCommittedWork(commitment) && isCommitmentCountedActive(commitment)),
     [commitments]
   );
 

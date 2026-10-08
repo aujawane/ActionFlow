@@ -15,6 +15,7 @@ type DialogKind =
   | "evidence"
   | "correction"
   | "reevaluate_dependencies"
+  | "delete"
   | null;
 
 /** Commitment counterpart to TaskCorrectionMenu. hasActiveChildren lets the caller (which
@@ -97,8 +98,60 @@ export function CommitmentCorrectionMenu({
     router.refresh();
   }
 
+  /** The one place this menu writes to the commitment itself -- PATCH /api/commitments/[id], the
+   * exact same canonical route (-> lib/commitment-mutations.ts applyCommitmentPatch) the
+   * Commitment Workspace's own status <select> and title/description fields already use. Mark
+   * complete, Reopen, and Delete are all just this one call with a different status/
+   * completion_state pair; there is no separate completion/deletion endpoint. */
+  async function submitPatch(patch: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    const response = await fetch(`/api/commitments/${commitment.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch)
+    });
+    const result = await response.json().catch(() => ({}));
+    setBusy(false);
+    if (!response.ok || !result.commitment) {
+      setError(result.error || "Failed to update this commitment.");
+      return;
+    }
+    onCommitmentUpdated(result.commitment as MeetingCommitment);
+    router.refresh();
+    closeDialog();
+  }
+
+  function markComplete() {
+    // completion_state is sent explicitly even though applyCommitmentPatch now derives it from
+    // status on its own (see lib/commitment-mutations.ts) -- being explicit here keeps this call
+    // site self-documenting about the exact state the UI intends.
+    void submitPatch({ status: "completed", completion_state: "completed" });
+  }
+
+  function reopen() {
+    void submitPatch({ status: "pending", completion_state: "open" });
+  }
+
+  function deleteCommitment() {
+    // "Delete" in the product sense, "dismissed" in the data model -- see the DELETE SEMANTICS
+    // note this patch shipped under. This never issues a SQL DELETE: meeting_tasks.commitment_id
+    // only SETs NULL on an actual row deletion, which would silently orphan this commitment's
+    // tasks. Setting status="dismissed" instead keeps every child row (tasks, comments,
+    // participants, dependencies) exactly where it is -- only isCommitmentCountedActive's
+    // active-list/progress filters treat it as gone.
+    void submitPatch({ status: "dismissed" });
+  }
+
   const isActive = isCommittedWork(commitment);
+  const isCompleted = commitment.status === "completed";
   const items = [
+    // Mark complete / Reopen execute immediately on select (no confirmation dialog) -- both are
+    // low-risk and trivially reversible by picking the other one. Delete is the only item here
+    // that opens a confirmation dialog, since it's the only one a user can't just undo by
+    // clicking the opposite action.
+    !isCompleted ? { label: "Mark complete", onSelect: markComplete } : null,
+    isCompleted ? { label: "Reopen", onSelect: reopen } : null,
     isActive && !hasActiveChildren
       ? { label: "Move to Future Scope", onSelect: () => setDialog("future_scope") }
       : null,
@@ -112,7 +165,12 @@ export function CommitmentCorrectionMenu({
     isActive && onDependenciesRefreshed
       ? { label: "Re-evaluate dependencies", onSelect: () => setDialog("reevaluate_dependencies") }
       : null,
-    { label: "Correct with Parfait", onSelect: () => setDialog("correction") }
+    { label: "Correct with Parfait", onSelect: () => setDialog("correction") },
+    {
+      label: "Delete commitment",
+      onSelect: () => setDialog("delete"),
+      variant: "destructive" as const
+    }
   ].filter((item): item is NonNullable<typeof item> => item !== null);
 
   return (
@@ -247,6 +305,28 @@ export function CommitmentCorrectionMenu({
         <ModalActions>
           <button type="button" onClick={closeDialog} className="tertiary-button px-4 py-2 text-sm">
             Done
+          </button>
+        </ModalActions>
+      </Modal>
+
+      <Modal open={dialog === "delete"} title="Delete commitment?" onClose={closeDialog}>
+        <h2 className="text-base font-semibold text-slate-950">Delete commitment?</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          This will remove the commitment from the active meeting workspace. Its data and task
+          history will be preserved.
+        </p>
+        {error ? <p className="mt-3 text-sm text-rose-700">{error}</p> : null}
+        <ModalActions>
+          <button type="button" onClick={closeDialog} className="tertiary-button px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={deleteCommitment}
+            disabled={busy}
+            className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? "Deleting…" : "Delete commitment"}
           </button>
         </ModalActions>
       </Modal>

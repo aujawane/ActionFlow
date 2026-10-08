@@ -265,7 +265,8 @@ test("partition separates ideas from execution work for UI and follow-ups", () =
   const commitments = [
     {
       id: "c1",
-      execution_classification: "committed"
+      execution_classification: "committed",
+      status: "completed"
     },
     {
       id: "c2",

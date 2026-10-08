@@ -171,13 +171,29 @@ export function CommitmentWorkspace({
     }
   }
 
+  /** The one place this page reacts to a commitment row changing, whether that came from this
+   * component's own fields (updateCommitment below) or from CommitmentCorrectionMenu's Mark
+   * complete/Reopen/Delete actions (which call PATCH /api/commitments/[id] themselves and report
+   * back through this same callback). A dismissed commitment -- "Delete commitment" in the menu,
+   * or picking "Dismissed" from the status select below -- is no longer part of the active
+   * workspace (see isCommitmentCountedActive, lib/execution-display.ts), so staying on this page
+   * would leave the user looking at a workspace for a commitment that no longer shows up
+   * anywhere else; send them back to the meeting it came from instead of updating in place. */
+  function handleCommitmentUpdated(updated: MeetingCommitment) {
+    if (updated.status === "dismissed") {
+      router.push(`/meetings/${sourceMeeting.id}` as Route);
+      return;
+    }
+    setCommitment(updated);
+  }
+
   async function updateCommitment(patch: Record<string, unknown>) {
     const result = await request(`/api/commitments/${commitment.id}`, {
       method: "PATCH",
       body: JSON.stringify(patch)
     });
     if (result?.commitment) {
-      setCommitment(result.commitment as MeetingCommitment);
+      handleCommitmentUpdated(result.commitment as MeetingCommitment);
       router.refresh();
       return result.commitment as MeetingCommitment;
     }
@@ -503,19 +519,12 @@ export function CommitmentWorkspace({
             <select
               className="premium-input w-44"
               value={commitment.status}
-              onChange={(event) =>
-                void updateCommitment({
-                  status: event.target.value,
-                  completion_state:
-                    event.target.value === "completed"
-                      ? "completed"
-                      : event.target.value === "blocked"
-                        ? "blocked"
-                        : event.target.value === "in_progress"
-                          ? "in_progress"
-                          : "open"
-                })
-              }
+              // completion_state is intentionally omitted -- applyCommitmentPatch
+              // (lib/commitment-mutations.ts) derives it from status alone whenever a caller
+              // only sends one of the two, which keeps this single call site from needing its
+              // own copy of the status<->completion_state mapping (and from drifting out of sync
+              // with it, which an earlier version of this onChange did for "dismissed").
+              onChange={(event) => void updateCommitment({ status: event.target.value })}
             >
               <option value="pending">Pending</option>
               <option value="in_progress">In progress</option>
@@ -526,7 +535,7 @@ export function CommitmentWorkspace({
             <CommitmentCorrectionMenu
               commitment={commitment}
               hasActiveChildren={getActiveChildTasks(commitment, tasks).length > 0}
-              onCommitmentUpdated={setCommitment}
+              onCommitmentUpdated={handleCommitmentUpdated}
               onDependenciesRefreshed={setDependencies}
             />
           </div>
