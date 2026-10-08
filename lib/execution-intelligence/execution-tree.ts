@@ -133,6 +133,60 @@ function isValidOutcomeEvidence(
   );
 }
 
+/** explicit_zero_task_outcome's evidence never traces to any ELIGIBLE item by construction --
+ * grouping is never shown ineligible items -- but assembly can still check whether that evidence
+ * overlaps with a work item independently classified as already completed, or as purely
+ * informational narration. When it does, the "accepted outcome" the group claims is really just a
+ * retrospective mention of an ephemeral in-meeting action (e.g. "we opened the template" / "I
+ * described the workflow") rather than a durable project commitment -- the same genuine-completion-
+ * vs-narration distinction isCompletedDuringMeeting already draws for ordinary work items, reused
+ * here rather than reinvented, and relying only on classification/scope_state/work_item_role fields
+ * that already exist, never on matching the group's own title/quote text. A resolved due_date on
+ * the candidate is treated as positive evidence of a real forward commitment and always overrides
+ * this check. This never touches explicit_deliverable or multi_item_shared_purpose groups: both
+ * require real eligible members, which by isExecutionEligible's own status gate can never be
+ * completed, so a genuinely completed deliverable is never at risk of this check. */
+function isEphemeralMeetingMomentEvidence(
+  candidate: Pick<GroupProposal, "due_date" | "explicit_outcome_evidence">,
+  workItems: WorkItem[]
+): boolean {
+  if (candidate.due_date) return false;
+  const segmentIds = new Set(candidate.explicit_outcome_evidence?.source_segment_ids ?? []);
+  if (segmentIds.size === 0) return false;
+  return workItems.some((item) => {
+    if (!item.source_segment_ids.some((id) => segmentIds.has(id))) return false;
+    return (
+      item.classification === "completed_work" ||
+      item.scope_state === "informational" ||
+      item.work_item_role === "status_update"
+    );
+  });
+}
+
+/** A narrow, general verb+object pattern recognizing ephemeral in-meeting mechanics -- opening,
+ * pulling up, reviewing, or asking about something purely for the current discussion -- as opposed
+ * to a durable completed deliverable. Mirrors DELIVERABLE_OUTCOME_PATTERN's precedent elsewhere in
+ * this file: a narrow lexical signal, never sufficient to promote or reclassify anything, used only
+ * as a disqualifying check on an already-completed item's own title/quote. Deliberately does not
+ * match outcome verbs like "sent"/"delivered"/"completed"/"published"/"finished"/"handed off" --
+ * those are exactly the material completions this check must never suppress. */
+const EPHEMERAL_MEETING_PROCESS_PATTERN =
+  /\b(open(?:ed|s|ing)?|pull(?:ed|s|ing)? up|review(?:ed|s|ing)?|go(?:es|ing)? through|walk(?:ed|s|ing)? through|look(?:ed|s|ing)? (?:at|over)|show(?:ed|s|ing)?|share(?:d|s|ing)?|ask(?:ed|s|ing)?)\b.{0,60}\b(template|document|doc|slide|deck|screen|form|bullet points?|agenda|goal|questions?)\b/i;
+
+/** The deterministic guard for the completed-work -> persisted-completed-commitment conversion
+ * (see completedWorkItemToCommitmentCandidate in execution-graph-v4.ts). isCompletedDuringMeeting
+ * already establishes this item was genuinely, grounded-ly completed during the meeting -- this
+ * check never touches that classification. It only decides whether a genuinely completed item is
+ * material enough to persist as its own completed commitment row, versus being an ephemeral
+ * meeting-process/admin action (opening a template, reviewing bullet points, asking someone their
+ * goal) that is true history but not something a user needs as a workspace row. Confined to this
+ * one presentation decision -- never applied to isExecutionEligible, isCompletedDuringMeeting, or
+ * any active-work path. */
+export function isEphemeralCompletedMeetingAction(item: Pick<WorkItem, "title" | "source_quote">): boolean {
+  const text = `${item.title} ${item.source_quote}`;
+  return EPHEMERAL_MEETING_PROCESS_PATTERN.test(text);
+}
+
 /** For a single-member explicit_deliverable, the member itself already carries validated
  * grounding (it would not be execution-eligible otherwise) -- the prompt tells the model to copy
  * that member's own quote/segment IDs into explicit_outcome_evidence verbatim (see
@@ -299,9 +353,12 @@ export type RecoveryDecision = {
  * shape and evidence-fallback rule assembly's own commitCandidate path already applies (see
  * memberEvidenceIsValid above): the work item's own validated quote/segment IDs become
  * explicit_outcome_evidence directly, with no model call and no new promotion mechanism. Each
- * standalone item is checked independently against the ORIGINAL (pre-recovery) commitment set
- * only -- two independently strong-evidenced recoveries are never equivalence-checked against each
- * other, since by construction each already cleared its own bar for being a distinct deliverable.
+ * standalone item is checked against the ORIGINAL commitment set PLUS every sibling already
+ * recovered earlier in this same pass -- two independently strong-evidenced standalone items can
+ * still describe the same underlying deliverable (e.g. "record the phased deliverables" and "write
+ * down the phase-one deliverables"), and clearing the independent hasExplicitDeliverableEvidence
+ * bar says nothing about whether they are equivalent to EACH OTHER, only that each is independently
+ * strong enough to not need a model call to justify recovery.
  */
 function recoverExplicitDeliverables(
   commitments: ExecutionTree["commitments"],
@@ -330,7 +387,7 @@ function recoverExplicitDeliverables(
       continue;
     }
 
-    const equivalent = findEquivalentExisting(item, commitments);
+    const equivalent = findEquivalentExisting(item, [...commitments, ...recovered]);
     if (equivalent) {
       decisions.push({
         work_item_ref: item.ref,
@@ -541,6 +598,14 @@ export function assembleExecutionTree(input: {
           group_ref: ref,
           disposition: "removed",
           reason: "explicit_zero_task_outcome has no valid explicit_outcome_evidence."
+        });
+        continue;
+      }
+      if (isEphemeralMeetingMomentEvidence(candidate, input.workItems)) {
+        groupDecisions.push({
+          group_ref: ref,
+          disposition: "removed",
+          reason: "explicit_zero_task_outcome's evidence overlaps with a work item already classified as completed or purely informational narration -- an ephemeral in-meeting mechanic, not a durable project commitment; not persisted as a top-level commitment. The underlying item remains available via its own work-item decision and, if applicable, completed-history record."
         });
         continue;
       }

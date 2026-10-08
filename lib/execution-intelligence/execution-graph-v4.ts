@@ -1,3 +1,4 @@
+import { isEphemeralCompletedMeetingAction } from "./execution-tree";
 import type { CommitmentCandidate, ExecutionGraph, TaskCandidate } from "./schemas";
 import type { ExecutionTree, TaskMergeProvenance, WorkItem } from "./work-item-schemas";
 
@@ -59,10 +60,20 @@ export function treeToExecutionGraph(
       commitment.tasks[0]?.source_quote ??
       commitment.explicit_outcome_evidence?.source_quote ??
       commitment.title;
-    const evidenceSegmentIds =
-      commitment.tasks.length > 0
-        ? Array.from(new Set(commitment.tasks.flatMap((task) => task.source_segment_ids)))
-        : commitment.explicit_outcome_evidence?.source_segment_ids ?? [];
+    // Evidence union: member tasks, acceptance criteria, AND (for the zero-task case) the group's
+    // own explicit_outcome_evidence -- a multi-criteria commitment's description can state material
+    // requirements (e.g. an output format, a cost estimate, a retry behavior) that live entirely on
+    // its acceptance_criteria, not on any member task; omitting them here left those requirements in
+    // the persisted description with no traceable segment-level provenance back to the transcript.
+    const evidenceSegmentIds = Array.from(
+      new Set([
+        ...commitment.tasks.flatMap((task) => task.source_segment_ids),
+        ...commitment.acceptance_criteria.flatMap((criterion) => criterion.source_segment_ids),
+        ...(commitment.tasks.length === 0
+          ? commitment.explicit_outcome_evidence?.source_segment_ids ?? []
+          : [])
+      ])
+    );
     return {
       client_ref: commitment.ref,
       topic_id: null,
@@ -82,7 +93,10 @@ export function treeToExecutionGraph(
       completion_state: "open",
       execution_classification: "committed",
       consolidated_from_refs: [],
-      supporting_action_refs: commitment.member_refs,
+      // Member tasks AND acceptance criteria -- both are work-item refs that materially
+      // contributed to this commitment's scope/description (see evidenceSegmentIds above for the
+      // matching segment-level union).
+      supporting_action_refs: [...commitment.member_refs, ...commitment.acceptance_criteria_refs],
       commitment_reason: commitment.purpose_reason,
       scope_added_beyond_actions: null,
       // A resolved single accountable owner (see final-reconciliation.ts's ownership repair pass)
@@ -152,8 +166,14 @@ export function treeToExecutionGraph(
   // item, appended to (never merged with) the active commitments above -- see
   // completedWorkItemToCommitmentCandidate. Never produces a task candidate for the same ref, so
   // a genuine in-meeting completion persists exactly once, as a closed commitment, never as an
-  // open task.
-  const completedCommitments = (tree.completed_work ?? []).map(completedWorkItemToCommitmentCandidate);
+  // open task. isCompletedDuringMeeting's own classification is untouched -- an ephemeral
+  // meeting-process action (opening a template, reviewing bullet points, asking someone their
+  // goal) is still genuinely "completed history," it just never becomes its own persisted
+  // workspace row; a material completed deliverable (sent, delivered, published, finished, handed
+  // off) is unaffected by this filter and still persists exactly as before.
+  const completedCommitments = (tree.completed_work ?? [])
+    .filter((item) => !isEphemeralCompletedMeetingAction(item))
+    .map(completedWorkItemToCommitmentCandidate);
 
   return { commitments: [...commitments, ...completedCommitments], tasks };
 }
