@@ -242,7 +242,7 @@ export function AccountSettingsClient({
           aria-labelledby="password-modal-title"
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
         >
-          <div className="w-full max-w-lg rounded-2xl border border-white/70 bg-white/95 p-6 shadow-2xl shadow-slate-900/20 backdrop-blur">
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-white/70 bg-white/95 p-6 shadow-2xl shadow-slate-900/20 backdrop-blur">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 id="password-modal-title" className="text-lg font-semibold text-slate-900">

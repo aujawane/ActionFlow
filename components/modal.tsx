@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 
 const FOCUSABLE_SELECTOR =
@@ -97,8 +98,15 @@ export function Modal({
 
   if (!open) return null;
 
-  if (variant === "drawer") {
-    return (
+  // Portaled to document.body rather than rendered in place: a `fixed` element's containing
+  // block becomes its nearest ancestor with a `filter`/`backdrop-filter`/`transform` (not the
+  // viewport) per spec. MobileNav renders this drawer inside app/layout.tsx's sticky header,
+  // which has `backdrop-blur-xl` -- without the portal, `fixed inset-0` resolved against that
+  // ~60px header box instead of the viewport, squeezing the open drawer behind/under the header's
+  // own branding instead of covering the page. Portaling escapes that regardless of which
+  // ancestor a future caller happens to render inside, for both variants.
+  const content =
+    variant === "drawer" ? (
       <div
         className="fixed inset-0 z-50 flex items-stretch justify-start bg-slate-950/40"
         onClick={onClose}
@@ -115,27 +123,26 @@ export function Modal({
           {children}
         </div>
       </div>
-    );
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
-      onClick={onClose}
-    >
+    ) : (
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        tabIndex={-1}
-        onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl outline-none sm:p-6"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
+        onClick={onClose}
       >
-        {children}
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          tabIndex={-1}
+          onClick={(event) => event.stopPropagation()}
+          className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl outline-none sm:p-6"
+        >
+          {children}
+        </div>
       </div>
-    </div>
-  );
+    );
+
+  return createPortal(content, document.body);
 }
 
 export function ModalActions({ children }: { children: ReactNode }) {

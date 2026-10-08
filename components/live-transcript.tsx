@@ -116,7 +116,7 @@ export function LiveTranscript({
                 {getTranscriptSpeakerLabel(segment)} •{" "}
                 {new Date(segment.timestamp).toLocaleTimeString()}
               </p>
-              <p className="mt-1 text-sm text-slate-800">{segment.text}</p>
+              <p className="mt-1 break-words text-sm text-slate-800">{segment.text}</p>
             </div>
           ))
         ) : (
