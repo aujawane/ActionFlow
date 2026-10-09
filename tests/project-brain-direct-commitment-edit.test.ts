@@ -254,8 +254,17 @@ test("[required scenario 22] the route only evaluates the intent gate inside the
 });
 
 test("the intent gate reads only the current message -- it takes a single string, with no access to prior chat history", async () => {
+  // Patch 1B promoted this gate's implementation to the shared, generalized
+  // lib/workspace-agent/intent-gate.ts; this file now just re-exports it under its original
+  // name (verified byte-for-byte behavior compatible by the fact every test in this file still
+  // passes unchanged against the new implementation).
   const source = await readSource("lib/project-brain/direct-commitment-edit.ts");
-  const fnMatch = source.match(/export function hasExplicitCommitmentMutationIntent\([^)]*\): boolean \{/);
+  assert.match(
+    source,
+    /export const hasExplicitCommitmentMutationIntent = hasExplicitWorkspaceMutationIntent;/
+  );
+  const sharedSource = await readSource("lib/workspace-agent/intent-gate.ts");
+  const fnMatch = sharedSource.match(/export function hasExplicitWorkspaceMutationIntent\([^)]*\): boolean \{/);
   assert.ok(fnMatch);
   assert.match(fnMatch![0], /userMessage: string/);
 });

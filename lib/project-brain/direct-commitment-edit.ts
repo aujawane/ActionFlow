@@ -2,6 +2,7 @@ import { applyCommitmentPatch } from "@/lib/commitment-mutations";
 import { formatReadableDate } from "@/lib/format-date";
 import { getOwnedCommitment } from "@/lib/project-access";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { hasExplicitWorkspaceMutationIntent } from "@/lib/workspace-agent/intent-gate";
 import type { MeetingCommitment } from "@/lib/types";
 
 import { normalizeOperationsForApply } from "./operations";
@@ -40,70 +41,15 @@ export function isDirectCommitmentEditEligible(
   );
 }
 
-const MUTATION_VERBS =
-  "change|set|make|rename|update|move|assign|mark|complete|reopen|edit";
-
-/** Sentence-initial imperative, optionally after "please": "Change the due date...",
- * "Please make Kevin the owner." */
-const IMPERATIVE_REQUEST = new RegExp(`^(please\\s+)?(${MUTATION_VERBS})\\b`);
-
-/** Polite request framing immediately before the verb: "Can you change...", "Could you
- * update...". Grammatically a question, but an explicit request -- see the module doc below. */
-const POLITE_REQUEST = new RegExp(
-  `\\b(can|could)\\s+you\\s+(please\\s+)?(${MUTATION_VERBS})\\b`
-);
-
-/** "I'd like you to rename this." / "I want you to mark it complete." */
-const FIRST_PERSON_REQUEST = new RegExp(
-  `\\bi(?:'d| would)\\s+like you to\\s+(${MUTATION_VERBS})\\b|\\bi want you to\\s+(${MUTATION_VERBS})\\b`
-);
-
-const POSITIVE_REQUEST_PATTERNS = [IMPERATIVE_REQUEST, POLITE_REQUEST, FIRST_PERSON_REQUEST];
-
-/** Discussion, speculation, recommendation-seeking, or hypothetical framing. Checked BEFORE the
- * positive patterns above and, if matched, overrides them -- "Do you think I should change the
- * deadline?" contains the mutation verb "change" but is asking for an opinion, not requesting an
- * edit, so a block match here must win even though a positive pattern would also match. */
-const NON_EXECUTION_PATTERNS = [
-  /\bdo you think\b/,
-  /\bi think\b/,
-  /\bi wonder\b/,
-  /\bshould\b/, // covers "should I", "should we", "should <name>" -- no MUST-PASS phrasing uses it
-  /\bwhat if\b/,
-  /\bwould it\b/,
-  /\bcould it be\b/,
-  /\bwould you recommend\b/,
-  /\brecommend\b/,
-  /\bwhat would happen\b/,
-  /\bis it better\b/,
-  /\bmaybe\b/
-];
-
-function normalizeMessage(message: string) {
-  return message.trim().toLowerCase();
-}
-
 /**
- * Deterministic, server-side gate on the CURRENT user message -- the second of the two
- * conditions direct execution requires (the first being isDirectCommitmentEditEligible on the
- * model's operations). The model's own operation output and self-reported confidence are never
- * trusted as proof of explicit intent; this inspects the actual text the user just sent.
- *
- * Deliberately narrow: a mutation verb appearing anywhere is NOT sufficient ("Do you think I
- * should change the deadline?" contains "change" but must not execute) -- a verb only counts
- * when it appears in a request-shaped position (sentence-initial imperative, "please "/"can
- * you "/"could you "/"I'd like you to "/"I want you to " immediately before it), AND no
- * discussion/hypothetical/recommendation phrase is present anywhere in the message. Polite
- * question forms ("Can you...?", "Could you...?") are explicit requests despite the question
- * mark -- grammatical mood is not the signal here, the request framing is.
- */
-export function hasExplicitCommitmentMutationIntent(userMessage: string): boolean {
-  const message = normalizeMessage(userMessage);
-  if (NON_EXECUTION_PATTERNS.some((pattern) => pattern.test(message))) {
-    return false;
-  }
-  return POSITIVE_REQUEST_PATTERNS.some((pattern) => pattern.test(message));
-}
+ * Thin re-export of the now-shared, generalized gate (lib/workspace-agent/intent-gate.ts) --
+ * promoted from this file's own original copy once the generalized version was verified
+ * byte-for-byte behavior compatible (same block/positive patterns; the shared version's wider
+ * verb list only adds create/add/delete/remove/accept, none of which change the outcome for any
+ * phrasing this module's existing tests already cover). Kept under its original name here so
+ * the Project Brain route's existing import is untouched -- this patch does not change Project
+ * Brain's user-visible behavior, only where the gate's implementation lives. */
+export const hasExplicitCommitmentMutationIntent = hasExplicitWorkspaceMutationIntent;
 
 /** Normalizes a raw proposal's operations and reports whether the result is direct-edit
  * eligible, so callers don't have to remember to normalize first. */
