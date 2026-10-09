@@ -244,10 +244,20 @@ test("task correction menu: retrying after a report-only failure does not re-app
 // ============================================================
 
 test("task PATCH route: owner corrections from the report modal still mark manual_override_fields/preserve_on_reanalysis and stay authorization-gated", async () => {
-  const source = await readFile(new URL("../app/api/tasks/[id]/route.ts", import.meta.url), "utf8");
-  assert.match(source, /getOwnedTask\(id, auth\.user\.id\)/);
-  assert.match(source, /preserve_on_reanalysis: true/);
-  assert.match(source, /mergeManualOverrideFields/);
+  // Authorization still lives in the route itself; the manual_override_fields/
+  // preserve_on_reanalysis guarantee now lives in the canonical lib/task-mutations.ts
+  // applyTaskPatch the route delegates to (see tests/task-mutations.test.ts) -- same
+  // behavior, consolidated location.
+  const routeSource = await readFile(new URL("../app/api/tasks/[id]/route.ts", import.meta.url), "utf8");
+  assert.match(routeSource, /getOwnedTask\(id, auth\.user\.id\)/);
+  assert.match(routeSource, /applyTaskPatch\(id, parsed\.data\)/);
+
+  const mutationsSource = await readFile(
+    new URL("../lib/task-mutations.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(mutationsSource, /preserve_on_reanalysis: true/);
+  assert.match(mutationsSource, /mergeManualOverrideFields/);
 });
 
 // ============================================================

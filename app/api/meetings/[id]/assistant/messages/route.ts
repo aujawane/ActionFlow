@@ -8,10 +8,10 @@ import {
   selectRelevantTranscriptSegments,
   shouldIncludeTranscriptEvidence
 } from "@/lib/meeting-assistant/transcript-selection";
+import { getOwnedMeeting } from "@/lib/project-access";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
   ExtractedInsight,
-  Meeting,
   MeetingCommitment,
   MeetingComment,
   MeetingTask,
@@ -30,17 +30,6 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const messageSchema = z.string().trim().min(1).max(4000);
-
-async function getOwnedMeeting(meetingId: string, userId: string) {
-  const { data } = await supabaseAdmin
-    .from("meetings")
-    .select("*")
-    .eq("id", meetingId)
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  return data as Meeting | null;
-}
 
 async function loadMeetingComments(meetingId: string) {
   const { data, error } = await supabaseAdmin

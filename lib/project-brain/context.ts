@@ -17,6 +17,10 @@ import type {
 
 export type ProjectBrainContext = {
   project: Project & { execution_graph_version?: number };
+  /** Grounds relative-date interpretation ("Friday", "next week") the same way
+   * lib/commitment-correction/context.ts's `today` already does for commitment corrections --
+   * reusing that established pattern rather than adding a second date-interpretation system. */
+  today: string;
   memory: Record<string, unknown> | null;
   requirements: Array<Record<string, unknown>>;
   decisions: Array<Record<string, unknown>>;
@@ -245,6 +249,7 @@ export async function buildProjectBrainContext(
 
   return {
     project: project as Project & { execution_graph_version?: number },
+    today: new Date().toISOString().slice(0, 10),
     memory: (memory as Record<string, unknown> | null) ?? null,
     requirements: (requirements ?? []) as Array<Record<string, unknown>>,
     decisions: (decisions ?? []) as Array<Record<string, unknown>>,

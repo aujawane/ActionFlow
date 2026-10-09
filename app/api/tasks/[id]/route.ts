@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
-import { mergeManualOverrideFields } from "@/lib/manual-overrides";
 import { getOwnedTask } from "@/lib/project-access";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { deriveCompletedAtPatch, updateTaskSchema } from "@/lib/task-status";
+import { applyTaskPatch } from "@/lib/task-mutations";
+import { updateTaskSchema } from "@/lib/task-status";
 
 export async function PATCH(
   request: Request,
@@ -26,25 +25,12 @@ export async function PATCH(
       { status: 400 }
     );
   }
-  const { data, error } = await supabaseAdmin
-    .from("meeting_tasks")
-    .update({
-      ...parsed.data,
-      ...deriveCompletedAtPatch(parsed.data.status),
-      preserve_on_reanalysis: true,
-      manual_override_fields: mergeManualOverrideFields(
-        task.manual_override_fields,
-        Object.keys(parsed.data)
-      )
-    })
-    .eq("id", id)
-    .select("*")
-    .single();
-  if (error || !data) {
+  const result = await applyTaskPatch(id, parsed.data);
+  if ("error" in result) {
     return NextResponse.json(
-      { error: "Failed to update task.", details: error?.message },
+      { error: "Failed to update task.", details: result.details },
       { status: 500 }
     );
   }
-  return NextResponse.json({ task: data });
+  return NextResponse.json({ task: result.task });
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { getOwnedProject } from "@/lib/project-access";
+import { applyProjectPatch } from "@/lib/project-mutations";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const updateProjectSchema = z
@@ -45,20 +46,14 @@ export async function PATCH(
   if (!parsed.success || Object.keys(parsed.data).length === 0) {
     return NextResponse.json({ error: "Invalid project update." }, { status: 400 });
   }
-  const { data, error } = await supabaseAdmin
-    .from("projects")
-    .update(parsed.data)
-    .eq("id", id)
-    .eq("owner_id", auth.user.id)
-    .select("*")
-    .single();
-  if (error || !data) {
+  const result = await applyProjectPatch(id, parsed.data);
+  if ("error" in result) {
     return NextResponse.json(
-      { error: "Failed to update project.", details: error?.message },
+      { error: "Failed to update project.", details: result.details },
       { status: 500 }
     );
   }
-  return NextResponse.json({ project: data });
+  return NextResponse.json({ project: result.project });
 }
 
 export async function DELETE(

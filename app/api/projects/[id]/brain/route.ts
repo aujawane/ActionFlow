@@ -1,9 +1,21 @@
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { runProjectBrainAgent } from "@/lib/project-brain/agent";
 import { buildProjectBrainContext } from "@/lib/project-brain/context";
+import {
+  buildDirectEditConfirmationMessage,
+  executeDirectCommitmentEdits,
+  hasExplicitCommitmentMutationIntent,
+  prepareDirectCommitmentEdits
+} from "@/lib/project-brain/direct-commitment-edit";
+import {
+  validateAndCanonicalizeOperationOwners,
+  validateProposalTargets
+} from "@/lib/project-brain/operations";
+import type { ProjectBrainResponse } from "@/lib/project-brain/schemas";
 import { getOwnedProject } from "@/lib/project-access";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -171,7 +183,7 @@ export async function POST(
       ),
     message: parsed.data.message
   });
-  const result = agent.ok
+  let result: ProjectBrainResponse = agent.ok
     ? agent.result
     : {
         responseType: "answer" as const,
@@ -190,6 +202,92 @@ export async function POST(
       result.proposal?.operations.map((operation) => operation.type) ?? [],
     warnings: result.warnings
   });
+
+  // Direct-edit fast path: an explicit, low-risk commitment field edit (title/description/
+  // owner/due_date/priority/status -- see lib/project-brain/direct-commitment-edit.ts) executes
+  // immediately instead of becoming a pending_review proposal. Anything more complex --
+  // create/merge/archive a commitment, any task operation, person-identity corrections, etc. --
+  // is left completely untouched below and still goes through the existing proposal/"Approve &
+  // apply" review flow. Re-validates targets and owners against the SAME fresh project context
+  // this request already loaded (never trusting the model's operations as-is), matching the
+  // apply route's own validation discipline one step earlier, before persistence instead of at
+  // click-time.
+  //
+  // Execution requires BOTH an eligible operation shape AND a deterministic, server-side read
+  // of explicit mutation intent on the CURRENT user message (parsed.data.message, never earlier
+  // history) -- the model's own operation output and self-reported confidence are not trusted
+  // as proof of intent on their own. This also means a clarification/answer response (no
+  // proposal at all) can never reach this block regardless of message wording, since the outer
+  // condition below already requires responseType === "proposal".
+  let directEditApplied: Awaited<ReturnType<typeof executeDirectCommitmentEdits>> | null = null;
+  if (result.responseType === "proposal" && result.proposal && result.proposal.operations.length > 0) {
+    const { normalized, eligible } = prepareDirectCommitmentEdits(result.proposal.operations);
+    if (eligible && hasExplicitCommitmentMutationIntent(parsed.data.message)) {
+      const targetValidation = validateProposalTargets(normalized, projectContext);
+      if (!targetValidation.ok) {
+        result = {
+          responseType: "clarification",
+          message:
+            targetValidation.reason === "stale_execution_target"
+              ? "That commitment looks like it's from an earlier version of this project's plan. Could you tell me which current commitment you mean?"
+              : "I couldn't find that commitment in this project. Could you confirm which one you mean?",
+          proposal: null,
+          references: result.references,
+          warnings: result.warnings
+        };
+      } else {
+        const ownerValidation = validateAndCanonicalizeOperationOwners(normalized, projectContext);
+        if (!ownerValidation.ok) {
+          result = {
+            responseType: "clarification",
+            message: `${ownerValidation.message} Who should I assign it to?`,
+            proposal: null,
+            references: result.references,
+            warnings: result.warnings
+          };
+        } else {
+          const executed = await executeDirectCommitmentEdits({
+            operations: ownerValidation.operations as Extract<
+              (typeof ownerValidation.operations)[number],
+              { type: "update_milestone" }
+            >[],
+            userId: auth.user.id,
+            projectId: id,
+            userMessageId: userMessage.id
+          });
+          directEditApplied = executed;
+          if (executed.ok) {
+            console.info("[ProjectBrain] direct commitment edit executed", {
+              project_id: id,
+              user_id: auth.user.id,
+              commitment_ids: executed.applied.map((edit) => edit.commitmentId)
+            });
+            result = {
+              responseType: "answer",
+              message: buildDirectEditConfirmationMessage(executed.applied),
+              proposal: null,
+              references: result.references,
+              warnings: result.warnings
+            };
+          } else {
+            console.warn("[ProjectBrain] direct commitment edit failed", {
+              project_id: id,
+              user_id: auth.user.id,
+              reason: executed.reason,
+              details: executed.message
+            });
+            result = {
+              responseType: "answer",
+              message: "I couldn't save that change. Please try again.",
+              proposal: null,
+              references: result.references,
+              warnings: result.warnings
+            };
+          }
+        }
+      }
+    }
+  }
 
   let proposal: Record<string, unknown> | null = null;
   if (
@@ -248,6 +346,9 @@ export async function POST(
         references: result.references,
         warnings: result.warnings,
         proposal_id: proposal?.id ?? null,
+        direct_edit_commitment_ids: directEditApplied?.ok
+          ? directEditApplied.applied.map((edit) => edit.commitmentId)
+          : null,
         model: agent.ok ? agent.model : null
       }
     })
@@ -264,6 +365,24 @@ export async function POST(
     .from("project_chat_threads")
     .update({ updated_at: new Date().toISOString() })
     .eq("id", threadId);
+
+  if (directEditApplied?.ok) {
+    // Same revalidation targets the proposal-apply route hits for a milestoneId operation --
+    // the meeting page and the commitment's own workspace both read this row server-side.
+    revalidatePath(`/projects/${id}`);
+    revalidatePath("/projects");
+    revalidatePath("/dashboard");
+    const commitmentById = new Map(
+      projectContext.milestones.map((commitment) => [String(commitment.id), commitment])
+    );
+    for (const edit of directEditApplied.applied) {
+      revalidatePath(`/commitments/${edit.commitmentId}`);
+      const commitment = commitmentById.get(edit.commitmentId);
+      if (typeof commitment?.meeting_id === "string") {
+        revalidatePath(`/meetings/${commitment.meeting_id}`);
+      }
+    }
+  }
 
   return NextResponse.json(
     {

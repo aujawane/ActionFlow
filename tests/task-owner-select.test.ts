@@ -182,14 +182,19 @@ test("owner selection reuses the existing, unmodified task-owner update route --
   // Authorization: the route still resolves ownership through the shared chain before any write.
   assert.match(routeSource, /getOwnedTask\(id, auth\.user\.id\)/);
   assert.match(routeSource, /Task not found/);
+  // The update schema still lives in lib/task-status.ts and the route still imports and uses it
+  // unchanged; the route delegates the actual write (and its preserve_on_reanalysis/
+  // manual_override_fields guarantee) to lib/task-mutations.ts's applyTaskPatch.
+  assert.match(routeSource, /import \{ updateTaskSchema \} from "@\/lib\/task-status";/);
+  assert.match(routeSource, /import \{ applyTaskPatch \} from "@\/lib\/task-mutations";/);
+  const mutationsSource = await readFile(
+    new URL("../lib/task-mutations.ts", import.meta.url),
+    "utf8"
+  );
   // Preservation: an owner change still marks the field manually overridden and reanalysis-safe,
   // exactly as every other Phase 6 correction does.
-  assert.match(routeSource, /preserve_on_reanalysis: true/);
-  assert.match(routeSource, /mergeManualOverrideFields/);
-  // The update schema now lives in lib/task-status.ts (extracted alongside the status dropdown's
-  // own schema/logic so it's directly testable without exporting a non-handler name from a
-  // route.ts file) -- the route still imports and uses it unchanged.
-  assert.match(routeSource, /import \{ deriveCompletedAtPatch, updateTaskSchema \} from "@\/lib\/task-status";/);
+  assert.match(mutationsSource, /preserve_on_reanalysis: true/);
+  assert.match(mutationsSource, /mergeManualOverrideFields/);
   const schemaSource = await readFile(
     new URL("../lib/task-status.ts", import.meta.url),
     "utf8"
