@@ -115,7 +115,10 @@ test("the task update route reuses the single existing PATCH /api/tasks/[id] pat
   const source = await readSource("app/api/tasks/[id]/route.ts");
   assert.match(source, /export async function PATCH\(/);
   assert.doesNotMatch(source, /export async function (POST|PUT|DELETE)\(/);
-  assert.match(source, /import \{ deriveCompletedAtPatch, updateTaskSchema \} from "@\/lib\/task-status";/);
+  assert.match(source, /import \{ updateTaskSchema \} from "@\/lib\/task-status";/);
+  // The route delegates persistence to the canonical lib/task-mutations.ts applyTaskPatch
+  // (shared with Task Chat -- see tests/task-mutations.test.ts) rather than writing directly.
+  assert.match(source, /import \{ applyTaskPatch \} from "@\/lib\/task-mutations";/);
 });
 
 test("[required scenario 12] the route enforces ownership via the existing getOwnedTask authorization check before any mutation", async () => {
@@ -126,19 +129,25 @@ test("[required scenario 12] the route enforces ownership via the existing getOw
 });
 
 test("[required scenario 10] a status update is persisted through the existing manual_override_fields / preserve_on_reanalysis mechanism, not a new one", async () => {
-  const source = await readSource("app/api/tasks/[id]/route.ts");
+  // This mechanism now lives in lib/task-mutations.ts's applyTaskPatch, which the route
+  // delegates to -- same guarantee, consolidated location (see tests/task-mutations.test.ts
+  // for the full migration-correctness coverage).
+  const source = await readSource("lib/task-mutations.ts");
   assert.match(source, /import \{ mergeManualOverrideFields \} from "@\/lib\/manual-overrides";/);
   assert.match(source, /preserve_on_reanalysis: true/);
   assert.match(
     source,
-    /manual_override_fields: mergeManualOverrideFields\(\s*task\.manual_override_fields,\s*Object\.keys\(parsed\.data\)\s*\)/
+    /manual_override_fields: mergeManualOverrideFields\(\s*\n\s*task\.manual_override_fields,\s*\n\s*Object\.keys\(patch\)\s*\n\s*\)/
   );
-  assert.match(source, /\.\.\.deriveCompletedAtPatch\(parsed\.data\.status\)/);
+  assert.match(source, /\.\.\.deriveCompletedAtPatch\(patch\.status as MeetingTaskStatus \| undefined\)/);
 });
 
-test("[required scenario 14/15] the update route touches only meeting_tasks -- no cascading writes to commitments or other tasks", async () => {
-  const source = await readSource("app/api/tasks/[id]/route.ts");
-  const tableRefs = [...source.matchAll(/supabaseAdmin\s*\n?\s*\.from\("(\w+)"\)/g)].map((m) => m[1]);
+test("[required scenario 14/15] the update route touches only meeting_tasks (via the canonical mutation function it delegates to) -- no cascading writes to commitments or other tasks", async () => {
+  const routeSource = await readSource("app/api/tasks/[id]/route.ts");
+  // The route itself no longer references any Supabase table directly -- it delegates entirely.
+  assert.doesNotMatch(routeSource, /supabaseAdmin/);
+  const mutationsSource = await readSource("lib/task-mutations.ts");
+  const tableRefs = [...mutationsSource.matchAll(/supabaseAdmin\s*\n?\s*\.from\("(\w+)"\)/g)].map((m) => m[1]);
   assert.deepEqual(new Set(tableRefs), new Set(["meeting_tasks"]));
 });
 

@@ -27,43 +27,15 @@ import {
   taskContainsPatch,
   updateProposalStatus
 } from "@/lib/task-comment-metadata";
-import { mergeManualOverrideFields } from "@/lib/manual-overrides";
+import { applyTaskPatch } from "@/lib/task-mutations";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type {
-  MeetingTask,
-  TaskCommentMetadata
-} from "@/lib/types";
+import type { TaskCommentMetadata } from "@/lib/types";
 
 /**
  * Vercel plan assumption: Pro. Task chat may call OpenAI and persist patches.
  */
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-async function applyTaskPatch(taskId: string, patch: AllowedTaskPatch) {
-  const { data: current, error: currentError } = await supabaseAdmin
-    .from("meeting_tasks")
-    .select("manual_override_fields")
-    .eq("id", taskId)
-    .single();
-  if (currentError || !current) {
-    return { task: null, error: currentError };
-  }
-  const { data, error } = await supabaseAdmin
-    .from("meeting_tasks")
-    .update({
-      ...patch,
-      preserve_on_reanalysis: true,
-      manual_override_fields: mergeManualOverrideFields(
-        current.manual_override_fields,
-        Object.keys(patch)
-      )
-    })
-    .eq("id", taskId)
-    .select("*")
-    .single();
-  return { task: data as MeetingTask | null, error };
-}
 
 async function saveAssistantComment(input: {
   taskId: string;
@@ -218,17 +190,13 @@ export async function POST(
   if (confirmsPending && previousPending) {
     const exactPatch = previousPending.proposal.patch as AllowedTaskPatch;
     const update = await applyTaskPatch(id, exactPatch);
-    if (
-      update.error ||
-      !update.task ||
-      !taskContainsPatch(update.task, exactPatch)
-    ) {
+    if ("error" in update || !taskContainsPatch(update.task, exactPatch)) {
       assistantMessage =
         "I understood the change, but I could not save it yet.";
       console.error("Pending task update could not be verified", {
         task_id: id,
         proposal_id: previousPending.proposal.id,
-        error: update.error?.message
+        error: "error" in update ? (update.details ?? update.error) : undefined
       });
     } else {
       updatedTask = update.task;
@@ -289,16 +257,12 @@ export async function POST(
 
       if (canApply) {
         const update = await applyTaskPatch(id, immediatePatch);
-        if (
-          update.error ||
-          !update.task ||
-          !taskContainsPatch(update.task, immediatePatch)
-        ) {
+        if ("error" in update || !taskContainsPatch(update.task, immediatePatch)) {
           assistantMessage =
             "I understood the change, but I could not save it yet.";
           console.error("AI task update could not be verified", {
             task_id: id,
-            error: update.error?.message
+            error: "error" in update ? (update.details ?? update.error) : undefined
           });
         } else {
           updatedTask = update.task;

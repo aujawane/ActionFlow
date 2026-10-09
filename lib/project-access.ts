@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MeetingCommitment, MeetingTask, Project, TaskArtifact } from "@/lib/types";
+import type { Meeting, MeetingCommitment, MeetingTask, Project, TaskArtifact } from "@/lib/types";
 
 export async function getOwnedProject(projectId: string, userId: string) {
   const { data } = await supabaseAdmin
@@ -9,6 +9,20 @@ export async function getOwnedProject(projectId: string, userId: string) {
     .eq("owner_id", userId)
     .maybeSingle();
   return data as Project | null;
+}
+
+/** Promoted from a duplicated inline copy in app/api/meetings/[id]/assistant/messages/route.ts --
+ * same query, same semantics, now shared so any future meeting-scoped surface doesn't need its
+ * own copy of this ownership chain. */
+export async function getOwnedMeeting(meetingId: string, userId: string) {
+  const { data } = await supabaseAdmin
+    .from("meetings")
+    .select("*")
+    .eq("id", meetingId)
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  return data as Meeting | null;
 }
 
 export async function getOwnedCommitment(commitmentId: string, userId: string) {
