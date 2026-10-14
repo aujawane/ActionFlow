@@ -69,7 +69,11 @@ export async function POST(
       requestOrigin: new URL(request.url).origin
     });
 
-    if (result.status === "processing" || result.status === "already_processed") {
+    if (
+      result.status === "processing" ||
+      result.status === "already_processed" ||
+      result.status === "already_processing"
+    ) {
       return NextResponse.json(
         {
           status: result.status,
@@ -79,7 +83,9 @@ export async function POST(
           analysisStatus: result.analysisStatus,
           message: result.message
         },
-        { status: result.status === "processing" ? 202 : 200 }
+        {
+          status: result.status === "processing" || result.status === "already_processing" ? 202 : 200
+        }
       );
     }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
+import { replaceTranscriptSegments } from "@/lib/recall/processing";
 import {
   parseRecallTranscriptToSegments,
   type RecallTranscriptEntry
@@ -65,42 +66,26 @@ export async function POST(request: Request) {
     sample_speakers: getSampleSpeakers(speakers)
   });
 
-  const { error: deleteError } = await supabaseAdmin
-    .from("transcript_segments")
-    .delete()
-    .eq("meeting_id", meetingId);
-
-  if (deleteError) {
+  // Transactional replace (delete+insert in one Postgres transaction, row-locked on the
+  // meeting) -- the same shared primitive the Recall-authoritative import path uses, so this
+  // dev-only force-overwrite tool can't leave a meeting's transcript half-replaced either.
+  // Intentionally NOT gated behind claimTranscriptImport: this route's whole purpose is letting a
+  // developer force an overwrite regardless of the meeting's current status/claim state.
+  let insertedCount = 0;
+  try {
+    const result = await replaceTranscriptSegments(
+      meetingId,
+      parsedRows.map((row) => ({ ...row, speaker: row.speaker ?? "Unknown Speaker" }))
+    );
+    insertedCount = result.insertedCount;
+  } catch (error) {
     return NextResponse.json(
-      { error: "Failed to delete existing transcript segments.", details: deleteError.message },
+      {
+        error: "Failed to replace transcript segments.",
+        details: error instanceof Error ? error.message : "Unknown error"
+      },
       { status: 500 }
     );
-  }
-
-  let insertedCount = 0;
-  if (parsedRows.length > 0) {
-    const { data: insertedRows, error: insertError } = await supabaseAdmin
-      .from("transcript_segments")
-      .insert(
-        parsedRows.map((row) => ({
-          meeting_id: meetingId,
-          speaker: row.speaker ?? "Unknown Speaker",
-          participant_name: row.participant_name,
-          text: row.text,
-          timestamp: row.timestamp,
-          raw_payload: row.raw_payload
-        }))
-      )
-      .select("id");
-
-    if (insertError) {
-      return NextResponse.json(
-        { error: "Failed to insert transcript segments.", details: insertError.message },
-        { status: 500 }
-      );
-    }
-
-    insertedCount = insertedRows?.length ?? 0;
   }
 
   console.info("[dev/reimport-transcript] segments inserted", {

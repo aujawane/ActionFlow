@@ -144,13 +144,20 @@ test("the webhook route awaits enqueueRecallTranscriptImport inside the try bloc
   assert.match(source.slice(catchStart), /status: 502/);
 });
 
-test("[idempotency] duplicate webhook deliveries dispatching the workflow twice are safe: the underlying step is the same short-circuiting processCompletedRecallMeeting", async () => {
+test("[idempotency] duplicate webhook deliveries dispatching the workflow twice are safe: the atomic transcript-import claim inside processCompletedRecallMeeting -- not webhook-level dedup -- is what makes a second concurrent run a clean no-op", async () => {
   const { shouldSkipDuplicateCompletion } = await import("../lib/recall/webhook-events");
-  // A second dispatch for a meeting already at transcript_ready/completed is a no-op once the
-  // step runs -- this is the same guard proven directly against processCompletedRecallMeeting
-  // below; asserting it here documents why re-dispatching a duplicate event is safe.
+  // A meeting already at transcript_ready/completed is a no-op once the step runs -- one of the
+  // two reasons claimTranscriptImport can decline a claim (the other being a concurrent run
+  // already holding it); asserting it here documents why re-dispatching a duplicate event for an
+  // already-finished meeting is safe.
   assert.equal(shouldSkipDuplicateCompletion("transcript_ready"), true);
   assert.equal(shouldSkipDuplicateCompletion("completed"), true);
+
+  // The actual concurrency guarantee (two deliveries racing for the SAME not-yet-finished
+  // meeting) comes from claimTranscriptImport's single atomic UPDATE, not from this status
+  // predicate alone -- see the dedicated claimTranscriptImport tests below for that guarantee.
+  const source = await readSource("lib/recall/processing.ts");
+  assert.match(source, /export async function claimTranscriptImport/);
 });
 
 // ---------------------------------------------------------------------------
@@ -162,11 +169,55 @@ test("processCompletedRecallMeeting skips re-import and re-enqueue for a meeting
   const start = source.indexOf("export async function processCompletedRecallMeeting");
   assert.ok(start > -1, "expected processCompletedRecallMeeting");
   const fn = source.slice(start); // last export in the file -- safe to run to EOF
-  const guardIndex = fn.indexOf("shouldSkipDuplicateCompletion");
+  const claimIndex = fn.indexOf("const claim = await claimTranscriptImport(meetingId);");
   const enqueueIndex = fn.indexOf("enqueueMeetingAnalysis(");
-  assert.ok(guardIndex > -1 && enqueueIndex > -1);
-  assert.ok(guardIndex < enqueueIndex, "the duplicate-completion guard must run before enqueueing analysis");
+  assert.ok(claimIndex > -1 && enqueueIndex > -1);
+  assert.ok(claimIndex < enqueueIndex, "the atomic import claim must run before enqueueing analysis");
+  assert.match(fn, /if \(!claim\.claimed\) \{/);
   assert.match(fn, /status: "already_processed"/);
+  assert.match(fn, /status: "already_processing"/);
+});
+
+test("the losing side of the transcript-import claim never fetches from Recall, never replaces transcript segments, and never enqueues analysis", async () => {
+  const source = await readSource("lib/recall/processing.ts");
+  const start = source.indexOf("export async function processCompletedRecallMeeting");
+  const fn = source.slice(start);
+  const notClaimedBlock = fn.match(/if \(!claim\.claimed\) \{[\s\S]*?\n {2}\}\n/);
+  assert.ok(notClaimedBlock, "expected the !claim.claimed early-return block");
+  assert.doesNotMatch(notClaimedBlock![0], /replaceMeetingTranscriptFromRecall|fetchRecallTranscript|enqueueMeetingAnalysis|replaceTranscriptSegments/);
+});
+
+test("claimTranscriptImport performs one atomic UPDATE ... WHERE ... RETURNING, the same shape applyGuardedMeetingStatus already uses -- not a read then a separate write", async () => {
+  const source = await readSource("lib/recall/processing.ts");
+  const start = source.indexOf("export async function claimTranscriptImport");
+  const end = source.indexOf("export async function releaseTranscriptImportClaim");
+  assert.ok(start > -1 && end > start);
+  const fn = source.slice(start, end);
+  assert.match(fn, /\.update\(\{ transcript_import_claimed_at: now\.toISOString\(\) \}\)/);
+  assert.match(fn, /\.neq\("status", "transcript_ready"\)/);
+  assert.match(fn, /\.neq\("status", "completed"\)/);
+  assert.match(fn, /\.select\("id"\)/);
+});
+
+test("claimTranscriptImport treats processing (set by bot.call_ended/bot.done before any artifact-import claiming starts) as a claimable status, not a terminal one -- the claim never reuses the meeting status ladder as its own lock", async () => {
+  const source = await readSource("lib/recall/processing.ts");
+  const start = source.indexOf("export async function claimTranscriptImport");
+  const end = source.indexOf("export async function releaseTranscriptImportClaim");
+  const fn = source.slice(start, end);
+  // Only transcript_ready/completed are excluded -- "processing" (and every earlier status) can
+  // still be claimed, since a meeting is routinely already "processing" by the time an artifact
+  // event arrives.
+  assert.doesNotMatch(fn, /\.neq\("status", "processing"\)/);
+});
+
+test("a thrown error during a claimed import releases the claim rather than leaving the meeting permanently stuck", async () => {
+  const source = await readSource("lib/recall/processing.ts");
+  const start = source.indexOf("export async function processCompletedRecallMeeting");
+  const fn = source.slice(start);
+  const catchBlock = fn.match(/\} catch \(error\) \{[\s\S]*?\n {2}\}\n\}/);
+  assert.ok(catchBlock, "expected a catch block that releases the claim");
+  assert.match(catchBlock![0], /releaseTranscriptImportClaim\(meetingId\)/);
+  assert.match(catchBlock![0], /throw error;/);
 });
 
 test("a call that has ended but has no downloadable transcript yet stays in processing, never reverts to recording", async () => {
@@ -195,12 +246,74 @@ test("applyGuardedMeetingStatus writes are scoped with .in(\"status\", priorStat
   assert.match(fn, /\.in\("status", priorStatuses\)/);
 });
 
-test("transcript re-import stays duplicate-safe: existing segments are deleted before the new set is inserted", async () => {
+test("transcript replacement is transactional: replaceMeetingTranscriptFromRecall delegates to the shared replace_meeting_transcript_segments RPC, not two separate delete-then-insert Supabase calls", async () => {
   const source = await readSource("lib/recall/processing.ts");
-  const deleteIndex = source.indexOf('.from("transcript_segments")\n    .delete()');
-  const insertIndex = source.indexOf('.from("transcript_segments")\n    .insert(');
-  assert.ok(deleteIndex > -1 && insertIndex > -1);
-  assert.ok(deleteIndex < insertIndex, "delete must precede insert so a duplicate import can't create duplicate rows");
+  assert.match(source, /export async function replaceTranscriptSegments\(/);
+  const start = source.indexOf("export async function replaceTranscriptSegments");
+  const end = source.indexOf("export async function replaceMeetingTranscriptFromRecall");
+  const fn = source.slice(start, end);
+  assert.match(fn, /supabaseAdmin\.rpc\("replace_meeting_transcript_segments", \{/);
+  assert.match(fn, /p_meeting_id: meetingId,/);
+  assert.match(fn, /p_segments: rows\.map/);
+
+  // replaceMeetingTranscriptFromRecall itself no longer issues its own delete/insert pair.
+  const importFnStart = source.indexOf("export async function replaceMeetingTranscriptFromRecall");
+  const importFnEnd = source.indexOf("export async function processCompletedRecallMeeting");
+  const importFn = source.slice(importFnStart, importFnEnd);
+  assert.doesNotMatch(importFn, /\.from\("transcript_segments"\)\s*\n\s*\.delete\(\)/);
+  assert.doesNotMatch(importFn, /\.from\("transcript_segments"\)\s*\n\s*\.insert\(/);
+  assert.match(importFn, /replaceTranscriptSegments\(meetingId, transcriptRows\)/);
+});
+
+test("the transactional replace RPC is called with the exact name the migration defines", async () => {
+  const migration = await readSource(
+    "supabase/migrations/20261013090000_recall_transcript_import_idempotency.sql"
+  );
+  assert.match(migration, /create or replace function public\.replace_meeting_transcript_segments\(/);
+  assert.match(migration, /language plpgsql/);
+  assert.match(migration, /security definer/);
+});
+
+test("no UNIQUE(meeting_id) constraint is added to transcript_segments -- one meeting legitimately holds hundreds of segment rows sharing the same meeting_id", async () => {
+  const migration = await readSource(
+    "supabase/migrations/20261013090000_recall_transcript_import_idempotency.sql"
+  );
+  // A bare single-column unique constraint/index on meeting_id would make it impossible for a
+  // meeting to ever have more than one transcript segment -- must never appear as actual SQL in
+  // this migration (strip "--" comment lines first; the migration's own explanatory prose
+  // legitimately mentions "UNIQUE(meeting_id)" by name to document why it was deliberately not
+  // added, which would otherwise false-positive against a naive full-text match).
+  const sqlOnly = migration
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+  assert.doesNotMatch(sqlOnly, /unique\s*\(\s*meeting_id\s*\)/i);
+  assert.doesNotMatch(sqlOnly, /add\s+constraint\s+\S*\s+unique\s*\(meeting_id\)/i);
+  assert.doesNotMatch(sqlOnly, /create\s+unique\s+index[^;]*\(\s*meeting_id\s*\)/i);
+
+  // The RPC itself inserts every row from the incoming segment array, not just one.
+  const rpcStart = migration.indexOf("create or replace function public.replace_meeting_transcript_segments");
+  const rpcBody = migration.slice(rpcStart);
+  assert.match(rpcBody, /insert into public\.transcript_segments/);
+  assert.match(rpcBody, /from jsonb_array_elements\(p_segments\) as seg/);
+});
+
+test("only the invocation that wins the transcript_ready transition calls enqueueMeetingAnalysis -- a losing/no-op transition returns before reaching the enqueue call", async () => {
+  const source = await readSource("lib/recall/processing.ts");
+  const start = source.indexOf("export async function processCompletedRecallMeeting");
+  const fn = source.slice(start);
+
+  const wonIndex = fn.indexOf('const wonTranscriptReady = await applyGuardedMeetingStatus(meetingId, "transcript_ready");');
+  const guardIndex = fn.indexOf("if (!wonTranscriptReady) {");
+  const enqueueIndex = fn.indexOf("const enqueued = await enqueueMeetingAnalysis(meetingId,");
+  assert.ok(wonIndex > -1, "expected the transcript_ready transition's boolean result to be captured");
+  assert.ok(guardIndex > wonIndex, "expected the result to be checked immediately after the transition");
+  assert.ok(enqueueIndex > guardIndex, "expected the enqueue call to come after the guard");
+
+  // The guard's own branch must return without ever reaching the enqueue call.
+  const guardBlock = fn.slice(guardIndex, enqueueIndex);
+  assert.match(guardBlock, /return \{/);
+  assert.doesNotMatch(guardBlock, /enqueueMeetingAnalysis\(/);
 });
 
 // ---------------------------------------------------------------------------
@@ -213,6 +326,25 @@ test("successful bot creation sets status to joining, not recording", async () =
   assert.ok(updateBlock, "expected the post-bot-creation update call");
   assert.match(updateBlock![0], /status: "joining"/);
   assert.doesNotMatch(updateBlock![0], /status: "recording"/);
+});
+
+// ---------------------------------------------------------------------------
+// Manual re-import stays supported: the dev-only force-reimport route is a genuinely separate
+// code path from the automatic claim, sharing only the transactional replace primitive.
+// ---------------------------------------------------------------------------
+
+test("the dev reimport-transcript route uses the shared transactional replace primitive, not its own raw delete+insert, and is never gated by the automatic import claim", async () => {
+  const source = await readSource("app/api/dev/reimport-transcript/route.ts");
+  assert.match(source, /import \{ replaceTranscriptSegments \} from "@\/lib\/recall\/processing";/);
+  assert.match(source, /replaceTranscriptSegments\(\s*meetingId,/);
+  // The route's own comment explains why it deliberately skips the claim by name -- check for an
+  // actual call/import, not just the string, so that explanatory prose doesn't false-positive.
+  assert.doesNotMatch(source, /claimTranscriptImport\(/);
+  assert.doesNotMatch(source, /import \{[^}]*claimTranscriptImport/);
+  assert.doesNotMatch(source, /\.from\("transcript_segments"\)\s*\n\s*\.delete\(\)/);
+  assert.doesNotMatch(source, /\.from\("transcript_segments"\)\s*\n\s*\.insert\(/);
+  // Still dev-only -- this route's unrestricted force-overwrite semantics must never reach prod.
+  assert.match(source, /process\.env\.NODE_ENV !== "development"/);
 });
 
 // ---------------------------------------------------------------------------

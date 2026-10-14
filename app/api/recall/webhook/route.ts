@@ -127,9 +127,14 @@ export async function POST(request: Request) {
     // itself completing, so this stays fast. It's awaited directly (not deferred via after()) so
     // a dispatch failure throws here and falls into the catch below as a 502, letting Recall
     // retry, instead of being silently lost after we've already returned 200.
-    // processCompletedRecallMeeting (run inside that workflow) already short-circuits a meeting
-    // that's already transcript_ready/completed, so a duplicate transcript.done/recording.done
-    // delivery dispatching a second run is safe.
+    // transcript.done and recording.done both land here and BOTH dispatch their own run --
+    // deliberately not deduplicated at this layer (see the module comment on
+    // ARTIFACT_IMPORT_EVENTS in lib/recall/webhook-events.ts: they're genuinely distinct Recall
+    // deliveries describing the same completed artifact, so an event-id-based dedup here would be
+    // the wrong tool). Safety instead comes from claimTranscriptImport inside
+    // processCompletedRecallMeeting (run inside the dispatched workflow): only the one run that
+    // wins that atomic claim does any real work, so dispatching a second run for a duplicate
+    // delivery is safe -- it reliably becomes a clean no-op, not a race.
     const applied = await applyGuardedMeetingStatus(meeting.id, "processing");
     await enqueueRecallTranscriptImport({
       meetingId: meeting.id,
