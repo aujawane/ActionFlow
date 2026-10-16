@@ -8,6 +8,10 @@ import {
 import { meetingAnalysisWorkflow } from "@/lib/meeting-analysis/workflow";
 import type { MeetingAnalysisJobStatus } from "@/lib/types";
 
+// Register the controlled B0 probe with the Workflow build. Normal enqueue below
+// still claims v1 and starts meetingAnalysisWorkflow. No v2 rollout switch exists.
+export { meetingAnalysisV2FoundationWorkflow } from "@/lib/meeting-analysis/workflow-v2";
+
 export type EnqueueAnalysisResult =
   | {
       ok: true;

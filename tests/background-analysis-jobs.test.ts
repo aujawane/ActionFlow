@@ -44,6 +44,7 @@ function createInMemoryJobStore() {
         id: jobId,
         meeting_id: meetingId,
         generation: meeting.generation,
+        pipeline_version: 1,
         status: "queued",
         current_stage: "queued",
         progress: 0,

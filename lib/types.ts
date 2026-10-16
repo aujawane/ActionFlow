@@ -584,6 +584,7 @@ export interface MeetingAnalysisJob {
   id: string;
   meeting_id: string;
   generation: number;
+  pipeline_version: number;
   status: MeetingAnalysisJobStatus;
   current_stage: string;
   progress: number;
