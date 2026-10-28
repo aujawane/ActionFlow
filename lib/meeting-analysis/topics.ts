@@ -24,12 +24,79 @@ export type PreparedMeetingAnalysis = {
   meetingContextByTopicId: Array<[string, string]>;
 };
 
+/** Everything in the prepared source except topics/insights. Shared by pipeline v1 and v2. */
+export type PreparedSourceBase = Omit<ExecutionSourceContext, "topics" | "insights">;
+
+export type MeetingAnalysisInput = {
+  safeSegments: TranscriptSegment[];
+  /** Clean transcript: whole-meeting fallback analysis input. */
+  transcript: string;
+  /** Segment-ID transcript: segmentation input and source.transcript. */
+  segmentationTranscript: string;
+  sourceBase: PreparedSourceBase;
+};
+
 function countTranscriptWords(segments: TranscriptSegment[]) {
   return segments.reduce(
     (total, segment) =>
       total + segment.text.trim().split(/\s+/).filter(Boolean).length,
     0
   );
+}
+
+export function isTranscriptTooShortForTopicAnalysis(segments: TranscriptSegment[]) {
+  return (
+    segments.length < MIN_ANALYSIS_SEGMENTS ||
+    countTranscriptWords(segments) < MIN_ANALYSIS_WORDS
+  );
+}
+
+/** Model segment IDs present in this transcript, in model order (duplicates preserved). */
+export function existingTopicSegmentIds(
+  segmentIds: string[],
+  segmentMap: Map<string, TranscriptSegment>
+) {
+  return segmentIds.filter((segmentId) => segmentMap.has(segmentId));
+}
+
+/** Null when no segment exists: such a topic gets no context and no analysis call. */
+export function buildTopicTranscript(
+  segmentIds: string[],
+  segmentMap: Map<string, TranscriptSegment>
+) {
+  const topicSegments = canonicalTranscriptOrder(
+    segmentIds
+      .map((segmentId) => segmentMap.get(segmentId))
+      .filter((segment): segment is NonNullable<typeof segment> => Boolean(segment))
+  );
+  return topicSegments.length === 0 ? null : buildCleanTranscript(topicSegments);
+}
+
+export function buildPreparedMeetingAnalysis(
+  sourceBase: PreparedSourceBase,
+  topics: Array<Pick<MeetingTopic, "id" | "title" | "summary" | "segment_ids">>,
+  insights: Array<Pick<ExtractedInsight, "topic_id" | "category" | "content">>,
+  fallbackUsed: boolean,
+  contexts: Array<[string, string]> = []
+): PreparedMeetingAnalysis {
+  return {
+    fallbackUsed,
+    meetingContextByTopicId: contexts,
+    source: {
+      ...sourceBase,
+      topics: topics.map((topic) => ({
+        id: topic.id,
+        title: topic.title,
+        summary: topic.summary,
+        segment_ids: topic.segment_ids
+      })),
+      insights: insights.map((insight) => ({
+        topic_id: insight.topic_id,
+        category: insight.category,
+        content: insight.content
+      }))
+    }
+  };
 }
 
 function isMissingRelationError(
@@ -84,9 +151,8 @@ async function insertInsightsRows(
     .select("*");
 }
 
-export async function prepareMeetingAnalysis(
-  meetingId: string
-): Promise<PreparedMeetingAnalysis> {
+/** Loads the meeting, transcript, and project context. Performs no writes and no model calls. */
+export async function loadMeetingAnalysisInput(meetingId: string): Promise<MeetingAnalysisInput> {
   const [
     { data: meeting, error: meetingError },
     { data: segments, error: segmentsError }
@@ -164,15 +230,11 @@ export async function prepareMeetingAnalysis(
 
   const segmentationTranscript = buildCanonicalTranscriptWithSegmentIds(safeSegments);
   const meetingDate = meeting.created_at ?? new Date().toISOString();
-  const buildResult = (
-    topics: MeetingTopic[],
-    insights: ExtractedInsight[],
-    fallbackUsed: boolean,
-    contexts: Array<[string, string]> = []
-  ): PreparedMeetingAnalysis => ({
-    fallbackUsed,
-    meetingContextByTopicId: contexts,
-    source: {
+  return {
+    safeSegments,
+    transcript,
+    segmentationTranscript,
+    sourceBase: {
       meetingId,
       project: project
         ? {
@@ -208,25 +270,25 @@ export async function prepareMeetingAnalysis(
         : null,
       meetingDate,
       transcript: segmentationTranscript,
-      transcriptSegmentCount: safeSegments.length,
-      topics: topics.map((topic) => ({
-        id: topic.id,
-        title: topic.title,
-        summary: topic.summary,
-        segment_ids: topic.segment_ids
-      })),
-      insights: insights.map((insight) => ({
-        topic_id: insight.topic_id,
-        category: insight.category,
-        content: insight.content
-      }))
+      transcriptSegmentCount: safeSegments.length
     }
-  });
+  };
+}
 
-  if (
-    safeSegments.length < MIN_ANALYSIS_SEGMENTS ||
-    countTranscriptWords(safeSegments) < MIN_ANALYSIS_WORDS
-  ) {
+/** Pipeline v1 topic_extraction. Pipeline v2 uses lib/meeting-analysis/v2-topic-extraction.ts. */
+export async function prepareMeetingAnalysis(
+  meetingId: string
+): Promise<PreparedMeetingAnalysis> {
+  const { safeSegments, transcript, segmentationTranscript, sourceBase } =
+    await loadMeetingAnalysisInput(meetingId);
+  const buildResult = (
+    topics: MeetingTopic[],
+    insights: ExtractedInsight[],
+    fallbackUsed: boolean,
+    contexts: Array<[string, string]> = []
+  ) => buildPreparedMeetingAnalysis(sourceBase, topics, insights, fallbackUsed, contexts);
+
+  if (isTranscriptTooShortForTopicAnalysis(safeSegments)) {
     return buildResult([], [], true);
   }
 
@@ -286,7 +348,7 @@ export async function prepareMeetingAnalysis(
         summary: topic.summary,
         start_timestamp: topic.start_timestamp,
         end_timestamp: topic.end_timestamp,
-        segment_ids: topic.segment_ids.filter((segmentId) => segmentMap.has(segmentId)),
+        segment_ids: existingTopicSegmentIds(topic.segment_ids, segmentMap),
         confidence: topic.confidence ?? null,
         separation_reason: topic.separation_reason
       }))
@@ -301,14 +363,9 @@ export async function prepareMeetingAnalysis(
   for (let index = 0; index < insertedTopics.length; index += 1) {
     const topic = insertedTopics[index] as MeetingTopic;
     const topicDefinition = segmentation.data.topics[index];
-    const topicSegments = canonicalTranscriptOrder(
-      topicDefinition.segment_ids
-        .map((segmentId) => segmentMap.get(segmentId))
-        .filter((segment): segment is NonNullable<typeof segment> => Boolean(segment))
-    );
-    if (topicSegments.length === 0) continue;
+    const topicTranscript = buildTopicTranscript(topicDefinition.segment_ids, segmentMap);
+    if (topicTranscript === null) continue;
 
-    const topicTranscript = buildCleanTranscript(topicSegments);
     contexts.push([topic.id, topicTranscript]);
     const analysis = await analyzeTranscriptWithOpenAI(topicTranscript);
     if (!analysis.ok) continue;
