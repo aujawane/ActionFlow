@@ -491,7 +491,7 @@ test("routing: normal analysis stays on v1; v2 is an explicit, staging-only opt-
 test("v2 workflow wiring: v1 steps around one durable topic stage; steps are concrete and serializable", async () => {
   const workflow = await readFile(new URL("../lib/meeting-analysis/workflow-v2.ts", import.meta.url), "utf8");
   assert.match(workflow, /"use workflow";\s*try \{[^]*?await initializeV2TopologyStep\(input\);\s*await runV2AnalysisStageStep\(\{ \.\.\.input, stage: "transcript_normalization" \}\);/);
-  assert.match(workflow, /runTopicSegmentationStep[\s\S]*runTopicAnalysisUnitStep[\s\S]*finalizeTopicExtractionStep[\s\S]*STAGES_AFTER_TOPICS[\s\S]*catch \(error\) \{[\s\S]*failV2AnalysisStep/);
+  assert.match(workflow, /runTopicSegmentationStep[\s\S]*runTopicAnalysisUnitStep[\s\S]*finalizeTopicExtractionStep[\s\S]*finalizeConversationEventsStep[\s\S]*STAGES_AFTER_CONVERSATION_EVENTS[\s\S]*catch \(error\) \{[\s\S]*failV2AnalysisStep/);
   const steps = await readFile(new URL("../lib/meeting-analysis/v2-topic-steps.ts", import.meta.url), "utf8");
   assert.equal(steps.match(/"use step";/g)?.length, 3);
   assert.equal(steps.match(/getStepMetadata\(\)\.attempt/g)?.length, 3);

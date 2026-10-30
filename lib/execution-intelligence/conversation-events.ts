@@ -259,6 +259,58 @@ function deduplicateEvents(events: ConversationEvent[]) {
   }));
 }
 
+/** The exact chunks Conversation Event extraction runs over (shared by the v1 pool and the
+ * pipeline-v2 durable units). Pure. */
+export function planConversationEventChunks(source: ExecutionSourceContext) {
+  return splitExecutionSourceIntoChunks(source);
+}
+
+/** Merged outcome before stage timing is attached (see extractAndLinkConversationEvents). */
+export type ConversationEventMergeResult =
+  | { ok: true; events: ConversationEvent[] }
+  | { ok: false; error: string; details?: string };
+
+/**
+ * Pure merge of per-chunk results, which MUST be indexed by chunk index (results[i] is chunk i).
+ * Any failed chunk fails the whole merge (first failure in chunk order); a missing result means
+ * extraction stopped early. Otherwise events get canonical refs per chunk, then the
+ * order-dependent deduplicateEvents (first match wins), then linkConversationEvents.
+ */
+export function mergeConversationEventChunkResults(input: {
+  results: ReadonlyArray<ConversationEventStageResult | undefined>;
+  transcript: string;
+  generation: number;
+}): ConversationEventMergeResult {
+  const { results } = input;
+  const failureIndex = results.findIndex((result) => Boolean(result && !result.ok));
+  if (failureIndex >= 0) {
+    const failure = results[failureIndex];
+    if (!failure || failure.ok) throw new Error("Conversation event failure state was inconsistent.");
+    return { ...failure, error: `Conversation event chunk ${failureIndex + 1} failed: ${failure.error}` };
+  }
+  if (results.some((result) => !result)) {
+    return {
+      ok: false,
+      error: "Conversation event extraction stopped before all chunks completed."
+    };
+  }
+  const successful = results.filter(
+    (result): result is Extract<ConversationEventStageResult, { ok: true }> =>
+      Boolean(result?.ok)
+  );
+  const events = successful.flatMap((result, index) =>
+    canonicalizeConversationEventChunk({
+      events: result.events,
+      generation: input.generation,
+      chunkIndex: index
+    })
+  );
+  return {
+    ok: true,
+    events: linkConversationEvents(deduplicateEvents(events), input.transcript)
+  };
+}
+
 export async function extractAndLinkConversationEvents(
   source: ExecutionSourceContext,
   options: {
@@ -267,7 +319,7 @@ export async function extractAndLinkConversationEvents(
   } = {}
 ): Promise<ConversationEventStageResult> {
   const startedAt = Date.now();
-  const chunks = splitExecutionSourceIntoChunks(source);
+  const chunks = planConversationEventChunks(source);
   const extractChunk = options.extractChunk ?? extractConversationEvents;
   const results: Array<ConversationEventStageResult | undefined> = new Array(chunks.length);
   let nextIndex = 0;
@@ -288,34 +340,10 @@ export async function extractAndLinkConversationEvents(
       () => worker()
     )
   );
-  const failureIndex = results.findIndex((result) => Boolean(result && !result.ok));
-  if (failureIndex >= 0) {
-    const failure = results[failureIndex];
-    if (!failure || failure.ok) throw new Error("Conversation event failure state was inconsistent.");
-    return { ...failure, error: `Conversation event chunk ${failureIndex + 1} failed: ${failure.error}`, latencyMs: Date.now() - startedAt };
-  }
-  if (results.some((result) => !result)) {
-    return {
-      ok: false,
-      error: "Conversation event extraction stopped before all chunks completed.",
-      latencyMs: Date.now() - startedAt
-    };
-  }
-  const successful = results.filter(
-    (result): result is Extract<ConversationEventStageResult, { ok: true }> =>
-      Boolean(result?.ok)
-  );
-  const generation = options.generation ?? 0;
-  const events = successful.flatMap((result, index) =>
-    canonicalizeConversationEventChunk({
-      events: result.events,
-      generation,
-      chunkIndex: index
-    })
-  );
-  return {
-    ok: true,
-    events: linkConversationEvents(deduplicateEvents(events), source.transcript),
-    latencyMs: Date.now() - startedAt
-  };
+  const merged = mergeConversationEventChunkResults({
+    results,
+    transcript: source.transcript,
+    generation: options.generation ?? 0
+  });
+  return { ...merged, latencyMs: Date.now() - startedAt };
 }

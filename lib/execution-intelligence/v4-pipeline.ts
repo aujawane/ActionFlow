@@ -5,7 +5,10 @@ import {
   type ExecutionMetrics
 } from "./observability";
 import { persistConversationEvents, persistExecutionGraph } from "./persistence";
-import { extractAndLinkConversationEvents } from "./conversation-events";
+import {
+  extractAndLinkConversationEvents,
+  type ConversationEventStageResult
+} from "./conversation-events";
 import { transcriptSourceSegmentIds } from "./conversation-event-identity";
 import {
   assembleExecutionTree,
@@ -331,7 +334,15 @@ export async function runV4ConversationEventExtraction(
   source: ExecutionSourceContext,
   generation: number
 ): Promise<ExecutionSourceContext> {
-  const result = await extractAndLinkConversationEvents(source, { generation });
+  return applyV4ConversationEventResult(source, await extractAndLinkConversationEvents(source, { generation }));
+}
+
+/** Conversation Events are optional for v4: a failed extraction degrades to no events. Shared
+ * with the pipeline-v2 durable conversation_events finalizer. */
+export function applyV4ConversationEventResult(
+  source: ExecutionSourceContext,
+  result: ConversationEventStageResult
+): ExecutionSourceContext {
   if (!result.ok) {
     console.warn("[execution-intelligence-v4] Optional Conversation Event extraction failed", {
       meeting_id: source.meetingId,

@@ -6,7 +6,10 @@ import {
 } from "./observability";
 import { persistExecutionGraph } from "./persistence";
 import { persistConversationEvents } from "./persistence";
-import { extractAndLinkConversationEvents } from "./conversation-events";
+import {
+  extractAndLinkConversationEvents,
+  type ConversationEventStageResult
+} from "./conversation-events";
 import {
   deterministicallyValidateIndependentGraph,
   mergeTopicActions,
@@ -80,7 +83,15 @@ export async function runConversationEventExtraction(
   source: ExecutionSourceContext,
   generation: number
 ): Promise<ExecutionSourceContext> {
-  const result = await extractAndLinkConversationEvents(source, { generation });
+  return applyConversationEventResult(source, await extractAndLinkConversationEvents(source, { generation }));
+}
+
+/** Conversation Events are optional: a failed extraction degrades to no events. Shared with the
+ * pipeline-v2 durable conversation_events finalizer. */
+export function applyConversationEventResult(
+  source: ExecutionSourceContext,
+  result: ConversationEventStageResult
+): ExecutionSourceContext {
   if (!result.ok) {
     console.warn("[execution-intelligence] Optional Conversation Event extraction failed", {
       meeting_id: source.meetingId,
