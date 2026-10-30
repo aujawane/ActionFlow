@@ -35,7 +35,18 @@ export async function runAnalysisStageStep(input: {
   stage: WorkerAnalysisStage;
 }) {
   "use step";
+  return runAnalysisStage(input);
+}
 
+/** Body of runAnalysisStageStep, shared with the pipeline-v2 stage step (which also passes
+ * `retryCount` from the step attempt). v1 never passes it, so v1 behavior is unchanged. */
+export async function runAnalysisStage(input: {
+  meetingId: string;
+  jobId: string;
+  generation: number;
+  stage: WorkerAnalysisStage;
+  retryCount?: number;
+}) {
   const logContext = {
     job_id: input.jobId,
     meeting_id: input.meetingId,

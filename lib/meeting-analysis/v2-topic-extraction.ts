@@ -23,6 +23,7 @@ import {
   type PreparedMeetingAnalysis,
   type PreparedSourceBase
 } from "@/lib/meeting-analysis/topics";
+import { saveV2Checkpoint, stageCheckpoint } from "@/lib/meeting-analysis/checkpoint";
 import { executeV2AnalysisUnit } from "@/lib/meeting-analysis/v2-unit-execution";
 import { assertV2AnalysisJob } from "@/lib/meeting-analysis/v2-validation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -358,24 +359,6 @@ export function buildV2PreparedAnalysis(
   return buildPreparedMeetingAnalysis(plan.sourceBase, topics, insights, false, contexts);
 }
 
-/** Generation-guarded canonical checkpoint write: a superseded job matches zero rows. */
-export async function saveV2TopicCheckpoint(input: {
-  jobId: string;
-  generation: number;
-  checkpoint: Record<string, unknown>;
-}) {
-  const { data, error } = await supabaseAdmin
-    .from("meeting_analysis_jobs")
-    .update({ checkpoint: input.checkpoint })
-    .eq("id", input.jobId)
-    .eq("generation", input.generation)
-    .eq("pipeline_version", 2)
-    .in("status", ["queued", "running"])
-    .select("id");
-  if (error) throw new Error(error.message);
-  if (!data || data.length === 0) throw new AnalysisUnitValidationError("Stale analysis generation.");
-}
-
 export async function loadTopicPlan(input: { jobId: string; generation: number }) {
   const unit = await loadCompletedAnalysisUnit({
     ...input, stage: TOPIC_SEGMENTATION_STAGE, unitKey: TOPIC_SEGMENTATION_UNIT_KEY
@@ -455,24 +438,6 @@ export async function runTopicAnalysisUnit(
   return { unitKey: input.unitKey, ok: (result as { ok?: unknown } | null)?.ok === true };
 }
 
-/** The stage coordinator owns terminal handling. A superseded (stale) or already terminal job
- * matches no row, so this never overwrites stale/completed. */
-export async function markV2TopicExtractionFailed(input: V2JobInput & { error: string }) {
-  const { error } = await supabaseAdmin
-    .from("meeting_analysis_jobs")
-    .update({
-      status: "failed",
-      current_stage: "failed",
-      progress: 100,
-      error: input.error,
-      completed_at: new Date().toISOString()
-    })
-    .eq("id", input.jobId)
-    .eq("generation", input.generation)
-    .in("status", ["queued", "running"]);
-  if (error) throw new Error(error.message);
-}
-
 /** Records the topic-insert rejection as a durable, first-wins unit. Later retries skip the
  * rejected topic transaction and go straight to the whole-meeting fallback. */
 async function recordTopicFallbackDecision(input: V2JobInput, attempt: number, reason: string) {
@@ -485,14 +450,14 @@ async function recordTopicFallbackDecision(input: V2JobInput, attempt: number, r
 
 const finalizeDeps = {
   validate: assertV2AnalysisJob as (input: { jobId: string; meetingId: string; generation: number }) =>
-    Promise<Pick<MeetingAnalysisJob, "checkpoint">>,
+    Promise<Pick<MeetingAnalysisJob, "checkpoint" | "pipeline_version">>,
   loadPlan: loadTopicPlan,
   loadFallbackDecision: loadTopicFallbackDecision,
   recordFallbackDecision: recordTopicFallbackDecision,
   listUnits: listAnalysisStageUnits,
   replace: replaceCanonicalTopicAnalysis,
   engine: getExecutionIntelligenceEngine,
-  saveCheckpoint: saveV2TopicCheckpoint
+  saveCheckpoint: saveV2Checkpoint
 };
 export type V2TopicFinalizeDeps = typeof finalizeDeps;
 
@@ -547,7 +512,7 @@ export async function finalizeV2TopicExtraction(
   await deps.saveCheckpoint({
     jobId: input.jobId,
     generation: input.generation,
-    checkpoint: { ...(job.checkpoint ?? {}), checkpointVersion: 2, prepared, engine: deps.engine() }
+    checkpoint: stageCheckpoint(job, job.checkpoint, { prepared, engine: deps.engine() })
   });
   return {
     status: "completed",

@@ -7,6 +7,14 @@ export const ANALYSIS_STAGES = {
   topic_extraction: { stage: "topic_extraction", progress: 10 },
   conversation_events: { stage: "conversation_events", progress: 22 },
   candidates: { stage: "candidates", progress: 35 },
+  // Pipeline-v2 (B2) global-correction passes. v1 never enters these; it still reports
+  // global_correction (42) between candidates and verification.
+  atomic_action_harvest: { stage: "atomic_action_harvest", progress: 37 },
+  completeness_adjudication: { stage: "completeness_adjudication", progress: 39 },
+  lifecycle_reconciliation: { stage: "lifecycle_reconciliation", progress: 42 },
+  completion_verification: { stage: "completion_verification", progress: 45 },
+  scope_deferral_verification: { stage: "scope_deferral_verification", progress: 46 },
+  global_correction_finalize: { stage: "global_correction_finalize", progress: 48 },
   global_correction: { stage: "global_correction", progress: 42 },
   verification: { stage: "verification", progress: 50 },
   completeness: { stage: "completeness", progress: 65 },
@@ -35,6 +43,20 @@ export const ANALYSIS_STAGE_ORDER = [
 ] as const satisfies ReadonlyArray<AnalysisStageKey>;
 
 export type WorkerAnalysisStage = (typeof ANALYSIS_STAGE_ORDER)[number];
+
+/** Pipeline-v2 (B2) downstream stage order between topic extraction and verification, for the
+ * durable stages that replace conversation_events/candidates/global_correction. Registry only:
+ * the v2 workflow still runs ANALYSIS_STAGE_ORDER's v1 steps until each durable stage lands. */
+export const V2_DOWNSTREAM_STAGE_ORDER = [
+  "conversation_events",
+  "candidates",
+  "atomic_action_harvest",
+  "completeness_adjudication",
+  "lifecycle_reconciliation",
+  "completion_verification",
+  "scope_deferral_verification",
+  "global_correction_finalize"
+] as const satisfies ReadonlyArray<AnalysisStageKey>;
 
 export class StaleAnalysisError extends Error {
   constructor(message = "A newer meeting analysis superseded this result.") {

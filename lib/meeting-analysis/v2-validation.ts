@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
 import { AnalysisUnitValidationError } from "@/lib/meeting-analysis/job-units";
+import { validateB2Topology } from "@/lib/meeting-analysis/checkpoint";
 import type { MeetingAnalysisJob } from "@/lib/types";
 
 export function validateV2AnalysisJob(
@@ -31,5 +32,12 @@ export async function assertV2AnalysisJob(input: { jobId: string; meetingId: str
   ]);
   if (error) throw new Error(error.message);
   validateV2AnalysisJob(job, input, meeting?.execution_graph_generation ?? null);
+  return job;
+}
+
+/** Entry check for every B2-only plan/unit/finalizer: the v2 checks plus the B2 topology marker. */
+export async function assertB2AnalysisJob(input: { jobId: string; meetingId: string; generation: number }) {
+  const job = await assertV2AnalysisJob(input);
+  validateB2Topology(job);
   return job;
 }

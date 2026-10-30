@@ -2,7 +2,7 @@ import {
   AnalysisUnitValidationError, markAnalysisUnitRunning, completeAnalysisUnit, failAnalysisUnit,
   type AnalysisUnitIdentity, type UnitResult
 } from "@/lib/meeting-analysis/job-units";
-import { assertV2AnalysisJob } from "@/lib/meeting-analysis/v2-validation";
+import { assertB2AnalysisJob, assertV2AnalysisJob } from "@/lib/meeting-analysis/v2-validation";
 
 export interface V2UnitInput extends AnalysisUnitIdentity { meetingId: string }
 const persistence = {
@@ -12,6 +12,8 @@ const persistence = {
   fail: failAnalysisUnit
 };
 export type V2UnitPersistence = typeof persistence;
+/** For B2-only units: identical lifecycle, plus the B2 topology check before any RPC/model. */
+export const b2UnitPersistence: V2UnitPersistence = { ...persistence, validate: assertB2AnalysisJob };
 
 /** Called INSIDE a concrete `use step` function with getStepMetadata().attempt.
  * SDK attempts are one-based. retry_count is max(attempt - 1) in SQL.

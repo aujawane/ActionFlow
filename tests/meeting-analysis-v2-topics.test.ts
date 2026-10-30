@@ -16,6 +16,8 @@ import { splitExecutionSourceIntoChunks } from "../lib/execution-intelligence/ch
 import { buildExecutionSourcePayload, transcriptForSegmentIds } from "../lib/execution-intelligence/stages";
 import { isAnalysisPipelineV2StagingEnabled } from "../lib/meeting-analysis/enqueue-v2";
 import * as v2 from "../lib/meeting-analysis/v2-topic-extraction";
+import { saveV2Checkpoint } from "../lib/meeting-analysis/checkpoint";
+import { markV2AnalysisFailed } from "../lib/meeting-analysis/v2-lifecycle";
 
 // Clients are lazy and read these on first use; nothing here reaches a network.
 Object.assign(process.env, {
@@ -125,7 +127,7 @@ const finalizeDeps = (overrides: Partial<v2.V2TopicFinalizeDeps> = {}): v2.V2Top
   listUnits: listAnalysisStageUnits,
   replace: v2.replaceCanonicalTopicAnalysis,
   engine: () => "v4" as const,
-  saveCheckpoint: v2.saveV2TopicCheckpoint,
+  saveCheckpoint: saveV2Checkpoint,
   ...overrides
 });
 
@@ -448,15 +450,15 @@ test("[24][25] a stale or superseded generation cannot persist canonical rows or
   await assert.rejects(v2.runTopicAnalysisUnit({ ...input, unitKey: "topic:000001" }, 1), FatalError);
 });
 
-test("the stage failure marker never overwrites a stale or completed job", async () => {
+test("the workflow failure marker never overwrites a stale or completed job", async () => {
   seed();
   for (const status of ["stale", "completed"]) {
     db.rows("meeting_analysis_jobs")[0].status = status;
-    await v2.markV2TopicExtractionFailed({ ...input, error: "boom" });
+    await markV2AnalysisFailed({ ...input, error: "boom" });
     assert.equal(db.rows("meeting_analysis_jobs")[0].status, status);
   }
   db.rows("meeting_analysis_jobs")[0].status = "running";
-  await v2.markV2TopicExtractionFailed({ ...input, error: "boom" });
+  await markV2AnalysisFailed({ ...input, error: "boom" });
   assert.deepEqual([db.rows("meeting_analysis_jobs")[0].status, db.rows("meeting_analysis_jobs")[0].error], ["failed", "boom"]);
 });
 
@@ -488,10 +490,10 @@ test("routing: normal analysis stays on v1; v2 is an explicit, staging-only opt-
 
 test("v2 workflow wiring: v1 steps around one durable topic stage; steps are concrete and serializable", async () => {
   const workflow = await readFile(new URL("../lib/meeting-analysis/workflow-v2.ts", import.meta.url), "utf8");
-  assert.match(workflow, /"use workflow";\s*await runAnalysisStageStep\(\{ \.\.\.input, stage: "transcript_normalization" \}\);/);
-  assert.match(workflow, /runTopicSegmentationStep[\s\S]*runTopicAnalysisUnitStep[\s\S]*finalizeTopicExtractionStep[\s\S]*failV2TopicExtractionStep[\s\S]*STAGES_AFTER_TOPICS/);
+  assert.match(workflow, /"use workflow";\s*try \{[^]*?await initializeV2TopologyStep\(input\);\s*await runV2AnalysisStageStep\(\{ \.\.\.input, stage: "transcript_normalization" \}\);/);
+  assert.match(workflow, /runTopicSegmentationStep[\s\S]*runTopicAnalysisUnitStep[\s\S]*finalizeTopicExtractionStep[\s\S]*STAGES_AFTER_TOPICS[\s\S]*catch \(error\) \{[\s\S]*failV2AnalysisStep/);
   const steps = await readFile(new URL("../lib/meeting-analysis/v2-topic-steps.ts", import.meta.url), "utf8");
-  assert.equal(steps.match(/"use step";/g)?.length, 4);
+  assert.equal(steps.match(/"use step";/g)?.length, 3);
   assert.equal(steps.match(/getStepMetadata\(\)\.attempt/g)?.length, 3);
   assert.doesNotMatch(steps, /meeting_topics|extracted_insights|checkpoint/);
   assert.equal(ANALYSIS_STAGE_ORDER[1], "topic_extraction");
