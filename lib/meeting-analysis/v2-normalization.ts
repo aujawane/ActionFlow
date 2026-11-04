@@ -247,10 +247,67 @@ export async function runV2NormalizationUnit(
   return { unitKey: input.unitKey, ok: (result as { ok?: unknown } | null)?.ok === true };
 }
 
-/** Unlike v1, a failed row write throws: the finalizer retries, and patches are repeat-safe. */
-async function writeNormalizedSegment(id: string, patch: SegmentPersistencePatch) {
-  const { error } = await supabaseAdmin.from("transcript_segments").update(patch).eq("id", id);
-  if (error) throw new Error(error.message);
+function sourceHashPart(value: string | null) {
+  const normalized = value ?? "";
+  return `${Buffer.byteLength(normalized, "utf8")}:${normalized}`;
+}
+
+/** Database-verifiable source invariant for one segment. `speaker` is already normalized by
+ * loadOrderedTranscriptSegments, matching the SQL RPC's participant/speaker fallback. Timestamp
+ * is carried separately as timestamptz so neither side has to duplicate timestamp formatting. */
+export function normalizationSegmentSourceHash(
+  segment: Pick<TranscriptSegment, "speaker" | "participant_name" | "text">
+) {
+  return createHash("sha256").update([
+    sourceHashPart(segment.speaker),
+    sourceHashPart(segment.participant_name),
+    sourceHashPart(segment.text)
+  ].join("|")).digest("hex");
+}
+
+export type V2NormalizationPersistencePatch = SegmentPersistencePatch & {
+  id: string;
+  source_hash: string;
+  source_timestamp: string;
+};
+
+export type V2NormalizationPersistenceInput = {
+  jobId: string;
+  generation: number;
+  normalizedAt: string;
+  patches: V2NormalizationPersistencePatch[];
+  vocabularySuggestions: Array<{
+    canonical_term: string;
+    observed_alias: string | null;
+    confidence: number;
+    evidence_segment_ids: string[];
+  }>;
+};
+
+/** The RPC owns the generation check and every canonical mutation in one PostgreSQL transaction.
+ * SQL validation/staleness errors are fatal workflow inputs; infrastructure errors remain plain
+ * errors so Workflow can retry the finalizer. */
+export async function persistV2Normalization(input: V2NormalizationPersistenceInput) {
+  const patches = input.patches.map(({ id, source_hash, source_timestamp, ...patch }) => ({
+    segment_id: id,
+    source_hash,
+    source_timestamp,
+    normalized_text: patch.normalized_text,
+    normalization_corrections: patch.normalization_corrections,
+    succeeded: patch.normalized_at !== null
+  }));
+  const { error } = await supabaseAdmin.rpc("persist_meeting_normalization_v2", {
+    p_job_id: input.jobId,
+    p_generation: input.generation,
+    p_normalized_at: input.normalizedAt,
+    p_patches: patches,
+    p_vocabulary_suggestions: input.vocabularySuggestions
+  });
+  if (!error) return;
+  if (error.code === "P0002" || error.code === "55000" || error.code?.startsWith("22")) {
+    throw new AnalysisUnitValidationError(error.message);
+  }
+  throw new Error(error.message);
 }
 
 const finalizeDeps = {
@@ -260,7 +317,7 @@ const finalizeDeps = {
   loadPlan: loadV2NormalizationPlan,
   loadSegments: loadOrderedTranscriptSegments,
   listUnits: listAnalysisStageUnits,
-  writeSegment: writeNormalizedSegment,
+  persist: persistV2Normalization,
   finish: finishNormalization,
   saveCheckpoint: saveV2Checkpoint
 };
@@ -268,10 +325,9 @@ export type V2NormalizationFinalizeDeps = typeof finalizeDeps;
 
 /**
  * STEP: the only v2 normalization code that writes transcript_segments or the job checkpoint.
- * Applies v1's exact merge in batch order, writes every segment's patch, then saves
- * checkpoint.normalization last. Row writes are per segment (no transactional writer exists), so
- * a kill can leave some rows written; a redelivery rewrites all of them from raw `text`, and the
- * checkpoint is what marks the stage done. Once it exists, a redelivery does nothing.
+ * Applies v1's exact merge in batch order, atomically persists every segment patch and vocabulary
+ * suggestion through the generation-locked RPC, then saves checkpoint.normalization last. If the
+ * RPC commits and the checkpoint write fails, a redelivery safely replays the same replacement.
  */
 export async function finalizeV2Normalization(
   input: V2JobInput,
@@ -292,9 +348,31 @@ export async function finalizeV2Normalization(
     const results = orderNormalizationUnits(plan.batches.length, await deps.listUnits(input.jobId, NORMALIZATION_STAGE));
     const merge = createNormalizationMerge();
     plan.batches.forEach((batch, index) => applyNormalizationBatchResult(merge, plan, batch, results[index]));
-    const { patches, counts } = buildNormalizationPatches(plan, merge, new Date().toISOString());
-    await Promise.all(patches.map(({ id, patch }) => deps.writeSegment(id, patch)));
-    normalization = await deps.finish(plan, merge, counts);
+    const normalizedAt = new Date().toISOString();
+    const { patches, counts } = buildNormalizationPatches(plan, merge, normalizedAt);
+    const segmentsById = new Map(plan.ordered.map((segment) => [segment.id, segment]));
+    await deps.persist({
+      jobId: input.jobId,
+      generation: input.generation,
+      normalizedAt,
+      patches: patches.map(({ id, patch }) => {
+        const segment = segmentsById.get(id);
+        if (!segment) throw new AnalysisUnitValidationError(`Unknown normalization segment ${id}.`);
+        return {
+          id,
+          source_hash: normalizationSegmentSourceHash(segment),
+          source_timestamp: segment.timestamp,
+          ...patch
+        };
+      }),
+      vocabularySuggestions: merge.vocabularyCandidates.map((candidate) => ({
+        canonical_term: candidate.canonicalTerm,
+        observed_alias: candidate.observedAlias,
+        confidence: candidate.confidence,
+        evidence_segment_ids: candidate.evidenceSegmentIds
+      }))
+    });
+    normalization = await deps.finish(plan, merge, counts, { persistVocabulary: false });
   }
 
   await deps.saveCheckpoint({

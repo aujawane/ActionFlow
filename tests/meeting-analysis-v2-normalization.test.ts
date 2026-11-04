@@ -13,8 +13,7 @@ import {
   loadOrderedTranscriptSegments,
   normalizeMeetingTranscriptForAnalysis,
   requestNormalizationBatch,
-  type NormalizationStageResult,
-  type SegmentPersistencePatch
+  type NormalizationStageResult
 } from "../lib/meeting-analysis/normalization";
 import { markV2StageRunning } from "../lib/meeting-analysis/v2-lifecycle";
 import * as v2 from "../lib/meeting-analysis/v2-normalization";
@@ -135,7 +134,9 @@ function seed(options: { job?: Row; count?: number; vocabulary?: Row[] } = {}) {
 }
 const jobRow = () => db.rows("meeting_analysis_jobs")[0];
 const batchUnits = () => db.rows("meeting_analysis_job_units").filter((unit) => unit.stage === STAGE);
-const transcriptWrites = () => db.writes.filter((write) => write.table === "transcript_segments").length;
+const transcriptWrites = () => db.writes.filter((write) =>
+  write.table === "transcript_segments" || write.name === "persist_meeting_normalization_v2"
+).length;
 const unitDeps = (): v2.V2NormalizationUnitDeps => ({
   execute: executeV2AnalysisUnit, persistence: b2UnitPersistence, loadPlan: v2.loadV2NormalizationPlan,
   loadSegments: loadOrderedTranscriptSegments, request: requestNormalizationBatch
@@ -143,10 +144,7 @@ const unitDeps = (): v2.V2NormalizationUnitDeps => ({
 const finalizeDeps = (overrides: Partial<v2.V2NormalizationFinalizeDeps> = {}): v2.V2NormalizationFinalizeDeps => ({
   validate: assertB2AnalysisJob, markRunning: markV2StageRunning, loadPlan: v2.loadV2NormalizationPlan,
   loadSegments: loadOrderedTranscriptSegments, listUnits: listAnalysisStageUnits,
-  writeSegment: async (id: string, patch: SegmentPersistencePatch) => {
-    const { error } = await getSupabaseAdmin().from("transcript_segments").update(patch).eq("id", id);
-    if (error) throw new Error(error.message);
-  },
+  persist: v2.persistV2Normalization,
   finish: finishNormalization, saveCheckpoint: saveV2Checkpoint, ...overrides
 });
 
@@ -472,6 +470,7 @@ test("[27][28] a finalizer killed after writing rows, or redelivered after finis
     saveCheckpoint: async () => { throw new Error("connection lost after the writes"); }
   })), /connection lost/);
   const afterFirst = { transcript: transcriptState(), vocabulary: vocabularyState() };
+  const firstTimestamps = db.rows("transcript_segments").map((row) => [row.normalized_at, row.normalization_failed_at]);
   assert.ok(db.rows("transcript_segments").some((row) => row.normalized_text !== null));
   assert.equal((jobRow().checkpoint as Row).normalization, undefined, "only the checkpoint marks the stage done");
 
@@ -479,6 +478,8 @@ test("[27][28] a finalizer killed after writing rows, or redelivered after finis
   assert.deepEqual(await v2.finalizeV2Normalization(input, 2), { status: "completed", alreadyFinalized: false });
   assert.deepEqual(transcriptState(), afterFirst.transcript);
   assert.deepEqual(vocabularyState(), afterFirst.vocabulary);
+  assert.deepEqual(db.rows("transcript_segments").map((row) => [row.normalized_at, row.normalization_failed_at]), firstTimestamps,
+    "same-result replay preserves the accepted normalization timestamps");
   assert.equal(db.rows("project_vocabulary").filter((row) => row.canonical_term === "Acme").length, 1);
   assert.equal(db.rows("transcript_segments")[37].normalized_text, "Zed One needs help");
   const checkpoint = structuredClone(jobRow().checkpoint);
@@ -492,27 +493,61 @@ test("[27][28] a finalizer killed after writing rows, or redelivered after finis
   assert.equal(model.starts.length, calls);
 });
 
-test("[27] a partially written finalizer converges on retry, and a failed row write throws a retryable error", async () => {
+test("[27] a failed transactional persistence leaves zero partial writes and stays retryable", async () => {
   resetModel();
   seed();
   const plan = await v2.planV2Normalization(input, 1);
   await runOrderedAnalysisUnits(plan.units, (planned) => v2.runV2NormalizationUnit({ ...input, unitKey: planned.unitKey }, 1));
-  let writesAllowed = 40;
   const { FatalError } = await import("workflow");
   await assert.rejects(v2.finalizeV2Normalization(input, 1, finalizeDeps({
-    writeSegment: async (id, patch) => {
-      if (writesAllowed-- <= 0) throw new Error("database unavailable");
-      await finalizeDeps().writeSegment(id, patch);
-    }
+    persist: async () => { throw new Error("database unavailable"); }
   })), (error) => !(error instanceof FatalError) && /database unavailable/.test((error as Error).message));
   assert.equal((jobRow().checkpoint as Row).normalization, undefined);
-  assert.ok(db.rows("transcript_segments").some((row) => row.normalized_at === null), "only some rows were written");
+  assert.ok(db.rows("transcript_segments").every((row) => row.normalized_at === null), "the RPC is atomic");
   await v2.finalizeV2Normalization(input, 2);
   const converged = transcriptState();
   resetModel();
   seed();
   await runV2Stage();
   assert.deepEqual(converged, transcriptState(), "same transcript as an uninterrupted run");
+});
+
+test("stale/validation RPC errors fail closed while infrastructure errors remain Workflow-retryable", async () => {
+  resetModel();
+  seed();
+  const plan = await v2.planV2Normalization(input, 1);
+  await runOrderedAnalysisUnits(plan.units, (planned) => v2.runV2NormalizationUnit({ ...input, unitKey: planned.unitKey }, 1));
+  const before = transcriptState();
+  const { FatalError } = await import("workflow");
+
+  db.rejectNormalizationPersistence = { code: "55000", message: "Stale analysis generation" };
+  await assert.rejects(v2.finalizeV2Normalization(input, 1), AnalysisUnitValidationError);
+  assert.deepEqual(transcriptState(), before);
+  assert.equal((jobRow().checkpoint as Row).normalization, undefined);
+
+  db.rejectNormalizationPersistence = { code: "08006", message: "connection failure" };
+  await assert.rejects(v2.finalizeV2Normalization(input, 2),
+    (error) => !(error instanceof FatalError) && /connection failure/.test((error as Error).message));
+  assert.deepEqual(transcriptState(), before);
+  assert.equal((jobRow().checkpoint as Row).normalization, undefined);
+});
+
+test("a superseding claim between assembly and the RPC causes zero canonical mutations", async () => {
+  resetModel();
+  seed();
+  const plan = await v2.planV2Normalization(input, 1);
+  await runOrderedAnalysisUnits(plan.units, (planned) => v2.runV2NormalizationUnit({ ...input, unitKey: planned.unitKey }, 1));
+  const before = { transcript: transcriptState(), vocabulary: vocabularyState() };
+  await assert.rejects(v2.finalizeV2Normalization(input, 1, finalizeDeps({
+    persist: async (persistenceInput) => {
+      Object.assign(jobRow(), { status: "stale" });
+      db.rows("meetings")[0].execution_graph_generation = GENERATION + 1;
+      await v2.persistV2Normalization(persistenceInput);
+    }
+  })), AnalysisUnitValidationError);
+  assert.deepEqual(transcriptState(), before.transcript);
+  assert.deepEqual(vocabularyState(), before.vocabulary);
+  assert.equal((jobRow().checkpoint as Row).normalization, undefined);
 });
 
 // ================================================================= guards
@@ -571,6 +606,10 @@ test("[29] workflow order: topology, durable normalization, then the unchanged t
   const v1 = library.match(/export async function normalizeMeetingTranscriptForAnalysis\([\s\S]*?\n\}/)![0];
   assert.match(v1, /for \(const batch of plan\.batches\) \{\s*applyNormalizationBatchResult\(merge, plan, batch, await requestNormalizationBatch\(plan, batch, options\)\);/);
   assert.doesNotMatch(library, /meeting_analysis_job_units|job-units/);
+  const v2Library = await readFile(new URL("../lib/meeting-analysis/v2-normalization.ts", import.meta.url), "utf8");
+  const finalizer = v2Library.slice(v2Library.indexOf("export async function finalizeV2Normalization"));
+  assert.match(finalizer, /await deps\.persist\(/);
+  assert.doesNotMatch(finalizer, /from\("transcript_segments"\)\.update|writeSegment/);
   const worker = await readFile(new URL("../lib/meeting-analysis/worker.ts", import.meta.url), "utf8");
   assert.match(worker, /deps\.normalizeMeetingTranscriptForAnalysis\(input\.meetingId\)/);
 });

@@ -1,4 +1,6 @@
-/** In-memory stand-in for the service-role client (tables + the RPCs B1 calls), so the real
+import { createHash } from "node:crypto";
+
+/** In-memory stand-in for the service-role client (tables + the RPCs B1/B2 call), so the real
  * v1 and v2 topic code paths can run side by side. SQL semantics of the RPCs themselves are
  * proven separately against PostgreSQL (meeting-analysis-v2*-database.test.ts). */
 type Row = Record<string, unknown>;
@@ -13,6 +15,7 @@ export class FakeDb {
   /** Error for any meeting_topics INSERT: v1's .insert() receives it; the v2 RPC applies the
    * SQL boundary (class 22/23/42 -> TF001, anything else surfaces unchanged). */
   rejectTopicInsert: { code: string; message: string } | null = null;
+  rejectNormalizationPersistence: { code: string; message: string } | null = null;
   constructor(seed: Record<string, Row[]>) {
     for (const [table, rows] of Object.entries(seed)) this.tables[table] = rows.map((row) => ({ ...row }));
   }
@@ -30,6 +33,7 @@ export class FakeDb {
     this.writes.push({ table: name, op: "rpc", name });
     try {
       if (name === "replace_meeting_topic_analysis_v2") return { data: this.replace(args), error: null };
+      if (name === "persist_meeting_normalization_v2") return { data: this.persistNormalization(args), error: null };
       if (name.endsWith("_meeting_analysis_job_unit") || name === "mark_meeting_analysis_job_unit_running") {
         return { data: this.mutateUnit(name, args), error: null };
       }
@@ -101,6 +105,91 @@ export class FakeDb {
     this.tables.meeting_topics = [...keep("meeting_topics"), ...topics];
     this.tables.extracted_insights = [...keep("extracted_insights"), ...insights.map(({ topic_index: _ignored, ...row }) => row)];
     return { topics, insights, dropped_insight_topic_indexes: [], meeting_insights_dropped: false };
+  }
+
+  /** JS mirror of persist_meeting_normalization_v2. Real transaction/lock behavior is covered by
+   * the PostgreSQL suite; cloning here preserves the RPC's all-or-nothing application contract. */
+  private persistNormalization(args: Record<string, unknown>) {
+    if (this.rejectNormalizationPersistence) {
+      throw Object.assign(new Error(this.rejectNormalizationPersistence.message), {
+        code: this.rejectNormalizationPersistence.code
+      });
+    }
+    const job = this.currentJob(args.p_job_id, args.p_generation);
+    const meeting = this.rows("meetings").find((row) => row.id === job.meeting_id)!;
+    if ((job.checkpoint as Row | undefined)?.v2Topology !== "b2") {
+      throw Object.assign(new Error("Normalization persistence requires B2 pipeline/checkpoint version 2"), { code: "22023" });
+    }
+    const patches = args.p_patches as Row[];
+    const suggestions = args.p_vocabulary_suggestions as Row[];
+    if (!Array.isArray(patches) || !Array.isArray(suggestions)) {
+      throw Object.assign(new Error("Invalid normalization persistence input"), { code: "22023" });
+    }
+    const rows = this.rows("transcript_segments").filter((row) => row.meeting_id === job.meeting_id);
+    const ids = patches.map((patch) => patch.segment_id);
+    if (new Set(ids).size !== ids.length) {
+      throw Object.assign(new Error("Duplicate normalization segment id"), { code: "22023" });
+    }
+    if (patches.length !== rows.length || ids.some((id) => !rows.some((row) => row.id === id))) {
+      throw Object.assign(new Error("Normalization source segment set changed"), { code: "22023" });
+    }
+    const hashPart = (value: unknown) => {
+      const normalized = typeof value === "string" ? value : "";
+      return `${Buffer.byteLength(normalized, "utf8")}:${normalized}`;
+    };
+    for (const patch of patches) {
+      const row = rows.find((candidate) => candidate.id === patch.segment_id)!;
+      const speaker = String(row.participant_name ?? "").trim() || String(row.speaker ?? "").trim() || "Unknown Speaker";
+      const sourceHash = createHash("sha256").update([
+        hashPart(speaker), hashPart(row.participant_name), hashPart(row.text)
+      ].join("|")).digest("hex");
+      if (patch.source_hash !== sourceHash || Date.parse(String(patch.source_timestamp)) !== Date.parse(String(row.timestamp))) {
+        throw Object.assign(new Error("Normalization transcript source changed"), { code: "22023" });
+      }
+    }
+    const snapshot = structuredClone(this.tables);
+    try {
+      for (const patch of patches) {
+        const row = rows.find((candidate) => candidate.id === patch.segment_id)!;
+        const sameResult = row.normalized_text === patch.normalized_text &&
+          JSON.stringify(row.normalization_corrections) === JSON.stringify(patch.normalization_corrections);
+        const normalizedAt = patch.succeeded && sameResult && row.normalized_at && !row.normalization_failed_at
+          ? row.normalized_at : patch.succeeded ? args.p_normalized_at : null;
+        const failedAt = !patch.succeeded && sameResult && row.normalization_failed_at && !row.normalized_at
+          ? row.normalization_failed_at : patch.succeeded ? null : args.p_normalized_at;
+        Object.assign(row, {
+          normalized_text: patch.normalized_text,
+          normalization_corrections: patch.normalization_corrections,
+          normalized_at: normalizedAt,
+          normalization_failed_at: failedAt
+        });
+      }
+      if (typeof meeting.project_id === "string") {
+        for (const suggestion of suggestions) {
+          const canonical = String(suggestion.canonical_term).trim();
+          if (!canonical) continue;
+          let existing = this.rows("project_vocabulary").find((row) =>
+            row.project_id === meeting.project_id && String(row.canonical_term).toLowerCase() === canonical.toLowerCase()
+          );
+          const alias = typeof suggestion.observed_alias === "string" ? suggestion.observed_alias : null;
+          if (!existing) {
+            existing = {
+              id: this.id("project_vocabulary"), project_id: meeting.project_id, canonical_term: canonical,
+              aliases: alias ? [alias] : [], term_type: "other", source: "ai_suggested", status: "suggested",
+              confidence: suggestion.confidence, evidence_meeting_id: meeting.id,
+              evidence_segment_ids: suggestion.evidence_segment_ids
+            };
+            this.rows("project_vocabulary").push(existing);
+          } else if (existing.status === "suggested" && alias && !(existing.aliases as string[]).includes(alias)) {
+            existing.aliases = [...existing.aliases as string[], alias];
+          }
+        }
+      }
+    } catch (error) {
+      this.tables = snapshot;
+      throw error;
+    }
+    return { segment_count: patches.length, vocabulary_candidate_count: suggestions.length };
   }
 }
 

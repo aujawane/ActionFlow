@@ -554,13 +554,14 @@ export type NormalizationCounts = ReturnType<typeof buildNormalizationPatches>["
 export async function finishNormalization(
   plan: NormalizationPlan,
   merge: NormalizationMerge,
-  counts: NormalizationCounts
+  counts: NormalizationCounts,
+  options: { persistVocabulary?: boolean } = {}
 ): Promise<NormalizationStageResult> {
   const { meetingId, projectId, ordered, batches } = plan;
   const { vocabularyCandidates, anyModelFailure, lastFailureDetail } = merge;
   const { deterministicCorrectionCount, modelCorrectionCount, appliedCorrectionCount } = counts;
 
-  if (projectId && vocabularyCandidates.length > 0) {
+  if (options.persistVocabulary !== false && projectId && vocabularyCandidates.length > 0) {
     try {
       await upsertVocabularySuggestions(projectId, vocabularyCandidates);
     } catch (error) {
