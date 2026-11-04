@@ -1,3 +1,4 @@
+import { workflowErrorMessage } from "@/lib/meeting-analysis/error-message";
 import { ANALYSIS_STAGE_ORDER } from "@/lib/meeting-analysis/jobs";
 import { runOrderedAnalysisUnits } from "@/lib/meeting-analysis/workflow-concurrency";
 import { runV2FoundationProbeStep } from "@/lib/meeting-analysis/v2-foundation-probe";
@@ -78,10 +79,9 @@ export async function meetingAnalysisV2Workflow(input: { meetingId: string; jobI
     }
   } catch (error) {
     // Reached only after a step's Workflow retries are exhausted or a FatalError. A stale or
-    // already-failed job matches no row. A hard platform kill never reaches this.
-    await failV2AnalysisStep({
-      ...input, error: error instanceof Error ? error.message : "Meeting analysis failed."
-    });
+    // already-failed job matches no row. A hard platform kill never reaches this. The SDK builds
+    // the rejection in the host realm, so `instanceof Error` is false here: read the message.
+    await failV2AnalysisStep({ ...input, error: workflowErrorMessage(error) });
     throw error;
   }
 }
