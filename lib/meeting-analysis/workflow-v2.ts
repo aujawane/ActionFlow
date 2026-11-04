@@ -2,6 +2,11 @@ import { ANALYSIS_STAGE_ORDER } from "@/lib/meeting-analysis/jobs";
 import { runOrderedAnalysisUnits } from "@/lib/meeting-analysis/workflow-concurrency";
 import { runV2FoundationProbeStep } from "@/lib/meeting-analysis/v2-foundation-probe";
 import {
+  finalizeCandidatesStep,
+  planCandidatesStep,
+  runCandidateUnitStep
+} from "@/lib/meeting-analysis/v2-candidate-steps";
+import {
   finalizeConversationEventsStep,
   planConversationEventsStep,
   runConversationEventUnitStep
@@ -30,13 +35,14 @@ export async function meetingAnalysisV2FoundationWorkflow(input: {
   }));
 }
 
-const STAGES_AFTER_CONVERSATION_EVENTS = ANALYSIS_STAGE_ORDER.slice(
-  ANALYSIS_STAGE_ORDER.indexOf("conversation_events") + 1
+const STAGES_AFTER_CANDIDATES = ANALYSIS_STAGE_ORDER.slice(
+  ANALYSIS_STAGE_ORDER.indexOf("candidates") + 1
 );
 
-/** Pipeline v2 (B2 topology). topic_extraction and conversation_events are durable fan-out; every
- * other stage runs the unchanged v1 stage logic (with v2 checkpoint merging). Started only by
- * enqueueMeetingAnalysisV2 (explicit, staging-gated opt-in), always on a freshly claimed job. */
+/** Pipeline v2 (B2 topology). topic_extraction, conversation_events and (v4) candidates are
+ * durable fan-out; every other stage runs the unchanged v1 stage logic (with v2 checkpoint
+ * merging). Started only by enqueueMeetingAnalysisV2 (explicit, staging-gated opt-in), always on a
+ * freshly claimed job. */
 export async function meetingAnalysisV2Workflow(input: { meetingId: string; jobId: string; generation: number }) {
   "use workflow";
   try {
@@ -58,7 +64,16 @@ export async function meetingAnalysisV2Workflow(input: { meetingId: string; jobI
       runConversationEventUnitStep({ ...input, unitKey: unit.unitKey }));
     // Barrier: candidates read prepared.source.conversationEvents from this finalizer's checkpoint.
     await finalizeConversationEventsStep(input);
-    for (const stage of STAGES_AFTER_CONVERSATION_EVENTS) {
+    const candidates = await planCandidatesStep(input);
+    if (candidates.mode === "durable") {
+      await runOrderedAnalysisUnits(candidates.units, (unit) =>
+        runCandidateUnitStep({ ...input, unitKey: unit.unitKey }));
+      // Barrier: global_correction reads v4State from this finalizer's checkpoint.
+      await finalizeCandidatesStep(input);
+    } else {
+      await runV2AnalysisStageStep({ ...input, stage: "candidates" });
+    }
+    for (const stage of STAGES_AFTER_CANDIDATES) {
       await runV2AnalysisStageStep({ ...input, stage });
     }
   } catch (error) {

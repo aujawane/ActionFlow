@@ -33,15 +33,29 @@ export async function initializeV2Topology(input: V2JobInput, deps: V2TopologyDe
   return { initialized: true };
 }
 
+/** A required v2 stage failed deterministically (v1's stageFailure). Never retried: it is a
+ * validation-class error so asFatalOnValidation turns it into a FatalError. */
+export class V2StageFailedError extends AnalysisUnitValidationError {
+  constructor(message: string) {
+    super(message);
+    this.name = "V2StageFailedError";
+  }
+}
+
 /** Workflow-level terminal handling for any error that escapes a v2 step. A superseded (stale) or
- * already terminal job matches no row, so this never overwrites stale/completed/failed. */
-export async function markV2AnalysisFailed(input: V2JobInput & { error: string }) {
+ * already terminal job matches no row, so this never overwrites stale/completed/failed. A stage
+ * finalizer passes its own stage/progress, matching the row v1's stage step leaves behind. */
+export async function markV2AnalysisFailed(input: V2JobInput & {
+  error: string;
+  stage?: AnalysisStageKey;
+  progress?: number;
+}) {
   const { error } = await supabaseAdmin
     .from("meeting_analysis_jobs")
     .update({
       status: "failed",
-      current_stage: "failed",
-      progress: 100,
+      current_stage: input.stage ?? "failed",
+      progress: input.progress ?? 100,
       error: input.error,
       completed_at: new Date().toISOString()
     })

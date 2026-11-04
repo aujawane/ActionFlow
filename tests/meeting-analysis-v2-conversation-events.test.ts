@@ -470,12 +470,12 @@ test("[22] a stale or superseded generation is rejected by plan, unit and finali
 test("[27][30] candidates start only after the finalizer; downstream stages are the unchanged v1 steps", async () => {
   const workflow = await readFile(new URL("../lib/meeting-analysis/workflow-v2.ts", import.meta.url), "utf8");
   const body = workflow.slice(workflow.indexOf("export async function meetingAnalysisV2Workflow"));
-  const order = ["finalizeTopicExtractionStep(input)", "planConversationEventsStep(input)", "runConversationEventUnitStep(", "finalizeConversationEventsStep(input)", "for (const stage of STAGES_AFTER_CONVERSATION_EVENTS)"]
+  const order = ["finalizeTopicExtractionStep(input)", "planConversationEventsStep(input)", "runConversationEventUnitStep(", "finalizeConversationEventsStep(input)", "planCandidatesStep(input)"]
     .map((marker) => body.indexOf(marker));
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), `ordered: ${order}`);
-  assert.match(workflow, /const STAGES_AFTER_CONVERSATION_EVENTS = ANALYSIS_STAGE_ORDER\.slice\(\s*ANALYSIS_STAGE_ORDER\.indexOf\("conversation_events"\) \+ 1\s*\);/);
-  assert.deepEqual(ANALYSIS_STAGE_ORDER.slice(ANALYSIS_STAGE_ORDER.indexOf("conversation_events") + 1),
-    ["candidates", "global_correction", "verification", "completeness", "final_verification", "task_consolidation", "synthesis", "persistence"]);
+  assert.match(workflow, /const STAGES_AFTER_CANDIDATES = ANALYSIS_STAGE_ORDER\.slice\(\s*ANALYSIS_STAGE_ORDER\.indexOf\("candidates"\) \+ 1\s*\);/);
+  assert.deepEqual(ANALYSIS_STAGE_ORDER.slice(ANALYSIS_STAGE_ORDER.indexOf("candidates") + 1),
+    ["global_correction", "verification", "completeness", "final_verification", "task_consolidation", "synthesis", "persistence"]);
   assert.match(body, /await runV2AnalysisStageStep\(\{ \.\.\.input, stage \}\);/);
   // Candidates read only the canonical checkpoint, never conversation-event unit rows.
   const worker = await readFile(new URL("../lib/meeting-analysis/worker.ts", import.meta.url), "utf8");

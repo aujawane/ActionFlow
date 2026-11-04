@@ -44,7 +44,7 @@ export function parseConversationEventUnitKey(unitKey: string) {
 }
 
 /** The canonical checkpoint's prepared analysis and engine, exactly as the v1 stage resolves it. */
-function preparedFromCheckpoint(checkpoint: Record<string, unknown> | undefined) {
+export function preparedFromCheckpoint(checkpoint: Record<string, unknown> | undefined) {
   const prepared = checkpoint?.prepared as PreparedMeetingAnalysis | undefined;
   if (!prepared?.source || typeof prepared.source.transcript !== "string") {
     throw new AnalysisUnitValidationError("Missing prepared analysis checkpoint.");

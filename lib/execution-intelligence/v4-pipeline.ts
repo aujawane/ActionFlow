@@ -42,7 +42,8 @@ import {
   runLifecycleReconciliationPass,
   type PassAGroundingRejectionTraceEntry,
   type PassAHarvestTraceEntry,
-  type PassBAdjudicationTraceEntry
+  type PassBAdjudicationTraceEntry,
+  type TopicWorkItemExtractionResult
 } from "./work-item-stages";
 import type { ExecutionSourceContext } from "./stages";
 import type {
@@ -248,6 +249,18 @@ export async function runV4WorkItemExtraction(input: {
   source: ExecutionSourceContext;
   fallbackUsed: boolean;
 }): Promise<V4ExecutionState> {
+  return assembleV4WorkItemState(input, await extractTopicWorkItems(input.source));
+}
+
+/**
+ * Pure (apart from logging): the candidates-stage V4ExecutionState from a work-item extraction
+ * result. A failed extraction fails the stage (it is not optional). Shared with the pipeline-v2
+ * durable candidates finalizer.
+ */
+export function assembleV4WorkItemState(
+  input: { source: ExecutionSourceContext; fallbackUsed: boolean },
+  extracted: TopicWorkItemExtractionResult
+): V4ExecutionState {
   const metrics = createExecutionMetrics(input.source.meetingId, input.fallbackUsed);
 
   // Transcript normalization now runs exactly once, upstream of both execution-intelligence
@@ -278,7 +291,6 @@ export async function runV4WorkItemExtraction(input: {
     ran_at_this_stage: false
   });
 
-  const extracted = await extractTopicWorkItems(normalizedSource);
   metrics.openAiLatencyMs.workItemExtraction = extracted.latencyMs;
   if (!extracted.ok) {
     metrics.validationFailures += Number(extracted.validationFailure);

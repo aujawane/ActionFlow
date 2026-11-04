@@ -19,7 +19,8 @@ import {
   runScopeDeferralVerificationModel,
   runWorkItemExtractionModel,
   type CreateStructuredResponse,
-  type TokenUsage
+  type TokenUsage,
+  type WorkItemExtractionModelResult
 } from "./work-item-model";
 import { assignDraftGroupRefs } from "./execution-tree";
 import { EXECUTION_CHUNK_CONCURRENCY, splitExecutionSourceIntoChunks } from "./chunking";
@@ -98,21 +99,32 @@ function toEligibleView(item: WorkItem, transcript: string): EligibleWorkItemVie
   };
 }
 
-export async function extractTopicWorkItems(
-  source: ExecutionSourceContext
-): Promise<
+/** One work-item extraction scope. `topicIndex` is the topic's position in source.topics (for
+ * pipeline v2, the canonical topic_index); null for the whole-meeting scope. */
+export type TopicWorkItemScope = {
+  topicIndex: number | null;
+  topicId: string | null;
+  topicTitle: string;
+  topicSummary: string | null;
+  transcript: string;
+};
+
+export type TopicWorkItemExtractionResult =
   | { ok: true; topics: TopicWorkItemExtraction[]; latencyMs: number; usage: TokenUsage | null }
-  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean }
-> {
-  const startedAt = Date.now();
-  const scopes = source.topics.length > 0
-    ? source.topics.map((topic) => {
+  | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
+
+/** Pure: one scope per topic with a non-empty transcript slice, in topic order, or a single
+ * whole-meeting scope when there are no topics. Shared by the v1 pool and the v2 durable units. */
+export function planTopicWorkItemScopes(source: ExecutionSourceContext): TopicWorkItemScope[] {
+  return source.topics.length > 0
+    ? source.topics.map((topic, topicIndex) => {
         const ids = new Set(
           Array.isArray(topic.segment_ids)
             ? topic.segment_ids.filter((id): id is string => typeof id === "string")
             : []
         );
         return {
+          topicIndex,
           topicId: topic.id,
           topicTitle: topic.title,
           topicSummary: topic.summary,
@@ -120,50 +132,52 @@ export async function extractTopicWorkItems(
         };
       }).filter((topic) => topic.transcript.trim())
     : [{
+        topicIndex: null,
         topicId: null,
         topicTitle: "Whole meeting",
         topicSummary: null,
         transcript: source.transcript
       }];
+}
 
-  const results: Array<Awaited<ReturnType<typeof runWorkItemExtractionModel>> | undefined> =
-    new Array(scopes.length);
-  let next = 0;
-  let failed = false;
-  async function worker() {
-    while (!failed) {
-      const index = next++;
-      if (index >= scopes.length) return;
-      const scope = scopes[index];
-      const result = await runWorkItemExtractionModel({
-        systemPrompt: WORK_ITEM_EXTRACTION_PROMPT,
-        context: {
-          meeting_id: source.meetingId,
-          meeting_date: source.meetingDate,
-          project: source.project ?? null,
-          topic: { id: scope.topicId, title: scope.topicTitle, summary: scope.topicSummary },
-          conversation_events: source.conversationEvents ?? [],
-          transcript: scope.transcript
-        }
-      });
-      results[index] = result;
-      if (!result.ok) failed = true;
+/** Exactly one work-item extraction model request for one scope. */
+export function requestTopicWorkItems(source: ExecutionSourceContext, scope: TopicWorkItemScope) {
+  return runWorkItemExtractionModel({
+    systemPrompt: WORK_ITEM_EXTRACTION_PROMPT,
+    context: {
+      meeting_id: source.meetingId,
+      meeting_date: source.meetingDate,
+      project: source.project ?? null,
+      topic: { id: scope.topicId, title: scope.topicTitle, summary: scope.topicSummary },
+      conversation_events: source.conversationEvents ?? [],
+      transcript: scope.transcript
     }
-  }
-  await Promise.all(Array.from({ length: Math.min(2, scopes.length) }, () => worker()));
+  });
+}
+
+/**
+ * Pure: per-scope results (results[i] is scopes[i]) into the stage result. The first failed
+ * scope in scope order fails the whole stage; a missing result means extraction stopped early.
+ * Otherwise topics keep scope order (mergeTopicWorkItems is order dependent).
+ */
+export function assembleTopicWorkItemExtraction(
+  scopes: readonly TopicWorkItemScope[],
+  results: ReadonlyArray<WorkItemExtractionModelResult | undefined>,
+  latencyMs: number
+): TopicWorkItemExtractionResult {
   const failure = results.find((result) => result && !result.ok);
-  if (failure && !failure.ok) return { ...failure, latencyMs: Date.now() - startedAt };
+  if (failure && !failure.ok) return { ...failure, latencyMs };
   if (results.some((result) => !result)) {
     return {
       ok: false,
       error: "Work-item extraction stopped before every topic completed.",
-      latencyMs: Date.now() - startedAt,
+      latencyMs,
       validationFailure: false
     };
   }
   return {
     ok: true,
-    latencyMs: Date.now() - startedAt,
+    latencyMs,
     usage: sumUsage(results.map((result) => (result?.ok ? result.usage : null))),
     topics: scopes.map((scope, index) => {
       const result = results[index]!;
@@ -176,6 +190,28 @@ export async function extractTopicWorkItems(
       };
     })
   };
+}
+
+export async function extractTopicWorkItems(
+  source: ExecutionSourceContext
+): Promise<TopicWorkItemExtractionResult> {
+  const startedAt = Date.now();
+  const scopes = planTopicWorkItemScopes(source);
+
+  const results: Array<WorkItemExtractionModelResult | undefined> = new Array(scopes.length);
+  let next = 0;
+  let failed = false;
+  async function worker() {
+    while (!failed) {
+      const index = next++;
+      if (index >= scopes.length) return;
+      const result = await requestTopicWorkItems(source, scopes[index]);
+      results[index] = result;
+      if (!result.ok) failed = true;
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(2, scopes.length) }, () => worker()));
+  return assembleTopicWorkItemExtraction(scopes, results, Date.now() - startedAt);
 }
 
 /**
