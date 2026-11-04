@@ -11,6 +11,7 @@ import { extractTopicWorkItems, planTopicWorkItemScopes, requestTopicWorkItems }
 import type { RawWorkItem } from "../lib/execution-intelligence/work-item-schemas";
 import type { ExecutionSourceContext } from "../lib/execution-intelligence/stages";
 import { AnalysisUnitValidationError, listAnalysisStageUnits, type AnalysisJobUnit } from "../lib/meeting-analysis/job-units";
+import { buildPreparedMeetingAnalysis, type PreparedSourceBase } from "../lib/meeting-analysis/topics";
 import { ANALYSIS_STAGE_ORDER, getMeetingAnalysisJob } from "../lib/meeting-analysis/jobs";
 import { saveV2Checkpoint } from "../lib/meeting-analysis/checkpoint";
 import { markV2AnalysisFailed, V2StageFailedError } from "../lib/meeting-analysis/v2-lifecycle";
@@ -50,21 +51,25 @@ const EVENTS = [{ client_ref: "g22_c1_e001", type: "request", actors: ["Speaker 
   temporal_state: "future", commitment_signal: "requested", source_quote: "synthetic", source_segment_ids: [segmentId(0)],
   linked_event_refs: [], confidence: 0.7 }];
 
+/** The source goes through the REAL prepared-analysis builder, exactly as in production. B1 hands
+ * it canonical topic rows that carry topic_index; the builder keeps only
+ * { id, title, summary, segment_ids }, so these topics have the real prepared shape (no
+ * topic_index) and the tests cannot rely on a field production does not have. */
 function syntheticSource(topicCount = ITEM_COUNTS.length, options: { emptyTopic?: number; noTopics?: boolean } = {}): ExecutionSourceContext {
   const segments = topicCount * SEGMENTS_PER_TOPIC;
-  return {
+  const base = {
     meetingId: MEETING,
     meetingDate: "2026-10-30",
     project: null,
     transcript: Array.from({ length: segments }, (_, i) => `[${segmentId(i)}] Speaker ${i % 3}: synthetic line ${i}`).join("\n"),
     transcriptSegmentCount: segments,
-    topics: options.noTopics ? [] : Array.from({ length: topicCount }, (_, t) => ({
-      id: `topic-${t}`, title: `Topic ${t}`, summary: `Summary ${t}`, topic_index: t,
-      segment_ids: t === options.emptyTopic ? [segmentId(9_999)] : Array.from({ length: SEGMENTS_PER_TOPIC }, (_, k) => segmentId(t * SEGMENTS_PER_TOPIC + k))
-    })),
-    insights: [],
     conversationEvents: EVENTS
-  } as unknown as ExecutionSourceContext;
+  } as unknown as PreparedSourceBase;
+  const canonicalTopicRows = options.noTopics ? [] : Array.from({ length: topicCount }, (_, t) => ({
+    id: `topic-${t}`, title: `Topic ${t}`, summary: `Summary ${t}`, topic_index: t,
+    segment_ids: t === options.emptyTopic ? [segmentId(9_999)] : Array.from({ length: SEGMENTS_PER_TOPIC }, (_, k) => segmentId(t * SEGMENTS_PER_TOPIC + k))
+  }));
+  return buildPreparedMeetingAnalysis(base, canonicalTopicRows, [], false).source;
 }
 const PREPARED = (source = syntheticSource()) => ({ source, fallbackUsed: false, meetingContextByTopicId: [] });
 
@@ -168,8 +173,11 @@ function withoutTiming(state: V4ExecutionState) {
 }
 
 // ================================================================= plan / keys
-test("[1][2][4] the scope plan is v1's, deterministic, keyed by canonical topic_index; empty topics leave gaps", async () => {
+test("[1][2][4] the scope plan is v1's, deterministic, keyed by prepared topic position; empty topics leave gaps", async () => {
   const source = syntheticSource();
+  // Real prepared topic shape: the builder drops topic_index, so planning has no canonical index to
+  // validate. Keys come from each topic's position, which B1 guarantees equals its topic_index.
+  assert.ok(source.topics.every((topic) => JSON.stringify(Object.keys(topic).sort()) === JSON.stringify(["id", "segment_ids", "summary", "title"])));
   const planned = v2.planCandidateUnits(source);
   assert.deepEqual(planned, v2.planCandidateUnits(syntheticSource()));
   assert.deepEqual(planned.map(({ unitKey }) => unitKey), ITEM_COUNTS.map((_, t) => `topic:${String(t).padStart(6, "0")}`));
@@ -177,10 +185,12 @@ test("[1][2][4] the scope plan is v1's, deterministic, keyed by canonical topic_
   const gapped = v2.planCandidateUnits(syntheticSource(4, { emptyTopic: 2 }));
   assert.deepEqual(gapped.map(({ unitKey }) => unitKey), ["topic:000000", "topic:000001", "topic:000003"]);
   assert.deepEqual(gapped.map(({ scope }) => scope.topicId), ["topic-0", "topic-1", "topic-3"]);
-  // Prepared topics out of canonical order are rejected rather than silently re-keyed.
-  const shuffled = syntheticSource(3);
-  shuffled.topics.reverse();
-  assert.throws(() => v2.planCandidateUnits(shuffled), /canonical topic_index order/);
+  // Prepared order IS the plan order: planning never re-sorts or rejects. Canonical topic_index
+  // order is owned by the B1 topic finalizer, which validates it before `prepared` is saved.
+  const reordered = syntheticSource(3);
+  reordered.topics.reverse();
+  assert.deepEqual(v2.planCandidateUnits(reordered).map(({ unitKey, scope }) => [unitKey, scope.topicId]),
+    [["topic:000000", "topic-2"], ["topic:000001", "topic-1"], ["topic:000002", "topic-0"]]);
   // Plan step: keys only, current_stage/progress, no model call.
   resetModel();
   seed();

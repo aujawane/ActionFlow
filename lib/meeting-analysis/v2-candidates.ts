@@ -47,15 +47,14 @@ function assertCandidateUnitKey(unitKey: string) {
   }
 }
 
-/** Pure: v1's exact scopes, in v1's order, with stable keys (topic:{topic_index} or
- * meeting:000000). Skipped empty topics leave gaps; keys stay strictly increasing. */
+/** Pure: v1's exact scopes, in v1's order, with stable keys (topic:{position} or meeting:000000).
+ * Skipped empty topics leave gaps; keys stay strictly increasing.
+ *
+ * The prepared topics carry only { id, title, summary, segment_ids } (no topic_index), so this
+ * cannot validate canonical order and does not try to: prepared order is the plan order. The
+ * position equals the canonical topic_index because the B1 topic finalizer, the only writer of
+ * the prepared topic list, validates contiguous topic_index order before it saves `prepared`. */
 export function planCandidateUnits(source: ExecutionSourceContext): V2CandidateUnit[] {
-  source.topics.forEach((topic, position) => {
-    const canonical = (topic as { topic_index?: unknown }).topic_index;
-    if (typeof canonical === "number" && canonical !== position) {
-      throw new AnalysisUnitValidationError("Prepared topics are not in canonical topic_index order.");
-    }
-  });
   return planTopicWorkItemScopes(source).map((scope) => ({ unitKey: candidateUnitKey(scope), scope }));
 }
 
