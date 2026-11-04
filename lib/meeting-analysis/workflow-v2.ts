@@ -8,6 +8,11 @@ import {
   runCandidateUnitStep
 } from "@/lib/meeting-analysis/v2-candidate-steps";
 import {
+  finalizeAtomicActionHarvestStep,
+  planAtomicActionHarvestStep,
+  runAtomicActionHarvestUnitStep
+} from "@/lib/meeting-analysis/v2-atomic-action-harvest-steps";
+import {
   finalizeConversationEventsStep,
   planConversationEventsStep,
   runConversationEventUnitStep
@@ -45,10 +50,11 @@ const STAGES_AFTER_CANDIDATES = ANALYSIS_STAGE_ORDER.slice(
   ANALYSIS_STAGE_ORDER.indexOf("candidates") + 1
 );
 
-/** Pipeline v2 (B2 topology). transcript_normalization, topic_extraction, conversation_events and
- * (v4) candidates are durable fan-out; every other stage runs the unchanged v1 stage logic (with v2 checkpoint
- * merging). Started only by enqueueMeetingAnalysisV2 (explicit, staging-gated opt-in), always on a
- * freshly claimed job. */
+/** Pipeline v2 (B2 topology). transcript_normalization, topic_extraction, conversation_events,
+ * candidates and atomic_action_harvest are durable fan-out. The remaining global-correction work
+ * starts behind the harvest checkpoint barrier; later stages use the unchanged v1 stage logic.
+ * Started only by enqueueMeetingAnalysisV2 (explicit, staging-gated opt-in), always on a freshly
+ * claimed job. */
 export async function meetingAnalysisV2Workflow(input: { meetingId: string; jobId: string; generation: number }) {
   "use workflow";
   try {
@@ -78,8 +84,13 @@ export async function meetingAnalysisV2Workflow(input: { meetingId: string; jobI
     if (candidates.mode === "durable") {
       await runOrderedAnalysisUnits(candidates.units, (unit) =>
         runCandidateUnitStep({ ...input, unitKey: unit.unitKey }));
-      // Barrier: global_correction reads v4State from this finalizer's checkpoint.
+      // Barrier: atomic-action harvest reconstructs its canonical windows from this v4State.
       await finalizeCandidatesStep(input);
+      const harvest = await planAtomicActionHarvestStep(input);
+      await runOrderedAnalysisUnits(harvest.units, (unit) =>
+        runAtomicActionHarvestUnitStep({ ...input, unitKey: unit.unitKey }));
+      // Barrier: global_correction starts at adjudication from checkpoint.gcV2.harvest.
+      await finalizeAtomicActionHarvestStep(input);
     } else {
       await runV2AnalysisStageStep({ ...input, stage: "candidates" });
     }

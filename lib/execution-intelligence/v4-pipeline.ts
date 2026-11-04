@@ -36,6 +36,7 @@ import { isTranscriptNormalizationEnabled } from "@/lib/env";
 import type { NormalizationResult } from "./transcript-normalization";
 import {
   extractTopicWorkItems,
+  runCompletenessRecoveryAfterHarvest,
   runCompletenessRecoveryPass,
   runGroupingPass,
   runGroupingVerificationPass,
@@ -43,6 +44,8 @@ import {
   type PassAGroundingRejectionTraceEntry,
   type PassAHarvestTraceEntry,
   type PassBAdjudicationTraceEntry,
+  type AtomicActionHarvestPassResult,
+  type CompletenessRecoveryPassResult,
   type TopicWorkItemExtractionResult
 } from "./work-item-stages";
 import type { ExecutionSourceContext } from "./stages";
@@ -377,6 +380,27 @@ export function applyV4ConversationEventResult(
  */
 export async function runV4GlobalCorrection(state: V4ExecutionState): Promise<V4ExecutionState> {
   const passA = await runCompletenessRecoveryPass({ source: state.source, workItems: state.mergedWorkItems });
+  return continueV4GlobalCorrection(state, passA);
+}
+
+/** Pipeline-v2 post-harvest entry. Pass A is supplied from the canonical checkpoint, so retries of
+ * the remaining monolith can never reissue atomic-action-harvest model calls. */
+export async function runV4GlobalCorrectionAfterHarvest(
+  state: V4ExecutionState,
+  harvest: Extract<AtomicActionHarvestPassResult, { ok: true }>
+): Promise<V4ExecutionState> {
+  const passA = await runCompletenessRecoveryAfterHarvest({
+    source: state.source,
+    workItems: state.mergedWorkItems,
+    harvest
+  });
+  return continueV4GlobalCorrection(state, passA);
+}
+
+async function continueV4GlobalCorrection(
+  state: V4ExecutionState,
+  passA: CompletenessRecoveryPassResult
+): Promise<V4ExecutionState> {
   state.metrics.openAiLatencyMs.completenessRecovery = passA.latencyMs;
   if (!passA.ok) {
     state.metrics.validationFailures += Number(passA.validationFailure);

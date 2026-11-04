@@ -492,10 +492,10 @@ test("the independent engine keeps the unchanged v1 candidates step", async () =
   assert.match(workflow, /if \(candidates\.mode === "durable"\) \{[\s\S]*?\} else \{\s*await runV2AnalysisStageStep\(\{ \.\.\.input, stage: "candidates" \}\);\s*\}/);
 });
 
-test("[35] global_correction and later stages remain the unchanged monolithic v1 steps after the candidates finalizer", async () => {
+test("[35] durable harvest follows candidates; the remaining global_correction and later stages stay monolithic", async () => {
   const workflow = await readFile(new URL("../lib/meeting-analysis/workflow-v2.ts", import.meta.url), "utf8");
   const body = workflow.slice(workflow.indexOf("export async function meetingAnalysisV2Workflow"));
-  const order = ["finalizeConversationEventsStep(input)", "planCandidatesStep(input)", "runCandidateUnitStep(", "finalizeCandidatesStep(input)", "for (const stage of STAGES_AFTER_CANDIDATES)"]
+  const order = ["finalizeConversationEventsStep(input)", "planCandidatesStep(input)", "runCandidateUnitStep(", "finalizeCandidatesStep(input)", "planAtomicActionHarvestStep(input)", "runAtomicActionHarvestUnitStep(", "finalizeAtomicActionHarvestStep(input)", "for (const stage of STAGES_AFTER_CANDIDATES)"]
     .map((marker) => body.indexOf(marker));
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), `ordered: ${order}`);
   assert.deepEqual(ANALYSIS_STAGE_ORDER.slice(ANALYSIS_STAGE_ORDER.indexOf("candidates") + 1),

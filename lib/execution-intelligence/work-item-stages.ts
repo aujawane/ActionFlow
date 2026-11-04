@@ -18,12 +18,18 @@ import {
   runLifecycleReconciliationModel,
   runScopeDeferralVerificationModel,
   runWorkItemExtractionModel,
+  type AtomicActionHarvestModelResult,
   type CreateStructuredResponse,
   type TokenUsage,
   type WorkItemExtractionModelResult
 } from "./work-item-model";
 import { assignDraftGroupRefs } from "./execution-tree";
-import { EXECUTION_CHUNK_CONCURRENCY, splitExecutionSourceIntoChunks } from "./chunking";
+import {
+  EXECUTION_CHUNK_CONCURRENCY,
+  materializeExecutionSourceChunk,
+  planExecutionSourceChunks,
+  type ExecutionSourceChunkDescriptor
+} from "./chunking";
 import { transcriptSourceSegmentIds } from "./conversation-event-identity";
 import type {
   AtomicActionHarvestCandidate,
@@ -472,53 +478,42 @@ export type AtomicActionHarvestPassResult =
     }
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
-/**
- * PASS A: atomic action harvest, run over the SAME chronological transcript windows completeness
- * recovery has always used (reusing the same chunker/concurrency the topic-scoped extraction stage
- * also uses -- see chunking.ts -- rather than inventing a second windowing scheme). Ledger-blind and
- * deliberately high-recall (see ATOMIC_ACTION_HARVEST_PROMPT) -- never decides what is already known,
- * only enumerates. Candidate identity (canonicalRef) is always assigned here by application code,
- * never trusted from the model's own window-local candidate_id, so candidates from different windows
- * can be safely pooled together for Pass B without ID collisions.
- */
-export async function runAtomicActionHarvestPass(input: {
+/** The canonical harvest plan. Pipeline v2 persists only stable keys derived from these windows;
+ * both v1 and v2 reconstruct the window payload from the canonical source. */
+export function planAtomicActionHarvestWindows(source: ExecutionSourceContext): ExecutionSourceChunkDescriptor[] {
+  return planExecutionSourceChunks(source);
+}
+
+/** One harvest window request, shared by v1's in-process pool and a v2 durable unit. */
+export function requestAtomicActionHarvestWindow(input: {
   source: ExecutionSourceContext;
+  window: ExecutionSourceChunkDescriptor;
   createResponse?: CreateStructuredResponse;
-}): Promise<AtomicActionHarvestPassResult> {
-  const startedAt = Date.now();
-  const chunks = splitExecutionSourceIntoChunks(input.source);
-
-  const results: Array<Awaited<ReturnType<typeof runAtomicActionHarvestModel>> | undefined> =
-    new Array(chunks.length);
-  let next = 0;
-  let failed = false;
-  async function worker() {
-    while (!failed) {
-      const index = next++;
-      if (index >= chunks.length) return;
-      const chunk = chunks[index];
-      const result = await runAtomicActionHarvestModel({
-        systemPrompt: ATOMIC_ACTION_HARVEST_PROMPT,
-        timeoutMs: Math.max(getV4StageTimeoutMs("atomic_action_harvest"), 90_000),
-        createResponse: input.createResponse,
-        context: {
-          meeting_id: input.source.meetingId,
-          meeting_date: input.source.meetingDate,
-          participants: participantMap(chunk.source.transcript),
-          window_index: chunk.index,
-          transcript: chunk.source.transcript
-        }
-      });
-      results[index] = result;
-      if (!result.ok) failed = true;
+}): Promise<AtomicActionHarvestModelResult> {
+  const window = materializeExecutionSourceChunk(input.source, input.window);
+  return runAtomicActionHarvestModel({
+    systemPrompt: ATOMIC_ACTION_HARVEST_PROMPT,
+    timeoutMs: Math.max(getV4StageTimeoutMs("atomic_action_harvest"), 90_000),
+    createResponse: input.createResponse,
+    context: {
+      meeting_id: input.source.meetingId,
+      meeting_date: input.source.meetingDate,
+      participants: participantMap(window.source.transcript),
+      window_index: window.index,
+      transcript: window.source.transcript
     }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(EXECUTION_CHUNK_CONCURRENCY, chunks.length) }, () => worker())
-  );
+  });
+}
 
-  const failure = results.find((result) => result && !result.ok);
-  if (failure && !failure.ok) return { ...failure, latencyMs: Date.now() - startedAt };
+/** Deterministic Pass-A assembly. Results must be in canonical window order. */
+export function assembleAtomicActionHarvestPass(input: {
+  source: ExecutionSourceContext;
+  windows: readonly ExecutionSourceChunkDescriptor[];
+  results: readonly (AtomicActionHarvestModelResult | undefined)[];
+  latencyMs: number;
+}): AtomicActionHarvestPassResult {
+  const failure = input.results.find((result) => result && !result.ok);
+  if (failure && !failure.ok) return { ...failure, latencyMs: input.latencyMs };
 
   const validSegments = new Set(transcriptSourceSegmentIds(input.source.transcript));
   const harvestedByWindow: CompletenessHarvestWindowCount[] = [];
@@ -528,8 +523,8 @@ export async function runAtomicActionHarvestPass(input: {
   let groundingRejected = 0;
   let traceTruncated = false;
 
-  results.forEach((result, index) => {
-    const windowIndex = chunks[index].index;
+  input.results.forEach((result, index) => {
+    const windowIndex = input.windows[index].index;
     if (!result?.ok) {
       harvestedByWindow.push({ windowIndex, harvested: 0 });
       return;
@@ -575,13 +570,59 @@ export async function runAtomicActionHarvestPass(input: {
     candidates: allCandidates,
     harvestedByWindow,
     groundingRejected,
-    latencyMs: Date.now() - startedAt,
-    salvagedItems: results.reduce((sum, result) => sum + (result?.ok ? result.salvagedItems : 0), 0),
-    usage: sumUsage(results.map((result) => (result?.ok ? result.usage : null))),
+    latencyMs: input.latencyMs,
+    salvagedItems: input.results.reduce((sum, result) => sum + (result?.ok ? result.salvagedItems : 0), 0),
+    usage: sumUsage(input.results.map((result) => (result?.ok ? result.usage : null))),
     harvestTrace,
     groundingRejectionTrace,
     traceTruncated
   };
+}
+
+/**
+ * PASS A: atomic action harvest, run over the SAME chronological transcript windows completeness
+ * recovery has always used (reusing the same chunker/concurrency the topic-scoped extraction stage
+ * also uses -- see chunking.ts -- rather than inventing a second windowing scheme). Ledger-blind and
+ * deliberately high-recall (see ATOMIC_ACTION_HARVEST_PROMPT) -- never decides what is already known,
+ * only enumerates. Candidate identity (canonicalRef) is always assigned here by application code,
+ * never trusted from the model's own window-local candidate_id, so candidates from different windows
+ * can be safely pooled together for Pass B without ID collisions.
+ */
+export async function runAtomicActionHarvestPass(input: {
+  source: ExecutionSourceContext;
+  createResponse?: CreateStructuredResponse;
+}): Promise<AtomicActionHarvestPassResult> {
+  const startedAt = Date.now();
+  const chunks = planAtomicActionHarvestWindows(input.source);
+
+  const results: Array<Awaited<ReturnType<typeof runAtomicActionHarvestModel>> | undefined> =
+    new Array(chunks.length);
+  let next = 0;
+  let failed = false;
+  async function worker() {
+    while (!failed) {
+      const index = next++;
+      if (index >= chunks.length) return;
+      const chunk = chunks[index];
+      const result = await requestAtomicActionHarvestWindow({
+        source: input.source,
+        window: chunk,
+        createResponse: input.createResponse
+      });
+      results[index] = result;
+      if (!result.ok) failed = true;
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(EXECUTION_CHUNK_CONCURRENCY, chunks.length) }, () => worker())
+  );
+
+  return assembleAtomicActionHarvestPass({
+    source: input.source,
+    windows: chunks,
+    results,
+    latencyMs: Date.now() - startedAt
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -918,19 +959,16 @@ export type CompletenessRecoveryPassResult =
  * B's (adjudication) model responses -- mirroring the createResponse/createVerificationResponse
  * dual-DI pattern already used by runLifecycleReconciliationPass.
  */
-export async function runCompletenessRecoveryPass(input: {
+/** Continue completeness recovery after a previously assembled Pass-A harvest. This entry point is
+ * used by pipeline v2's checkpoint barrier and deliberately cannot issue harvest requests. */
+export async function runCompletenessRecoveryAfterHarvest(input: {
   source: ExecutionSourceContext;
   workItems: WorkItem[];
-  createResponse?: CreateStructuredResponse;
+  harvest: Extract<AtomicActionHarvestPassResult, { ok: true }>;
   createAdjudicationResponse?: CreateStructuredResponse;
 }): Promise<CompletenessRecoveryPassResult> {
   const startedAt = Date.now();
-
-  const harvest = await runAtomicActionHarvestPass({
-    source: input.source,
-    createResponse: input.createResponse
-  });
-  if (!harvest.ok) return { ...harvest, latencyMs: Date.now() - startedAt };
+  const harvest = input.harvest;
 
   const proposedByWindow: CompletenessWindowProposalCount[] = harvest.harvestedByWindow.map((w) => ({
     windowIndex: w.windowIndex,
@@ -944,7 +982,7 @@ export async function runCompletenessRecoveryPass(input: {
     createResponse: input.createAdjudicationResponse
   });
   if (!adjudication.ok) {
-    return { ...adjudication, latencyMs: Date.now() - startedAt };
+    return { ...adjudication, latencyMs: harvest.latencyMs + (Date.now() - startedAt) };
   }
 
   const windowByCanonicalRef = new Map(harvest.candidates.map((c) => [c.canonicalRef, c.windowIndex]));
@@ -1002,7 +1040,7 @@ export async function runCompletenessRecoveryPass(input: {
       completenessDecisionNonExecution: adjudication.completenessDecisionNonExecution,
       completenessDecisionInsufficientGrounding: adjudication.completenessDecisionInsufficientGrounding
     },
-    latencyMs: Date.now() - startedAt,
+    latencyMs: harvest.latencyMs + (Date.now() - startedAt),
     salvagedItems: harvest.salvagedItems + adjudication.salvagedItems,
     usage: sumUsage([harvest.usage, adjudication.usage]),
     harvestTrace: harvest.harvestTrace,
@@ -1011,6 +1049,27 @@ export async function runCompletenessRecoveryPass(input: {
     additionCandidateIds,
     traceTruncated: harvest.traceTruncated || adjudication.traceTruncated
   };
+}
+
+export async function runCompletenessRecoveryPass(input: {
+  source: ExecutionSourceContext;
+  workItems: WorkItem[];
+  createResponse?: CreateStructuredResponse;
+  createAdjudicationResponse?: CreateStructuredResponse;
+}): Promise<CompletenessRecoveryPassResult> {
+  const startedAt = Date.now();
+  const harvest = await runAtomicActionHarvestPass({
+    source: input.source,
+    createResponse: input.createResponse
+  });
+  if (!harvest.ok) return { ...harvest, latencyMs: Date.now() - startedAt };
+  const result = await runCompletenessRecoveryAfterHarvest({
+    source: input.source,
+    workItems: input.workItems,
+    harvest,
+    createAdjudicationResponse: input.createAdjudicationResponse
+  });
+  return { ...result, latencyMs: Date.now() - startedAt };
 }
 
 /**

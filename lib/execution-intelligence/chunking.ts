@@ -16,6 +16,8 @@ export type ExecutionSourceChunk = {
   source: ExecutionSourceContext;
 };
 
+export type ExecutionSourceChunkDescriptor = Omit<ExecutionSourceChunk, "source">;
+
 function transcriptLines(transcript: string) {
   return transcript
     .split("\n")
@@ -73,17 +75,15 @@ function chooseChunkEnd(input: {
   return preferred ?? target;
 }
 
-export function splitExecutionSourceIntoChunks(
-  source: ExecutionSourceContext
-): ExecutionSourceChunk[] {
+/** Pure, compact chunk plan. Descriptors contain no transcript/source payload. */
+export function planExecutionSourceChunks(source: ExecutionSourceContext): ExecutionSourceChunkDescriptor[] {
   const segments = transcriptLines(source.transcript);
   if (segments.length === 0) {
     return [
       {
         index: 0,
         startSegment: 1,
-        endSegment: source.transcriptSegmentCount ?? 0,
-        source
+        endSegment: source.transcriptSegmentCount ?? 0
       }
     ];
   }
@@ -92,8 +92,7 @@ export function splitExecutionSourceIntoChunks(
       {
         index: 0,
         startSegment: 1,
-        endSegment: segments.length,
-        source: { ...source, transcriptSegmentCount: segments.length }
+        endSegment: segments.length
       }
     ];
   }
@@ -102,7 +101,7 @@ export function splitExecutionSourceIntoChunks(
     segments.map((segment, index) => [segment.id, index])
   );
   const boundaries = topicBoundaryIndexes(source, segmentIndexById);
-  const chunks: ExecutionSourceChunk[] = [];
+  const chunks: ExecutionSourceChunkDescriptor[] = [];
   let start = 0;
   while (start < segments.length) {
     const end = chooseChunkEnd({
@@ -110,50 +109,69 @@ export function splitExecutionSourceIntoChunks(
       total: segments.length,
       boundaries
     });
-    const selected = segments.slice(start, end);
-    const selectedIds = new Set(selected.map((segment) => segment.id));
-    const topics = source.topics.filter((topic) => {
-      if (!Array.isArray(topic.segment_ids)) return true;
-      const ids = topic.segment_ids.filter(
-        (value): value is string => typeof value === "string"
-      );
-      return ids.length === 0 || ids.some((value) => selectedIds.has(value));
-    });
-    const topicIds = new Set(topics.map((topic) => topic.id));
-    const insights = source.insights.filter(
-      (insight) =>
-        insight.topic_id === null || topicIds.has(insight.topic_id ?? "")
-    );
-    const directlyRelevantEventRefs = new Set(
-      (source.conversationEvents ?? [])
-        .filter((event) => event.source_segment_ids.some((id) => selectedIds.has(id)))
-        .map((event) => event.client_ref)
-    );
-    const linkedRelevantEventRefs = new Set(
-      (source.conversationEvents ?? [])
-        .filter((event) => directlyRelevantEventRefs.has(event.client_ref))
-        .flatMap((event) => event.linked_event_refs)
-    );
-    const conversationEvents = source.conversationEvents?.filter(
-      (event) =>
-        directlyRelevantEventRefs.has(event.client_ref) ||
-        linkedRelevantEventRefs.has(event.client_ref)
-    );
     chunks.push({
       index: chunks.length,
       startSegment: start + 1,
-      endSegment: end,
-      source: {
-        ...source,
-        transcript: selected.map((segment) => segment.line).join("\n"),
-        transcriptSegmentCount: selected.length,
-        topics,
-        insights,
-        conversationEvents
-      }
+      endSegment: end
     });
     if (end >= segments.length) break;
     start = Math.max(start + 1, end - EXECUTION_CHUNK_OVERLAP_SEGMENTS);
   }
   return chunks;
+}
+
+/** Materialize exactly one planned chunk, preserving splitExecutionSourceIntoChunks's source
+ * filtering semantics. */
+export function materializeExecutionSourceChunk(
+  source: ExecutionSourceContext,
+  descriptor: ExecutionSourceChunkDescriptor
+): ExecutionSourceChunk {
+  const segments = transcriptLines(source.transcript);
+  if (segments.length === 0) return { ...descriptor, source };
+  if (segments.length <= EXECUTION_CHUNK_MAX_SEGMENTS) {
+    return { ...descriptor, source: { ...source, transcriptSegmentCount: segments.length } };
+  }
+  const selected = segments.slice(descriptor.startSegment - 1, descriptor.endSegment);
+  const selectedIds = new Set(selected.map((segment) => segment.id));
+  const topics = source.topics.filter((topic) => {
+    if (!Array.isArray(topic.segment_ids)) return true;
+    const ids = topic.segment_ids.filter(
+      (value): value is string => typeof value === "string"
+    );
+    return ids.length === 0 || ids.some((value) => selectedIds.has(value));
+  });
+  const topicIds = new Set(topics.map((topic) => topic.id));
+  const insights = source.insights.filter(
+    (insight) => insight.topic_id === null || topicIds.has(insight.topic_id ?? "")
+  );
+  const directlyRelevantEventRefs = new Set(
+    (source.conversationEvents ?? [])
+      .filter((event) => event.source_segment_ids.some((id) => selectedIds.has(id)))
+      .map((event) => event.client_ref)
+  );
+  const linkedRelevantEventRefs = new Set(
+    (source.conversationEvents ?? [])
+      .filter((event) => directlyRelevantEventRefs.has(event.client_ref))
+      .flatMap((event) => event.linked_event_refs)
+  );
+  const conversationEvents = source.conversationEvents?.filter(
+    (event) =>
+      directlyRelevantEventRefs.has(event.client_ref) || linkedRelevantEventRefs.has(event.client_ref)
+  );
+  return {
+    ...descriptor,
+    source: {
+      ...source,
+      transcript: selected.map((segment) => segment.line).join("\n"),
+      transcriptSegmentCount: selected.length,
+      topics,
+      insights,
+      conversationEvents
+    }
+  };
+}
+
+export function splitExecutionSourceIntoChunks(source: ExecutionSourceContext): ExecutionSourceChunk[] {
+  return planExecutionSourceChunks(source).map((descriptor) =>
+    materializeExecutionSourceChunk(source, descriptor));
 }

@@ -51,6 +51,10 @@ installFakeSupabase(getSupabaseAdmin(), () => db);
 const PREPARED = { source: { meetingId: MEETING, transcript: "t", topics: [], insights: [] }, fallbackUsed: false, meetingContextByTopicId: [] };
 const NORMALIZATION = { enabled: true, segments: 854, modelCorrections: 28 };
 const UNKNOWN = { nested: { keep: [1, 2, 3] } };
+const HARVEST = {
+  ok: true as const, candidates: [], harvestedByWindow: [], groundingRejected: 0, latencyMs: 1,
+  salvagedItems: 0, usage: null, harvestTrace: [], groundingRejectionTrace: [], traceTruncated: false
+};
 /** The full B2 checkpoint shape every downstream v2 write must preserve. */
 const fullCheckpoint = () => ({
   checkpointVersion: 2,
@@ -59,7 +63,8 @@ const fullCheckpoint = () => ({
   unknownFutureKey: structuredClone(UNKNOWN),
   prepared: structuredClone(PREPARED),
   engine: "v4",
-  v4State: { tag: "v4State-before" }
+  v4State: { tag: "v4State-before" },
+  gcV2: { harvest: structuredClone(HARVEST) }
 });
 
 function seed(job: Row = {}) {
@@ -88,6 +93,7 @@ function fakeDeps(onCall: (name: string) => void = () => {}): MeetingAnalysisSta
     runActionExtraction: out("candidates", { tag: "state-candidates" }),
     runV4WorkItemExtraction: out("candidates", { tag: "v4-candidates" }),
     runV4GlobalCorrection: out("global_correction", { tag: "v4-global-correction" }),
+    runV4GlobalCorrectionAfterHarvest: out("global_correction", { tag: "v4-global-correction" }),
     runCommitmentExtraction: out("verification", { tag: "state-verification" }),
     runV4Grouping: out("verification", { tag: "v4-verification" }),
     runRelationshipEvaluation: out("completeness", { tag: "state-completeness" }),
@@ -127,7 +133,9 @@ for (const [stage, owned] of V4_OWNED) {
     assert.equal(saved.v2Topology, "b2");
     assert.deepEqual(saved.normalization, NORMALIZATION);
     assert.deepEqual(saved.unknownFutureKey, UNKNOWN);
-    assert.deepEqual(saved, { ...(before as Row), ...owned });
+    const expected = { ...(before as Row), ...owned };
+    if (stage === "global_correction") delete expected.gcV2;
+    assert.deepEqual(saved, expected);
     assert.equal(checkpointWrites().length, 2, "stage start + one checkpoint write");
   });
 }
@@ -142,7 +150,7 @@ test("[checkpoint] v2 transcript_normalization and topic_extraction writes keep 
 });
 
 test("[checkpoint] the full downstream v2 chain never loses version, topology, normalization or unknown keys", async () => {
-  seed({ checkpoint: { checkpointVersion: 2, v2Topology: "b2", normalization: NORMALIZATION, unknownFutureKey: UNKNOWN, prepared: PREPARED, engine: "v4" } });
+  seed({ checkpoint: { checkpointVersion: 2, v2Topology: "b2", normalization: NORMALIZATION, unknownFutureKey: UNKNOWN, prepared: PREPARED, engine: "v4", gcV2: { harvest: HARVEST } } });
   for (const [stage] of V4_OWNED) await runStage(stage);
   const saved = jobRow().checkpoint as Row;
   assert.deepEqual(
@@ -426,7 +434,7 @@ test("[registry] the generic status UI needs no change for the new stage names",
 // ------------------------------------------------------------------ ownership invariant
 test("[ownership] fan-out unit modules cannot import or call any checkpoint writer", async () => {
   const writer = /saveV2Checkpoint|saveAnalysisJobCheckpoint|stageCheckpoint|\.update\(\{ checkpoint/;
-  for (const file of ["job-units", "v2-unit-execution", "v2-foundation-probe", "workflow-concurrency", "workflow-v2", "v2-topic-steps", "v2-workflow-steps", "v2-conversation-event-steps", "v2-candidate-steps", "v2-normalization-steps", "v2-validation"]) {
+  for (const file of ["job-units", "v2-unit-execution", "v2-foundation-probe", "workflow-concurrency", "workflow-v2", "v2-topic-steps", "v2-workflow-steps", "v2-conversation-event-steps", "v2-candidate-steps", "v2-atomic-action-harvest-steps", "v2-normalization-steps", "v2-validation"]) {
     const source = await readFile(new URL(`../lib/meeting-analysis/${file}.ts`, import.meta.url), "utf8");
     assert.doesNotMatch(source, writer, file);
   }
@@ -448,9 +456,9 @@ test("[ownership] only jobs.ts and checkpoint.ts write the checkpoint column; on
     if (/\bsaveV2Checkpoint\b/.test(source) && name !== "checkpoint.ts") importsV2Writer.push(name);
   }
   assert.deepEqual(writesColumn.sort(), ["checkpoint.ts", "jobs.ts"]);
-  assert.deepEqual(importsV2Writer.sort(), ["v2-candidates.ts", "v2-conversation-events.ts", "v2-lifecycle.ts", "v2-normalization.ts", "v2-topic-extraction.ts", "worker.ts"]);
+  assert.deepEqual(importsV2Writer.sort(), ["v2-atomic-action-harvest.ts", "v2-candidates.ts", "v2-conversation-events.ts", "v2-lifecycle.ts", "v2-normalization.ts", "v2-topic-extraction.ts", "worker.ts"]);
   // Inside the fan-out stage modules, the writer is reachable only through the finalizer's deps.
-  for (const name of ["v2-topic-extraction.ts", "v2-conversation-events.ts", "v2-candidates.ts", "v2-normalization.ts"]) {
+  for (const name of ["v2-topic-extraction.ts", "v2-conversation-events.ts", "v2-candidates.ts", "v2-atomic-action-harvest.ts", "v2-normalization.ts"]) {
     const source = await readFile(new URL(name, dir), "utf8");
     assert.deepEqual(source.match(/saveV2Checkpoint/g), ["saveV2Checkpoint", "saveV2Checkpoint"], name);
     assert.match(source, /const finalizeDeps = \{[\s\S]*?saveCheckpoint: saveV2Checkpoint\s*\};/, name);

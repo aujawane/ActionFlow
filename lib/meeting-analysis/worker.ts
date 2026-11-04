@@ -14,6 +14,7 @@ import {
   runV4ConversationEventExtraction,
   runV4FinalReconciliation,
   runV4GlobalCorrection,
+  runV4GlobalCorrectionAfterHarvest,
   runV4Grouping,
   runV4GroupingVerification,
   runV4TaskConsolidation,
@@ -21,6 +22,7 @@ import {
   runV4WorkItemExtraction,
   type V4ExecutionState
 } from "@/lib/execution-intelligence/v4-pipeline";
+import type { AtomicActionHarvestPassResult } from "@/lib/execution-intelligence/work-item-stages";
 import {
   getExecutionIntelligenceEngine,
   type ExecutionIntelligenceEngine
@@ -38,7 +40,8 @@ import {
 import {
   CHECKPOINT_VERSION,
   saveV2Checkpoint,
-  stageCheckpoint
+  stageCheckpoint,
+  validateB2Topology
 } from "@/lib/meeting-analysis/checkpoint";
 import { AnalysisUnitValidationError } from "@/lib/meeting-analysis/job-units";
 import { normalizeMeetingTranscriptForAnalysis } from "@/lib/meeting-analysis/normalization";
@@ -64,6 +67,7 @@ type AnalysisCheckpoint = {
   prepared?: PreparedMeetingAnalysis;
   state?: DurableExecutionState;
   v4State?: V4ExecutionState;
+  gcV2?: { harvest?: Extract<AtomicActionHarvestPassResult, { ok: true }>; [key: string]: unknown };
 };
 
 function asCheckpoint(value: unknown): AnalysisCheckpoint {
@@ -86,6 +90,7 @@ const stageDeps = {
   runActionExtraction,
   runV4WorkItemExtraction,
   runV4GlobalCorrection,
+  runV4GlobalCorrectionAfterHarvest,
   runCommitmentExtraction,
   runV4Grouping,
   runRelationshipEvaluation,
@@ -107,9 +112,10 @@ export type MeetingAnalysisStageDeps = typeof stageDeps;
 async function saveStageCheckpoint(
   job: Pick<MeetingAnalysisJob, "pipeline_version" | "checkpoint">,
   input: { jobId: string; generation: number },
-  owned: Record<string, unknown>
+  owned: Record<string, unknown>,
+  options: { remove?: readonly string[] } = {}
 ) {
-  const checkpoint = stageCheckpoint(job, job.checkpoint, owned);
+  const checkpoint = stageCheckpoint(job, job.checkpoint, owned, options);
   if (job.pipeline_version !== 2) {
     await saveAnalysisJobCheckpoint({ jobId: input.jobId, checkpoint });
     return;
@@ -140,7 +146,8 @@ export async function runMeetingAnalysisStage(input: {
   const job = await getMeetingAnalysisJob(input.jobId);
   if (!job) throw new Error("Analysis job not found.");
   const checkpoint = asCheckpoint(job.checkpoint);
-  const save = (owned: Record<string, unknown>) => saveStageCheckpoint(job, input, owned);
+  const save = (owned: Record<string, unknown>, options?: { remove?: readonly string[] }) =>
+    saveStageCheckpoint(job, input, owned, options);
 
   try {
     // A v2 checkpoint that already lost its version (a B1-era downstream write) is never merged
@@ -204,8 +211,18 @@ export async function runMeetingAnalysisStage(input: {
       // passes the checkpoint through unchanged.
       if (engine === "v4") {
         if (!checkpoint.v4State) throw new Error("Missing execution graph checkpoint.");
-        const v4State = await deps.runV4GlobalCorrection(checkpoint.v4State);
-        await save({ prepared: checkpoint.prepared, engine, v4State });
+        if (job.pipeline_version === 2) {
+          validateB2Topology(job);
+          const harvest = checkpoint.gcV2?.harvest;
+          if (!harvest || harvest.ok !== true || !Array.isArray(harvest.candidates)) {
+            throw new AnalysisUnitValidationError("Missing atomic action harvest checkpoint.");
+          }
+          const v4State = await deps.runV4GlobalCorrectionAfterHarvest(checkpoint.v4State, harvest);
+          await save({ prepared: checkpoint.prepared, engine, v4State }, { remove: ["gcV2"] });
+        } else {
+          const v4State = await deps.runV4GlobalCorrection(checkpoint.v4State);
+          await save({ prepared: checkpoint.prepared, engine, v4State });
+        }
       }
       return { nextStage: nextWorkerStage(input.stage), done: false };
     }
