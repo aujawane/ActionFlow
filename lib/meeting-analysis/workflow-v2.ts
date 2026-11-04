@@ -13,6 +13,11 @@ import {
   runConversationEventUnitStep
 } from "@/lib/meeting-analysis/v2-conversation-event-steps";
 import {
+  finalizeNormalizationStep,
+  planNormalizationStep,
+  runNormalizationUnitStep
+} from "@/lib/meeting-analysis/v2-normalization-steps";
+import {
   finalizeTopicExtractionStep,
   runTopicAnalysisUnitStep,
   runTopicSegmentationStep
@@ -40,8 +45,8 @@ const STAGES_AFTER_CANDIDATES = ANALYSIS_STAGE_ORDER.slice(
   ANALYSIS_STAGE_ORDER.indexOf("candidates") + 1
 );
 
-/** Pipeline v2 (B2 topology). topic_extraction, conversation_events and (v4) candidates are
- * durable fan-out; every other stage runs the unchanged v1 stage logic (with v2 checkpoint
+/** Pipeline v2 (B2 topology). transcript_normalization, topic_extraction, conversation_events and
+ * (v4) candidates are durable fan-out; every other stage runs the unchanged v1 stage logic (with v2 checkpoint
  * merging). Started only by enqueueMeetingAnalysisV2 (explicit, staging-gated opt-in), always on a
  * freshly claimed job. */
 export async function meetingAnalysisV2Workflow(input: { meetingId: string; jobId: string; generation: number }) {
@@ -49,7 +54,11 @@ export async function meetingAnalysisV2Workflow(input: { meetingId: string; jobI
   try {
     // Before any model work: B2-only steps reject jobs without this marker (B1-era v2 jobs).
     await initializeV2TopologyStep(input);
-    await runV2AnalysisStageStep({ ...input, stage: "transcript_normalization" });
+    const normalization = await planNormalizationStep(input);
+    await runOrderedAnalysisUnits(normalization.units, (unit) =>
+      runNormalizationUnitStep({ ...input, unitKey: unit.unitKey }));
+    // Barrier: topic extraction reads the normalized transcript this finalizer persists.
+    await finalizeNormalizationStep(input);
     const { units } = await runTopicSegmentationStep(input);
     await runOrderedAnalysisUnits(units, (unit) => runTopicAnalysisUnitStep({ ...input, unitKey: unit.unitKey }));
     let finalized = await finalizeTopicExtractionStep(input);

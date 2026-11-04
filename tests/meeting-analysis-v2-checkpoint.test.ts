@@ -373,11 +373,11 @@ test("[failure] every v2 step runs inside one try; only validation errors become
   const body = workflow.slice(workflow.indexOf("export async function meetingAnalysisV2Workflow"));
   const tryAt = body.indexOf("try {");
   const catchAt = body.indexOf("} catch (error) {");
-  for (const step of ["initializeV2TopologyStep", "runV2AnalysisStageStep", "runTopicSegmentationStep", "runTopicAnalysisUnitStep", "finalizeTopicExtractionStep", "planConversationEventsStep", "runConversationEventUnitStep", "finalizeConversationEventsStep", "planCandidatesStep", "runCandidateUnitStep", "finalizeCandidatesStep"]) {
+  for (const step of ["initializeV2TopologyStep", "planNormalizationStep", "runNormalizationUnitStep", "finalizeNormalizationStep", "runV2AnalysisStageStep", "runTopicSegmentationStep", "runTopicAnalysisUnitStep", "finalizeTopicExtractionStep", "planConversationEventsStep", "runConversationEventUnitStep", "finalizeConversationEventsStep", "planCandidatesStep", "runCandidateUnitStep", "finalizeCandidatesStep"]) {
     const at = body.indexOf(step);
     assert.ok(at > tryAt && at < catchAt, `${step} is inside the workflow try`);
   }
-  assert.ok(body.indexOf("initializeV2TopologyStep") < body.indexOf('stage: "transcript_normalization"'), "marker precedes any model work");
+  assert.ok(body.indexOf("initializeV2TopologyStep") < body.indexOf("planNormalizationStep(input)"), "marker precedes any model work");
   assert.match(body.slice(catchAt), /await failV2AnalysisStep\([\s\S]*?\);\s*throw error;/);
   assert.doesNotMatch(body, /runAnalysisStageStep|new FatalError/);
   const steps = await readFile(new URL("../lib/meeting-analysis/v2-workflow-steps.ts", import.meta.url), "utf8");
@@ -426,7 +426,7 @@ test("[registry] the generic status UI needs no change for the new stage names",
 // ------------------------------------------------------------------ ownership invariant
 test("[ownership] fan-out unit modules cannot import or call any checkpoint writer", async () => {
   const writer = /saveV2Checkpoint|saveAnalysisJobCheckpoint|stageCheckpoint|\.update\(\{ checkpoint/;
-  for (const file of ["job-units", "v2-unit-execution", "v2-foundation-probe", "workflow-concurrency", "workflow-v2", "v2-topic-steps", "v2-workflow-steps", "v2-conversation-event-steps", "v2-candidate-steps", "v2-validation"]) {
+  for (const file of ["job-units", "v2-unit-execution", "v2-foundation-probe", "workflow-concurrency", "workflow-v2", "v2-topic-steps", "v2-workflow-steps", "v2-conversation-event-steps", "v2-candidate-steps", "v2-normalization-steps", "v2-validation"]) {
     const source = await readFile(new URL(`../lib/meeting-analysis/${file}.ts`, import.meta.url), "utf8");
     assert.doesNotMatch(source, writer, file);
   }
@@ -448,9 +448,9 @@ test("[ownership] only jobs.ts and checkpoint.ts write the checkpoint column; on
     if (/\bsaveV2Checkpoint\b/.test(source) && name !== "checkpoint.ts") importsV2Writer.push(name);
   }
   assert.deepEqual(writesColumn.sort(), ["checkpoint.ts", "jobs.ts"]);
-  assert.deepEqual(importsV2Writer.sort(), ["v2-candidates.ts", "v2-conversation-events.ts", "v2-lifecycle.ts", "v2-topic-extraction.ts", "worker.ts"]);
+  assert.deepEqual(importsV2Writer.sort(), ["v2-candidates.ts", "v2-conversation-events.ts", "v2-lifecycle.ts", "v2-normalization.ts", "v2-topic-extraction.ts", "worker.ts"]);
   // Inside the fan-out stage modules, the writer is reachable only through the finalizer's deps.
-  for (const name of ["v2-topic-extraction.ts", "v2-conversation-events.ts", "v2-candidates.ts"]) {
+  for (const name of ["v2-topic-extraction.ts", "v2-conversation-events.ts", "v2-candidates.ts", "v2-normalization.ts"]) {
     const source = await readFile(new URL(name, dir), "utf8");
     assert.deepEqual(source.match(/saveV2Checkpoint/g), ["saveV2Checkpoint", "saveV2Checkpoint"], name);
     assert.match(source, /const finalizeDeps = \{[\s\S]*?saveCheckpoint: saveV2Checkpoint\s*\};/, name);

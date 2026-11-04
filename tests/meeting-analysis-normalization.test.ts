@@ -186,9 +186,9 @@ test("[18][7] normalization is a fast, safe no-op when TRANSCRIPT_NORMALIZATION_
 
 test("[18] a failed batch is skipped, not thrown -- segments in it keep their raw text (normalized_text stays null)", async () => {
   const source = await readSource("lib/meeting-analysis/normalization.ts");
-  const fnMatch = source.match(/export async function normalizeMeetingTranscriptForAnalysis\([\s\S]*?\n\}/);
+  const fnMatch = source.match(/export function applyNormalizationBatchResult\([\s\S]*?\n\}/);
   assert.ok(fnMatch);
-  assert.match(fnMatch![0], /if \(!result\.ok\) \{[\s\S]{0,500}continue;/);
+  assert.match(fnMatch![0], /if \(!result\.ok\) \{[\s\S]{0,500}return;/);
   assert.doesNotMatch(fnMatch![0], /if \(!result\.ok\) \{[\s\S]{0,100}throw/);
 });
 

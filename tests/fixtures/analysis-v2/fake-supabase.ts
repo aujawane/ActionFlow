@@ -126,6 +126,7 @@ class FakeQuery implements PromiseLike<Result> {
   eq(column: string, value: unknown) { this.filters.push((row) => row[column] === value); return this; }
   neq(column: string, value: unknown) { this.filters.push((row) => row[column] !== value); return this; }
   is(column: string, value: unknown) { this.filters.push((row) => (row[column] ?? null) === value); return this; }
+  ilike(column: string, value: string) { this.filters.push((row) => String(row[column]).toLowerCase() === value.toLowerCase()); return this; }
   in(column: string, values: unknown[]) { this.filters.push((row) => values.includes(row[column])); return this; }
   order(column: string) { this.sortColumn = column; return this; }
   limit(count: number) { this.max = count; return this; }

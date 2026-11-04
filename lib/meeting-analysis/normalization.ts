@@ -6,7 +6,8 @@ import {
 import { buildTranscriptWithSegmentIds } from "@/lib/analysis";
 import {
   runTranscriptNormalizationModel,
-  type CreateStructuredResponse
+  type CreateStructuredResponse,
+  type TranscriptNormalizationModelResult
 } from "@/lib/execution-intelligence/work-item-model";
 import { TRANSCRIPT_NORMALIZATION_PROMPT } from "@/lib/execution-intelligence/work-item-prompts";
 import { participantMap } from "@/lib/execution-intelligence/stages";
@@ -20,7 +21,7 @@ import {
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
-import type { TranscriptCorrectionRecord, TranscriptSegment } from "@/lib/types";
+import type { ProjectVocabularyTerm, TranscriptCorrectionRecord, TranscriptSegment } from "@/lib/types";
 
 export const NORMALIZATION_BATCH_SIZE = 40;
 export const NORMALIZATION_BATCH_OVERLAP = 5;
@@ -310,7 +311,7 @@ export type NormalizationStageResult = {
   failureDetail: string | null;
 };
 
-const SKIPPED_DISABLED: NormalizationStageResult = {
+export const SKIPPED_DISABLED: NormalizationStageResult = {
   status: "skipped",
   reason: "disabled",
   segmentCount: 0,
@@ -321,34 +322,32 @@ const SKIPPED_DISABLED: NormalizationStageResult = {
   failureDetail: null
 };
 
-/**
- * Runs once, upstream of topic extraction, for every downstream analysis consumer (topics,
- * insights, both execution-intelligence engines, Project Brain via meeting_tasks/commitments).
- * Persists normalized_text/normalization_corrections/normalized_at directly onto
- * transcript_segments (transcript_segments.text itself is never touched) so
- * prepareMeetingAnalysis's ordinary re-query of that table automatically picks up the result --
- * no checkpoint plumbing needed for the hand-off to the next stage.
- *
- * Never throws for a normal "nothing to do" or "model failed" outcome -- a transient LLM/API
- * failure on some or all batches degrades to "less correction than usual", never to "meeting
- * blocked" or "raw transcript damaged": failed segments simply leave their raw text as the
- * effective text (normalized_text stays null), which is always a safe, correct fallback. Unlike
- * an earlier version of this stage, a failed segment's `normalized_at` is left NULL (not set) --
- * see resolveSegmentPersistence -- so it reads as "not yet normalized" and is retried by any
- * later run of this stage, rather than being indistinguishable from "successfully checked, no
- * correction needed". `normalization_failed_at` separately records that an attempt was made and
- * didn't complete, for observability. Only a genuine infrastructure failure (can't reach the
- * database at all) throws, exactly like every other analysis stage, so the durable job/retry
- * machinery in lib/meeting-analysis/jobs.ts can retry the whole stage.
- */
-export async function normalizeMeetingTranscriptForAnalysis(
-  meetingId: string,
-  options?: { createResponse?: CreateStructuredResponse }
-): Promise<NormalizationStageResult> {
-  if (!isTranscriptNormalizationEnabled()) {
-    return SKIPPED_DISABLED;
-  }
+/** The transcript in canonical order. Reads only raw `.text`: normalized_* columns never feed back
+ * into a batch, so re-running against already-normalized rows sees the same input. */
+export async function loadOrderedTranscriptSegments(meetingId: string): Promise<TranscriptSegment[]> {
+  const { data: rawSegments, error: segmentsError } = await supabaseAdmin
+    .from("transcript_segments")
+    .select("*")
+    .eq("meeting_id", meetingId)
+    .order("timestamp", { ascending: true });
+  if (segmentsError) throw new Error(segmentsError.message);
 
+  return canonicalTranscriptOrder((rawSegments ?? []) as TranscriptSegment[]).map(
+    normalizeTranscriptSpeaker
+  );
+}
+
+export type NormalizationInput = {
+  meetingId: string;
+  meetingDate: string;
+  projectId: string | null;
+  ordered: TranscriptSegment[];
+  approvedVocabulary: ProjectVocabularyTerm[];
+};
+
+export async function loadNormalizationInput(
+  meetingId: string
+): Promise<NormalizationInput | { skipped: NormalizationStageResult }> {
   const { data: meeting, error: meetingError } = await supabaseAdmin
     .from("meetings")
     .select("id, project_id, created_at")
@@ -359,22 +358,20 @@ export async function normalizeMeetingTranscriptForAnalysis(
     throw new Error(meetingError?.message ?? "Meeting not found.");
   }
 
-  const { data: rawSegments, error: segmentsError } = await supabaseAdmin
-    .from("transcript_segments")
-    .select("*")
-    .eq("meeting_id", meetingId)
-    .order("timestamp", { ascending: true });
-  if (segmentsError) throw new Error(segmentsError.message);
-
-  const ordered = canonicalTranscriptOrder((rawSegments ?? []) as TranscriptSegment[]).map(
-    normalizeTranscriptSpeaker
-  );
+  const ordered = await loadOrderedTranscriptSegments(meetingId);
   if (ordered.length === 0) {
-    return { ...SKIPPED_DISABLED, reason: "no_transcript" };
+    return { skipped: { ...SKIPPED_DISABLED, reason: "no_transcript" } };
   }
 
   const projectId = typeof meeting.project_id === "string" ? meeting.project_id : null;
   const approvedVocabulary = projectId ? await getApprovedProjectVocabulary(projectId) : [];
+  return { meetingId, meetingDate: meeting.created_at, projectId, ordered, approvedVocabulary };
+}
+
+/** Pure: everything every batch request and the merge are computed from. Batches are independent:
+ * each sees only deterministic corrections, never another batch's model output. */
+export function buildNormalizationPlan(input: NormalizationInput) {
+  const { ordered, approvedVocabulary } = input;
 
   // Deterministic pre-pass: no LLM call, only approved vocabulary (status is the trust boundary,
   // not source -- see lib/project-vocabulary.ts), only distinctive/unambiguous aliases (stoplist
@@ -397,10 +394,39 @@ export async function normalizeMeetingTranscriptForAnalysis(
     buildTranscriptWithSegmentIds(afterDeterministic)
   ).map((participant) => participant.name);
 
-  const batches = chunkSegmentsForNormalization(afterDeterministic);
-  const threshold = getTranscriptNormalizationAutoThreshold();
-  const timeoutMs = Math.max(getV4StageTimeoutMs("transcript_normalization"), 60_000);
+  return {
+    ...input,
+    deterministic,
+    vocabularyContext,
+    participants,
+    batches: chunkSegmentsForNormalization(afterDeterministic),
+    threshold: getTranscriptNormalizationAutoThreshold(),
+    timeoutMs: Math.max(getV4StageTimeoutMs("transcript_normalization"), 60_000)
+  };
+}
+export type NormalizationPlan = ReturnType<typeof buildNormalizationPlan>;
 
+/** Exactly one normalization model request for one batch. */
+export function requestNormalizationBatch(
+  plan: NormalizationPlan,
+  batch: NormalizationPlan["batches"][number],
+  options?: { createResponse?: CreateStructuredResponse }
+): Promise<TranscriptNormalizationModelResult> {
+  return runTranscriptNormalizationModel({
+    systemPrompt: TRANSCRIPT_NORMALIZATION_PROMPT,
+    timeoutMs: plan.timeoutMs,
+    createResponse: options?.createResponse,
+    context: {
+      meeting_id: plan.meetingId,
+      meeting_date: plan.meetingDate,
+      participants: plan.participants,
+      project_vocabulary: plan.vocabularyContext,
+      transcript: buildTranscriptWithSegmentIds(batch)
+    }
+  });
+}
+
+export function createNormalizationMerge() {
   const proposedBySegment = new Map<string, TranscriptCorrectionRecord[]>();
   const vocabularyCandidates: VocabularyCandidateInput[] = [];
   // Per-segment attempt outcome, not just a global flag -- a segment covered by one failed batch
@@ -408,108 +434,131 @@ export async function normalizeMeetingTranscriptForAnalysis(
   // segment covered ONLY by failed batch(es) must be retried, not silently treated as done. See
   // resolveSegmentPersistence.
   const segmentSucceeded = new Map<string, boolean>();
-  let anyModelFailure = false;
-  let lastFailureDetail: string | null = null;
+  return {
+    proposedBySegment,
+    vocabularyCandidates,
+    segmentSucceeded,
+    anyModelFailure: false,
+    lastFailureDetail: null as string | null
+  };
+}
+export type NormalizationMerge = ReturnType<typeof createNormalizationMerge>;
 
-  for (const batch of batches) {
-    const segmentIdsInBatch = new Set(batch.map((segment) => segment.id));
-    const transcriptWindow = buildTranscriptWithSegmentIds(batch);
+/**
+ * Folds one batch's result into the merge. Order sensitive (correction application order, dedupe's
+ * first occurrence, lastFailureDetail): callers MUST apply results in batch order. A failed batch
+ * is skipped, never thrown -- its segments keep their raw text unless another batch covers them.
+ */
+export function applyNormalizationBatchResult(
+  merge: NormalizationMerge,
+  plan: NormalizationPlan,
+  batch: NormalizationPlan["batches"][number],
+  result: TranscriptNormalizationModelResult
+) {
+  const { proposedBySegment, vocabularyCandidates, segmentSucceeded } = merge;
+  const { meetingId, participants, threshold } = plan;
+  const segmentIdsInBatch = new Set(batch.map((segment) => segment.id));
 
-    const result = await runTranscriptNormalizationModel({
-      systemPrompt: TRANSCRIPT_NORMALIZATION_PROMPT,
-      timeoutMs,
-      createResponse: options?.createResponse,
-      context: {
-        meeting_id: meetingId,
-        meeting_date: meeting.created_at,
-        participants,
-        project_vocabulary: vocabularyContext,
-        transcript: transcriptWindow
-      }
+  if (!result.ok) {
+    merge.anyModelFailure = true;
+    merge.lastFailureDetail = result.error;
+    for (const segmentId of segmentIdsInBatch) {
+      if (!segmentSucceeded.get(segmentId)) segmentSucceeded.set(segmentId, false);
+    }
+    console.warn("[transcript-normalization] Batch normalization failed; segments in this batch keep their raw text", {
+      meeting_id: meetingId,
+      batch_segment_count: batch.length,
+      error: result.error
     });
-
-    if (!result.ok) {
-      anyModelFailure = true;
-      lastFailureDetail = result.error;
-      for (const segmentId of segmentIdsInBatch) {
-        if (!segmentSucceeded.get(segmentId)) segmentSucceeded.set(segmentId, false);
-      }
-      console.warn("[transcript-normalization] Batch normalization failed; segments in this batch keep their raw text", {
-        meeting_id: meetingId,
-        batch_segment_count: batch.length,
-        error: result.error
-      });
-      continue;
-    }
-
-    for (const segmentId of segmentIdsInBatch) segmentSucceeded.set(segmentId, true);
-
-    for (const correction of result.corrections) {
-      if (!segmentIdsInBatch.has(correction.segment_id)) continue; // model must stay grounded to this batch
-      const record: TranscriptCorrectionRecord = {
-        original_token: correction.original_token,
-        replacement: correction.replacement,
-        confidence: correction.confidence,
-        reason: correction.reason,
-        source: "model",
-        // Confidence alone is not sufficient to trust an auto-apply: a correction must also be a
-        // safely-scoped entity-name span (isCorrectionSpanSafe) and must not be expanding a short
-        // spoken word into a longer participant identifier (isParticipantIdentifierExpansion).
-        // Either guard failing degrades the correction to a recorded-but-unapplied suggestion --
-        // it is never dropped, and normalized_text is never touched by it.
-        applied:
-          correction.confidence >= threshold &&
-          isCorrectionSpanSafe(correction.original_token) &&
-          isCorrectionSpanSafe(correction.replacement) &&
-          !isParticipantIdentifierExpansion(correction.original_token, correction.replacement, participants)
-      };
-      const existing = proposedBySegment.get(correction.segment_id) ?? [];
-      existing.push(record);
-      proposedBySegment.set(correction.segment_id, existing);
-    }
-
-    for (const candidate of result.vocabularyCandidates) {
-      vocabularyCandidates.push({
-        canonicalTerm: candidate.canonical_term,
-        observedAlias: candidate.observed_alias,
-        confidence: candidate.confidence,
-        evidenceMeetingId: meetingId,
-        evidenceSegmentIds: candidate.evidence_segment_ids.filter((id) => segmentIdsInBatch.has(id))
-      });
-    }
+    return;
   }
 
-  const now = new Date().toISOString();
+  for (const segmentId of segmentIdsInBatch) segmentSucceeded.set(segmentId, true);
+
+  for (const correction of result.corrections) {
+    if (!segmentIdsInBatch.has(correction.segment_id)) continue; // model must stay grounded to this batch
+    const record: TranscriptCorrectionRecord = {
+      original_token: correction.original_token,
+      replacement: correction.replacement,
+      confidence: correction.confidence,
+      reason: correction.reason,
+      source: "model",
+      // Confidence alone is not sufficient to trust an auto-apply: a correction must also be a
+      // safely-scoped entity-name span (isCorrectionSpanSafe) and must not be expanding a short
+      // spoken word into a longer participant identifier (isParticipantIdentifierExpansion).
+      // Either guard failing degrades the correction to a recorded-but-unapplied suggestion --
+      // it is never dropped, and normalized_text is never touched by it.
+      applied:
+        correction.confidence >= threshold &&
+        isCorrectionSpanSafe(correction.original_token) &&
+        isCorrectionSpanSafe(correction.replacement) &&
+        !isParticipantIdentifierExpansion(correction.original_token, correction.replacement, participants)
+    };
+    const existing = proposedBySegment.get(correction.segment_id) ?? [];
+    existing.push(record);
+    proposedBySegment.set(correction.segment_id, existing);
+  }
+
+  for (const candidate of result.vocabularyCandidates) {
+    vocabularyCandidates.push({
+      canonicalTerm: candidate.canonical_term,
+      observedAlias: candidate.observed_alias,
+      confidence: candidate.confidence,
+      evidenceMeetingId: meetingId,
+      evidenceSegmentIds: candidate.evidence_segment_ids.filter((id) => segmentIdsInBatch.has(id))
+    });
+  }
+}
+
+/**
+ * Pure: the row patch for every segment plus the run's counts. Each patch is computed from raw
+ * `text` and REPLACES the normalized columns, so writing a plan's patches twice can never apply a
+ * correction twice.
+ */
+export function buildNormalizationPatches(plan: NormalizationPlan, merge: NormalizationMerge, now: string) {
+  const { ordered, deterministic } = plan;
+  const { proposedBySegment, segmentSucceeded } = merge;
   let deterministicCorrectionCount = 0;
   let modelCorrectionCount = 0;
   let appliedCorrectionCount = 0;
 
-  await Promise.all(
-    ordered.map(async (segment) => {
-      const deterministicList = deterministic.corrections.get(segment.id) ?? [];
-      // Overlapping batches routinely propose the identical correction twice for a segment near a
-      // batch boundary (see chunkSegmentsForNormalization's 5-segment overlap) -- deduped here,
-      // once, right before it becomes part of the persisted audit trail.
-      const modelList = dedupeCorrections(proposedBySegment.get(segment.id) ?? []);
-      deterministicCorrectionCount += deterministicList.length;
-      modelCorrectionCount += modelList.length;
+  const patches = ordered.map((segment) => {
+    const deterministicList = deterministic.corrections.get(segment.id) ?? [];
+    // Overlapping batches routinely propose the identical correction twice for a segment near a
+    // batch boundary (see chunkSegmentsForNormalization's 5-segment overlap) -- deduped here,
+    // once, right before it becomes part of the persisted audit trail.
+    const modelList = dedupeCorrections(proposedBySegment.get(segment.id) ?? []);
+    deterministicCorrectionCount += deterministicList.length;
+    modelCorrectionCount += modelList.length;
 
-      const outcome = mergeSegmentNormalization({
-        originalText: segment.text,
-        deterministicText: deterministic.correctedText.get(segment.id) ?? null,
-        deterministicCorrections: deterministicList,
-        modelCorrections: modelList
-      });
-      appliedCorrectionCount += outcome.corrections.filter((c) => c.applied).length;
+    const outcome = mergeSegmentNormalization({
+      originalText: segment.text,
+      deterministicText: deterministic.correctedText.get(segment.id) ?? null,
+      deterministicCorrections: deterministicList,
+      modelCorrections: modelList
+    });
+    appliedCorrectionCount += outcome.corrections.filter((c) => c.applied).length;
 
-      // A segment covered by zero batches can't happen (chunkSegmentsForNormalization guarantees
-      // full coverage), but default to "not succeeded" rather than assume success if it ever did.
-      const succeeded = segmentSucceeded.get(segment.id) === true;
-      const patch = resolveSegmentPersistence({ succeeded, outcome, now });
+    // A segment covered by zero batches can't happen (chunkSegmentsForNormalization guarantees
+    // full coverage), but default to "not succeeded" rather than assume success if it ever did.
+    const succeeded = segmentSucceeded.get(segment.id) === true;
+    return { id: segment.id, patch: resolveSegmentPersistence({ succeeded, outcome, now }) };
+  });
 
-      await supabaseAdmin.from("transcript_segments").update(patch).eq("id", segment.id);
-    })
-  );
+  return { patches, counts: { deterministicCorrectionCount, modelCorrectionCount, appliedCorrectionCount } };
+}
+export type NormalizationCounts = ReturnType<typeof buildNormalizationPatches>["counts"];
+
+/** After the patches are written: vocabulary suggestions (repeat-safe, best effort), the summary
+ * log, and the stage result stored at checkpoint.normalization. */
+export async function finishNormalization(
+  plan: NormalizationPlan,
+  merge: NormalizationMerge,
+  counts: NormalizationCounts
+): Promise<NormalizationStageResult> {
+  const { meetingId, projectId, ordered, batches } = plan;
+  const { vocabularyCandidates, anyModelFailure, lastFailureDetail } = merge;
+  const { deterministicCorrectionCount, modelCorrectionCount, appliedCorrectionCount } = counts;
 
   if (projectId && vocabularyCandidates.length > 0) {
     try {
@@ -545,4 +594,54 @@ export async function normalizeMeetingTranscriptForAnalysis(
     vocabularyCandidateCount: vocabularyCandidates.length,
     failureDetail: lastFailureDetail
   };
+}
+
+/**
+ * Runs once, upstream of topic extraction, for every downstream analysis consumer (topics,
+ * insights, both execution-intelligence engines, Project Brain via meeting_tasks/commitments).
+ * Persists normalized_text/normalization_corrections/normalized_at directly onto
+ * transcript_segments (transcript_segments.text itself is never touched) so
+ * prepareMeetingAnalysis's ordinary re-query of that table automatically picks up the result --
+ * no checkpoint plumbing needed for the hand-off to the next stage.
+ *
+ * Never throws for a normal "nothing to do" or "model failed" outcome -- a transient LLM/API
+ * failure on some or all batches degrades to "less correction than usual", never to "meeting
+ * blocked" or "raw transcript damaged": failed segments simply leave their raw text as the
+ * effective text (normalized_text stays null), which is always a safe, correct fallback. Unlike
+ * an earlier version of this stage, a failed segment's `normalized_at` is left NULL (not set) --
+ * see resolveSegmentPersistence -- so it reads as "not yet normalized" and is retried by any
+ * later run of this stage, rather than being indistinguishable from "successfully checked, no
+ * correction needed". `normalization_failed_at` separately records that an attempt was made and
+ * didn't complete, for observability. Only a genuine infrastructure failure (can't reach the
+ * database at all) throws, exactly like every other analysis stage, so the durable job/retry
+ * machinery in lib/meeting-analysis/jobs.ts can retry the whole stage.
+ *
+ * Pipeline v1's topology: batches run sequentially in this one invocation. Pipeline v2 runs the
+ * same pieces as durable units (see v2-normalization.ts).
+ */
+export async function normalizeMeetingTranscriptForAnalysis(
+  meetingId: string,
+  options?: { createResponse?: CreateStructuredResponse }
+): Promise<NormalizationStageResult> {
+  if (!isTranscriptNormalizationEnabled()) {
+    return SKIPPED_DISABLED;
+  }
+
+  const input = await loadNormalizationInput(meetingId);
+  if ("skipped" in input) return input.skipped;
+
+  const plan = buildNormalizationPlan(input);
+  const merge = createNormalizationMerge();
+  for (const batch of plan.batches) {
+    applyNormalizationBatchResult(merge, plan, batch, await requestNormalizationBatch(plan, batch, options));
+  }
+
+  const { patches, counts } = buildNormalizationPatches(plan, merge, new Date().toISOString());
+  await Promise.all(
+    patches.map(async ({ id, patch }) => {
+      await supabaseAdmin.from("transcript_segments").update(patch).eq("id", id);
+    })
+  );
+
+  return finishNormalization(plan, merge, counts);
 }

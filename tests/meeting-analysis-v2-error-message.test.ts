@@ -206,7 +206,7 @@ test("only the message extraction changed: the catch still marks once, then reth
   assert.doesNotMatch(workflow, /error instanceof Error/);
   assert.equal(catchBody.match(/failV2AnalysisStep\(/g)?.length, 1);
   // Retry configuration is still the SDK default: no maxRetries or retry-related overrides in v2 steps.
-  for (const file of ["v2-workflow-steps", "v2-topic-steps", "v2-conversation-event-steps", "v2-candidate-steps"]) {
+  for (const file of ["v2-workflow-steps", "v2-normalization-steps", "v2-topic-steps", "v2-conversation-event-steps", "v2-candidate-steps"]) {
     const source = await readFile(new URL(`../lib/meeting-analysis/${file}.ts`, import.meta.url), "utf8");
     assert.doesNotMatch(source, /maxRetries|RetryableError/, file);
   }
