@@ -284,7 +284,7 @@ test("[19-26][31] reversed durable completion has v1-equivalent refs, grounding,
 });
 
 function stageDeps(inputDeps: {
-  after: MeetingAnalysisStageDeps["runV4GlobalCorrectionAfterHarvest"];
+  after: MeetingAnalysisStageDeps["runV4GlobalCorrectionAfterCompleteness"];
   onLegacy: () => void;
 }): MeetingAnalysisStageDeps {
   const noop = async (value: unknown) => value as never;
@@ -297,7 +297,8 @@ function stageDeps(inputDeps: {
     runActionExtraction: noop,
     runV4WorkItemExtraction: noop,
     runV4GlobalCorrection: async (state: V4ExecutionState) => { inputDeps.onLegacy(); return state; },
-    runV4GlobalCorrectionAfterHarvest: inputDeps.after,
+    runV4GlobalCorrectionAfterCompleteness: inputDeps.after,
+    runV4GlobalCorrectionAfterHarvest: async (state: V4ExecutionState) => { inputDeps.onLegacy(); return state; },
     runCommitmentExtraction: noop,
     runV4Grouping: noop,
     runRelationshipEvaluation: noop,
@@ -311,14 +312,15 @@ function stageDeps(inputDeps: {
   } as unknown as MeetingAnalysisStageDeps;
 }
 
-test("[27-30] post-harvest global correction never calls harvest, retains gcV2 on failure/retry, and removes it only on success", async () => {
+test("[27-30] post-completeness global correction never calls harvest, retains gcV2 on failure/retry, and removes it only on success", async () => {
   const value = source(1);
   seed({}, value);
   const windows = planAtomicActionHarvestWindows(value);
   const assembled = assembleAtomicActionHarvestPass({ source: value, windows,
     results: [windowResult(0, segmentId(0))], latencyMs: 3 });
   assert.equal(assembled.ok, true);
-  (jobCheckpoint() as Row).gcV2 = { harvest: assembled };
+  const final = { ok: true, additions: [] };
+  (jobCheckpoint() as Row).gcV2 = { harvest: assembled, completeness: { final } };
   let legacyCalls = 0;
   let afterCalls = 0;
   const failing = stageDeps({
@@ -332,7 +334,7 @@ test("[27-30] post-harvest global correction never calls harvest, retains gcV2 o
   Object.assign(jobRow(), { status: "running", current_stage: "atomic_action_harvest", progress: 37, error: null });
   const succeeding = stageDeps({
     onLegacy: () => { legacyCalls += 1; },
-    after: async (state, harvest) => { afterCalls += 1; assert.equal(harvest, (jobCheckpoint().gcV2 as Row).harvest); return state; }
+    after: async (state, completeness) => { afterCalls += 1; assert.equal(completeness, ((jobCheckpoint().gcV2 as Row).completeness as Row).final); return state; }
   });
   await runMeetingAnalysisStage({ ...input, stage: "global_correction" }, succeeding);
   assert.equal(afterCalls, 2);
@@ -340,9 +342,9 @@ test("[27-30] post-harvest global correction never calls harvest, retains gcV2 o
   assert.equal(jobCheckpoint().gcV2, undefined);
 });
 
-test("[15][27][32] post-harvest entry rejects old topology before model work; workflow uses the bounded durable barrier only for v4", async () => {
+test("[15][27][32] post-completeness entry rejects old topology before model work; workflow uses bounded durable barriers only for v4", async () => {
   const value = source(1);
-  seed({ checkpoint: { ...checkpoint(value), v2Topology: undefined, gcV2: { harvest: { ok: true, candidates: [] } } } }, value);
+  seed({ checkpoint: { ...checkpoint(value), v2Topology: undefined, gcV2: { harvest: { ok: true, candidates: [] }, completeness: { final: { ok: true, additions: [] } } } } }, value);
   let calls = 0;
   await assert.rejects(runMeetingAnalysisStage({ ...input, stage: "global_correction" }, stageDeps({
     onLegacy: () => { calls += 1; }, after: async (state) => { calls += 1; return state; }

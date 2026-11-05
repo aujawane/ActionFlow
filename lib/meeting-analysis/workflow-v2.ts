@@ -18,6 +18,13 @@ import {
   runConversationEventUnitStep
 } from "@/lib/meeting-analysis/v2-conversation-event-steps";
 import {
+  finalizeCompletenessPrimaryStep,
+  finalizeCompletenessStep,
+  planCompletenessPrimaryStep,
+  runCompletenessCoverageUnitStep,
+  runCompletenessPrimaryUnitStep
+} from "@/lib/meeting-analysis/v2-completeness-adjudication-steps";
+import {
   finalizeNormalizationStep,
   planNormalizationStep,
   runNormalizationUnitStep
@@ -51,8 +58,9 @@ const STAGES_AFTER_CANDIDATES = ANALYSIS_STAGE_ORDER.slice(
 );
 
 /** Pipeline v2 (B2 topology). transcript_normalization, topic_extraction, conversation_events,
- * candidates and atomic_action_harvest are durable fan-out. The remaining global-correction work
- * starts behind the harvest checkpoint barrier; later stages use the unchanged v1 stage logic.
+ * candidates, atomic_action_harvest and completeness adjudication are durable. Completeness keeps
+ * v1's sequential primary/coverage call topology as two separate durable waves. The remaining
+ * global-correction work starts at lifecycle reconciliation; later stages use unchanged v1 logic.
  * Started only by enqueueMeetingAnalysisV2 (explicit, staging-gated opt-in), always on a freshly
  * claimed job. */
 export async function meetingAnalysisV2Workflow(input: { meetingId: string; jobId: string; generation: number }) {
@@ -89,8 +97,20 @@ export async function meetingAnalysisV2Workflow(input: { meetingId: string; jobI
       const harvest = await planAtomicActionHarvestStep(input);
       await runOrderedAnalysisUnits(harvest.units, (unit) =>
         runAtomicActionHarvestUnitStep({ ...input, unitKey: unit.unitKey }));
-      // Barrier: global_correction starts at adjudication from checkpoint.gcV2.harvest.
+      // Barrier: primary completeness units read checkpoint.gcV2.harvest.
       await finalizeAtomicActionHarvestStep(input);
+      const primary = await planCompletenessPrimaryStep(input);
+      // v1 completeness adjudication is sequential; keep exact concurrency rather than using the
+      // ordinary two-wide durable unit pool.
+      for (const unit of primary.units) {
+        await runCompletenessPrimaryUnitStep({ ...input, unitKey: unit.unitKey });
+      }
+      const coverage = await finalizeCompletenessPrimaryStep(input);
+      for (const unit of coverage.units) {
+        await runCompletenessCoverageUnitStep({ ...input, unitKey: unit.unitKey });
+      }
+      // Barrier: global_correction now starts at lifecycle from gcV2.completeness.final.
+      await finalizeCompletenessStep(input);
     } else {
       await runV2AnalysisStageStep({ ...input, stage: "candidates" });
     }

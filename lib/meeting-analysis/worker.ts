@@ -14,6 +14,7 @@ import {
   runV4ConversationEventExtraction,
   runV4FinalReconciliation,
   runV4GlobalCorrection,
+  runV4GlobalCorrectionAfterCompleteness,
   runV4GlobalCorrectionAfterHarvest,
   runV4Grouping,
   runV4GroupingVerification,
@@ -22,7 +23,10 @@ import {
   runV4WorkItemExtraction,
   type V4ExecutionState
 } from "@/lib/execution-intelligence/v4-pipeline";
-import type { AtomicActionHarvestPassResult } from "@/lib/execution-intelligence/work-item-stages";
+import type {
+  AtomicActionHarvestPassResult,
+  CompletenessRecoveryPassResult
+} from "@/lib/execution-intelligence/work-item-stages";
 import {
   getExecutionIntelligenceEngine,
   type ExecutionIntelligenceEngine
@@ -67,7 +71,11 @@ type AnalysisCheckpoint = {
   prepared?: PreparedMeetingAnalysis;
   state?: DurableExecutionState;
   v4State?: V4ExecutionState;
-  gcV2?: { harvest?: Extract<AtomicActionHarvestPassResult, { ok: true }>; [key: string]: unknown };
+  gcV2?: {
+    harvest?: Extract<AtomicActionHarvestPassResult, { ok: true }>;
+    completeness?: { final?: Extract<CompletenessRecoveryPassResult, { ok: true }>; [key: string]: unknown };
+    [key: string]: unknown;
+  };
 };
 
 function asCheckpoint(value: unknown): AnalysisCheckpoint {
@@ -90,6 +98,7 @@ const stageDeps = {
   runActionExtraction,
   runV4WorkItemExtraction,
   runV4GlobalCorrection,
+  runV4GlobalCorrectionAfterCompleteness,
   runV4GlobalCorrectionAfterHarvest,
   runCommitmentExtraction,
   runV4Grouping,
@@ -213,11 +222,11 @@ export async function runMeetingAnalysisStage(input: {
         if (!checkpoint.v4State) throw new Error("Missing execution graph checkpoint.");
         if (job.pipeline_version === 2) {
           validateB2Topology(job);
-          const harvest = checkpoint.gcV2?.harvest;
-          if (!harvest || harvest.ok !== true || !Array.isArray(harvest.candidates)) {
-            throw new AnalysisUnitValidationError("Missing atomic action harvest checkpoint.");
+          const completeness = checkpoint.gcV2?.completeness?.final;
+          if (!completeness || completeness.ok !== true || !Array.isArray(completeness.additions)) {
+            throw new AnalysisUnitValidationError("Missing completeness checkpoint.");
           }
-          const v4State = await deps.runV4GlobalCorrectionAfterHarvest(checkpoint.v4State, harvest);
+          const v4State = await deps.runV4GlobalCorrectionAfterCompleteness(checkpoint.v4State, completeness);
           await save({ prepared: checkpoint.prepared, engine, v4State }, { remove: ["gcV2"] });
         } else {
           const v4State = await deps.runV4GlobalCorrection(checkpoint.v4State);

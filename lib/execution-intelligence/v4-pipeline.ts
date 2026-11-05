@@ -397,6 +397,15 @@ export async function runV4GlobalCorrectionAfterHarvest(
   return continueV4GlobalCorrection(state, passA);
 }
 
+/** Pipeline-v2 post-completeness entry. The supplied durable result is already grounded and
+ * deduplicated; this path begins at lifecycle reconciliation and cannot issue completeness calls. */
+export async function runV4GlobalCorrectionAfterCompleteness(
+  state: V4ExecutionState,
+  completeness: Extract<CompletenessRecoveryPassResult, { ok: true }>
+): Promise<V4ExecutionState> {
+  return continueV4GlobalCorrection(state, completeness);
+}
+
 async function continueV4GlobalCorrection(
   state: V4ExecutionState,
   passA: CompletenessRecoveryPassResult

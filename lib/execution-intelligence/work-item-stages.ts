@@ -19,6 +19,7 @@ import {
   runScopeDeferralVerificationModel,
   runWorkItemExtractionModel,
   type AtomicActionHarvestModelResult,
+  type CompletenessAdjudicationModelResult,
   type CreateStructuredResponse,
   type TokenUsage,
   type WorkItemExtractionModelResult
@@ -702,15 +703,54 @@ export type CompletenessAdjudicationPassResult =
     } & CompletenessAdjudicationCounts)
   | { ok: false; error: string; details?: string; latencyMs: number; validationFailure: boolean };
 
-async function requestCompletenessAdjudication(input: {
+export type CompletenessAdjudicationBatchDescriptor = {
+  batchIndex: number;
+  candidateRefs: string[];
+};
+
+export type CompletenessCoverageDescriptor = {
+  retryIndex: number;
+  batchIndex: number;
+  candidateRefs: string[];
+};
+
+export type CompletenessPrimaryBatchState = {
+  batchIndex: number;
+  candidateRefs: string[];
+  coveredDecisions: CompletenessAdjudicationDecision[];
+  missingCandidateRefs: string[];
+  latencyMs: number;
+  salvagedItems: number;
+  usage: TokenUsage | null;
+};
+
+export type CompletenessPrimaryState = {
+  batches: CompletenessPrimaryBatchState[];
+  coveragePlan: CompletenessCoverageDescriptor[];
+  latencyMs: number;
+};
+
+/** Pure primary batching: canonical harvest candidate order, unchanged batches of 15. */
+export function planCompletenessAdjudicationBatches(
+  candidates: readonly HarvestedCandidate[]
+): CompletenessAdjudicationBatchDescriptor[] {
+  return chunkIntoBatches(
+    candidates.map((candidate) => candidate.canonicalRef),
+    COMPLETENESS_ADJUDICATION_BATCH_SIZE
+  ).map((candidateRefs, batchIndex) => ({ batchIndex, candidateRefs }));
+}
+
+/** The exact primary/coverage request. Coverage differs only by the narrower ref descriptor. */
+export function requestCompletenessAdjudicationBatch(input: {
   source: ExecutionSourceContext;
-  candidatesByRef: Map<string, HarvestedCandidate>;
-  ledgerSummary: ReturnType<typeof buildLedgerSummary>;
+  existingWorkItems: WorkItem[];
+  candidates: readonly HarvestedCandidate[];
   refs: readonly string[];
   createResponse?: CreateStructuredResponse;
 }) {
+  const candidatesByRef = new Map(input.candidates.map((candidate) => [candidate.canonicalRef, candidate]));
   const candidates = input.refs.flatMap((ref) => {
-    const candidate = input.candidatesByRef.get(ref);
+    const candidate = candidatesByRef.get(ref);
     if (!candidate) return [];
     return [
       {
@@ -733,10 +773,133 @@ async function requestCompletenessAdjudication(input: {
       project: input.source.project ?? null,
       participants: participantMap(input.source.transcript),
       transcript: input.source.transcript,
-      existing_ledger: input.ledgerSummary,
+      existing_ledger: buildLedgerSummary(input.existingWorkItems),
       candidates
     }
   });
+}
+
+/** Deterministic primary barrier assembly. A handled primary failure fails the whole pass. */
+export function assembleCompletenessPrimaryState(input: {
+  plan: readonly CompletenessAdjudicationBatchDescriptor[];
+  results: readonly CompletenessAdjudicationModelResult[];
+  latencyMs: number;
+}): CompletenessPrimaryState | Extract<CompletenessAdjudicationModelResult, { ok: false }> {
+  const batches: CompletenessPrimaryBatchState[] = [];
+  for (let index = 0; index < input.plan.length; index += 1) {
+    const descriptor = input.plan[index];
+    const result = input.results[index];
+    if (!result) throw new Error(`Missing completeness primary result ${descriptor.batchIndex}.`);
+    if (!result.ok) return result;
+    const coverage = validateCompletenessAdjudicationCoverage(descriptor.candidateRefs, result.decisions);
+    batches.push({
+      batchIndex: descriptor.batchIndex,
+      candidateRefs: [...descriptor.candidateRefs],
+      coveredDecisions: coverage.covered,
+      missingCandidateRefs: coverage.missingCandidateRefs,
+      latencyMs: result.latencyMs,
+      salvagedItems: result.salvagedItems,
+      usage: result.usage
+    });
+  }
+  const coveragePlan = batches.flatMap((batch) =>
+    batch.missingCandidateRefs.length === 0
+      ? []
+      : [{
+          retryIndex: 0,
+          batchIndex: batch.batchIndex,
+          candidateRefs: [...batch.missingCandidateRefs]
+        }]
+  ).map((descriptor, retryIndex) => ({ ...descriptor, retryIndex }));
+  return { batches, coveragePlan, latencyMs: input.latencyMs };
+}
+
+function emptyCompletenessCounts(): CompletenessAdjudicationCounts {
+  return {
+    completenessDecisionAdd: 0,
+    completenessDecisionAlreadyRepresented: 0,
+    completenessDecisionSpeculativeOrInactive: 0,
+    completenessDecisionRetrospectiveOrCompleted: 0,
+    completenessDecisionNonExecution: 0,
+    completenessDecisionInsufficientGrounding: 0
+  };
+}
+
+/** Deterministically interleaves each primary batch with its coverage result, matching v1 order. */
+export function assembleCompletenessAdjudicationWaves(input: {
+  primary: CompletenessPrimaryState;
+  coverageResults: readonly CompletenessAdjudicationModelResult[];
+  latencyMs: number;
+}): Extract<CompletenessAdjudicationPassResult, { ok: true }> {
+  const coverageByBatch = new Map<number, CompletenessAdjudicationModelResult>();
+  input.primary.coveragePlan.forEach((descriptor, index) => {
+    const result = input.coverageResults[index];
+    if (!result) throw new Error(`Missing completeness coverage result ${descriptor.retryIndex}.`);
+    coverageByBatch.set(descriptor.batchIndex, result);
+  });
+  const decisions: CompletenessAdjudicationDecision[] = [];
+  const missingCandidateRefsAfterRetry: string[] = [];
+  const usages: Array<TokenUsage | null> = [];
+  let salvagedItems = 0;
+  for (const batch of input.primary.batches) {
+    decisions.push(...batch.coveredDecisions);
+    salvagedItems += batch.salvagedItems;
+    usages.push(batch.usage);
+    if (batch.missingCandidateRefs.length === 0) continue;
+    const retry = coverageByBatch.get(batch.batchIndex);
+    if (!retry) throw new Error(`Missing completeness coverage result for batch ${batch.batchIndex}.`);
+    if (!retry.ok) {
+      missingCandidateRefsAfterRetry.push(...batch.missingCandidateRefs);
+      continue;
+    }
+    salvagedItems += retry.salvagedItems;
+    usages.push(retry.usage);
+    const retryCoverage = validateCompletenessAdjudicationCoverage(batch.missingCandidateRefs, retry.decisions);
+    decisions.push(...retryCoverage.covered);
+    missingCandidateRefsAfterRetry.push(...retryCoverage.missingCandidateRefs);
+  }
+
+  const counts = emptyCompletenessCounts();
+  const additions: GlobalWorkItemAddition[] = [];
+  for (const decision of decisions) {
+    switch (decision.disposition) {
+      case "add":
+        counts.completenessDecisionAdd += 1;
+        if (decision.addition) additions.push(decision.addition);
+        break;
+      case "already_represented": counts.completenessDecisionAlreadyRepresented += 1; break;
+      case "speculative_or_inactive": counts.completenessDecisionSpeculativeOrInactive += 1; break;
+      case "retrospective_or_completed": counts.completenessDecisionRetrospectiveOrCompleted += 1; break;
+      case "non_execution": counts.completenessDecisionNonExecution += 1; break;
+      case "insufficient_grounding": counts.completenessDecisionInsufficientGrounding += 1; break;
+    }
+  }
+  let traceTruncated = false;
+  const adjudicationTrace: PassBAdjudicationTraceEntry[] = [];
+  for (const decision of decisions) {
+    if (adjudicationTrace.length >= PASS_A_TRACE_MAX_ENTRIES) {
+      traceTruncated = true;
+      break;
+    }
+    adjudicationTrace.push({
+      candidateId: decision.candidate_id,
+      disposition: decision.disposition,
+      reason: decision.reason
+    });
+  }
+  return {
+    ok: true,
+    additions,
+    candidatesExpected: input.primary.batches.reduce((total, batch) => total + batch.candidateRefs.length, 0),
+    decisionsReceived: decisions.length,
+    missingCandidateRefsAfterRetry,
+    latencyMs: input.latencyMs,
+    salvagedItems,
+    usage: sumUsage(usages),
+    adjudicationTrace,
+    traceTruncated,
+    ...counts
+  };
 }
 
 /**
@@ -756,54 +919,20 @@ export async function runCompletenessAdjudicationPass(input: {
   createResponse?: CreateStructuredResponse;
 }): Promise<CompletenessAdjudicationPassResult> {
   const startedAt = Date.now();
-  const candidatesByRef = new Map(input.candidates.map((candidate) => [candidate.canonicalRef, candidate]));
-  const requestedRefs = input.candidates.map((candidate) => candidate.canonicalRef);
-  const counts: CompletenessAdjudicationCounts = {
-    completenessDecisionAdd: 0,
-    completenessDecisionAlreadyRepresented: 0,
-    completenessDecisionSpeculativeOrInactive: 0,
-    completenessDecisionRetrospectiveOrCompleted: 0,
-    completenessDecisionNonExecution: 0,
-    completenessDecisionInsufficientGrounding: 0
-  };
-
-  if (requestedRefs.length === 0) {
-    return {
-      ok: true,
-      additions: [],
-      candidatesExpected: 0,
-      decisionsReceived: 0,
-      missingCandidateRefsAfterRetry: [],
-      latencyMs: Date.now() - startedAt,
-      salvagedItems: 0,
-      usage: null,
-      adjudicationTrace: [],
-      traceTruncated: false,
-      ...counts
-    };
-  }
-
-  const ledgerSummary = buildLedgerSummary(input.existingWorkItems);
-  const batches = chunkIntoBatches(requestedRefs, COMPLETENESS_ADJUDICATION_BATCH_SIZE);
-  const decisions: CompletenessAdjudicationDecision[] = [];
-  const missingCandidateRefsAfterRetry: string[] = [];
-  let salvagedItems = 0;
-  const usages: Array<TokenUsage | null> = [];
-
-  for (const batchRefs of batches) {
-    const attempt = await requestCompletenessAdjudication({
+  const plan = planCompletenessAdjudicationBatches(input.candidates);
+  const primaryResults: CompletenessAdjudicationModelResult[] = [];
+  const coverageResults: CompletenessAdjudicationModelResult[] = [];
+  for (const batch of plan) {
+    const attempt = await requestCompletenessAdjudicationBatch({
       source: input.source,
-      candidatesByRef,
-      ledgerSummary,
-      refs: batchRefs,
+      existingWorkItems: input.existingWorkItems,
+      candidates: input.candidates,
+      refs: batch.candidateRefs,
       createResponse: input.createResponse
     });
     if (!attempt.ok) return { ...attempt, latencyMs: Date.now() - startedAt };
-    salvagedItems += attempt.salvagedItems;
-    usages.push(attempt.usage);
-
-    const { covered, missingCandidateRefs } = validateCompletenessAdjudicationCoverage(batchRefs, attempt.decisions);
-    decisions.push(...covered);
+    primaryResults.push(attempt);
+    const { missingCandidateRefs } = validateCompletenessAdjudicationCoverage(batch.candidateRefs, attempt.decisions);
     if (missingCandidateRefs.length === 0) continue;
 
     console.warn(
@@ -811,10 +940,10 @@ export async function runCompletenessAdjudicationPass(input: {
       { meeting_id: input.source.meetingId, missing_candidate_refs: missingCandidateRefs }
     );
 
-    const retry = await requestCompletenessAdjudication({
+    const retry = await requestCompletenessAdjudicationBatch({
       source: input.source,
-      candidatesByRef,
-      ledgerSummary,
+      existingWorkItems: input.existingWorkItems,
+      candidates: input.candidates,
       refs: missingCandidateRefs,
       createResponse: input.createResponse
     });
@@ -823,78 +952,25 @@ export async function runCompletenessAdjudicationPass(input: {
         "[execution-intelligence-v4] Completeness adjudication retry call failed; leaving candidates unadjudicated",
         { meeting_id: input.source.meetingId, missing_candidate_refs: missingCandidateRefs, error: retry.error }
       );
-      missingCandidateRefsAfterRetry.push(...missingCandidateRefs);
+      coverageResults.push(retry);
       continue;
     }
-    salvagedItems += retry.salvagedItems;
-    usages.push(retry.usage);
-
     const retryCoverage = validateCompletenessAdjudicationCoverage(missingCandidateRefs, retry.decisions);
-    decisions.push(...retryCoverage.covered);
+    coverageResults.push(retry);
     if (retryCoverage.missingCandidateRefs.length > 0) {
       console.warn(
         "[execution-intelligence-v4] Completeness adjudication still omitted candidates after retry; leaving them unadjudicated",
         { meeting_id: input.source.meetingId, missing_candidate_refs: retryCoverage.missingCandidateRefs }
       );
-      missingCandidateRefsAfterRetry.push(...retryCoverage.missingCandidateRefs);
     }
   }
-
-  const additions: GlobalWorkItemAddition[] = [];
-  for (const decision of decisions) {
-    switch (decision.disposition) {
-      case "add":
-        counts.completenessDecisionAdd += 1;
-        // Malformed fallback (C3): "add" without a schema-valid addition payload is never silently
-        // treated as any other disposition -- it simply contributes nothing, exactly like a
-        // candidate that was never adjudicated at all.
-        if (decision.addition) additions.push(decision.addition);
-        break;
-      case "already_represented":
-        counts.completenessDecisionAlreadyRepresented += 1;
-        break;
-      case "speculative_or_inactive":
-        counts.completenessDecisionSpeculativeOrInactive += 1;
-        break;
-      case "retrospective_or_completed":
-        counts.completenessDecisionRetrospectiveOrCompleted += 1;
-        break;
-      case "non_execution":
-        counts.completenessDecisionNonExecution += 1;
-        break;
-      case "insufficient_grounding":
-        counts.completenessDecisionInsufficientGrounding += 1;
-        break;
-    }
-  }
-
-  let traceTruncated = false;
-  const adjudicationTrace: PassBAdjudicationTraceEntry[] = [];
-  for (const decision of decisions) {
-    if (adjudicationTrace.length >= PASS_A_TRACE_MAX_ENTRIES) {
-      traceTruncated = true;
-      break;
-    }
-    adjudicationTrace.push({
-      candidateId: decision.candidate_id,
-      disposition: decision.disposition,
-      reason: decision.reason
-    });
-  }
-
-  return {
-    ok: true,
-    additions,
-    candidatesExpected: requestedRefs.length,
-    decisionsReceived: decisions.length,
-    missingCandidateRefsAfterRetry,
-    latencyMs: Date.now() - startedAt,
-    salvagedItems,
-    usage: sumUsage(usages),
-    adjudicationTrace,
-    traceTruncated,
-    ...counts
-  };
+  const primary = assembleCompletenessPrimaryState({ plan, results: primaryResults, latencyMs: 0 });
+  if (!("batches" in primary)) return { ...primary, latencyMs: Date.now() - startedAt };
+  return assembleCompletenessAdjudicationWaves({
+    primary,
+    coverageResults,
+    latencyMs: Date.now() - startedAt
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -970,11 +1046,6 @@ export async function runCompletenessRecoveryAfterHarvest(input: {
   const startedAt = Date.now();
   const harvest = input.harvest;
 
-  const proposedByWindow: CompletenessWindowProposalCount[] = harvest.harvestedByWindow.map((w) => ({
-    windowIndex: w.windowIndex,
-    proposed: w.harvested
-  }));
-
   const adjudication = await runCompletenessAdjudicationPass({
     source: input.source,
     existingWorkItems: input.workItems,
@@ -984,6 +1055,29 @@ export async function runCompletenessRecoveryAfterHarvest(input: {
   if (!adjudication.ok) {
     return { ...adjudication, latencyMs: harvest.latencyMs + (Date.now() - startedAt) };
   }
+
+  return assembleCompletenessRecoveryAfterAdjudication({
+    source: input.source,
+    workItems: input.workItems,
+    harvest,
+    adjudication,
+    latencyMs: harvest.latencyMs + (Date.now() - startedAt)
+  });
+}
+
+/** Pure completeness finalizer: adjudication decisions -> grounding/dedup -> lifecycle input. */
+export function assembleCompletenessRecoveryAfterAdjudication(input: {
+  source: ExecutionSourceContext;
+  workItems: WorkItem[];
+  harvest: Extract<AtomicActionHarvestPassResult, { ok: true }>;
+  adjudication: Extract<CompletenessAdjudicationPassResult, { ok: true }>;
+  latencyMs: number;
+}): Extract<CompletenessRecoveryPassResult, { ok: true }> {
+  const { harvest, adjudication } = input;
+  const proposedByWindow: CompletenessWindowProposalCount[] = harvest.harvestedByWindow.map((w) => ({
+    windowIndex: w.windowIndex,
+    proposed: w.harvested
+  }));
 
   const windowByCanonicalRef = new Map(harvest.candidates.map((c) => [c.canonicalRef, c.windowIndex]));
   const additionWindow = new Map<GlobalWorkItemAddition, number | null>();
@@ -1040,7 +1134,7 @@ export async function runCompletenessRecoveryAfterHarvest(input: {
       completenessDecisionNonExecution: adjudication.completenessDecisionNonExecution,
       completenessDecisionInsufficientGrounding: adjudication.completenessDecisionInsufficientGrounding
     },
-    latencyMs: harvest.latencyMs + (Date.now() - startedAt),
+    latencyMs: input.latencyMs,
     salvagedItems: harvest.salvagedItems + adjudication.salvagedItems,
     usage: sumUsage([harvest.usage, adjudication.usage]),
     harvestTrace: harvest.harvestTrace,

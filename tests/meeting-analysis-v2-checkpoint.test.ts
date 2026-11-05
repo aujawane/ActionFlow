@@ -55,6 +55,7 @@ const HARVEST = {
   ok: true as const, candidates: [], harvestedByWindow: [], groundingRejected: 0, latencyMs: 1,
   salvagedItems: 0, usage: null, harvestTrace: [], groundingRejectionTrace: [], traceTruncated: false
 };
+const COMPLETENESS = { ok: true as const, additions: [] };
 /** The full B2 checkpoint shape every downstream v2 write must preserve. */
 const fullCheckpoint = () => ({
   checkpointVersion: 2,
@@ -64,7 +65,7 @@ const fullCheckpoint = () => ({
   prepared: structuredClone(PREPARED),
   engine: "v4",
   v4State: { tag: "v4State-before" },
-  gcV2: { harvest: structuredClone(HARVEST) }
+  gcV2: { harvest: structuredClone(HARVEST), completeness: { final: structuredClone(COMPLETENESS) } }
 });
 
 function seed(job: Row = {}) {
@@ -93,6 +94,7 @@ function fakeDeps(onCall: (name: string) => void = () => {}): MeetingAnalysisSta
     runActionExtraction: out("candidates", { tag: "state-candidates" }),
     runV4WorkItemExtraction: out("candidates", { tag: "v4-candidates" }),
     runV4GlobalCorrection: out("global_correction", { tag: "v4-global-correction" }),
+    runV4GlobalCorrectionAfterCompleteness: out("global_correction", { tag: "v4-global-correction" }),
     runV4GlobalCorrectionAfterHarvest: out("global_correction", { tag: "v4-global-correction" }),
     runCommitmentExtraction: out("verification", { tag: "state-verification" }),
     runV4Grouping: out("verification", { tag: "v4-verification" }),
@@ -150,7 +152,7 @@ test("[checkpoint] v2 transcript_normalization and topic_extraction writes keep 
 });
 
 test("[checkpoint] the full downstream v2 chain never loses version, topology, normalization or unknown keys", async () => {
-  seed({ checkpoint: { checkpointVersion: 2, v2Topology: "b2", normalization: NORMALIZATION, unknownFutureKey: UNKNOWN, prepared: PREPARED, engine: "v4", gcV2: { harvest: HARVEST } } });
+  seed({ checkpoint: { checkpointVersion: 2, v2Topology: "b2", normalization: NORMALIZATION, unknownFutureKey: UNKNOWN, prepared: PREPARED, engine: "v4", gcV2: { harvest: HARVEST, completeness: { final: COMPLETENESS } } } });
   for (const [stage] of V4_OWNED) await runStage(stage);
   const saved = jobRow().checkpoint as Row;
   assert.deepEqual(
@@ -414,7 +416,7 @@ test("[retry] retry_count is attempt - 1 for v2 stage steps; v1 keeps writing 0"
 test("[registry] B2 stages are registered with monotonic progress; v1 order and values are unchanged", () => {
   const v2Sequence = ["candidates", ...V2_DOWNSTREAM_STAGE_ORDER.slice(2), "verification"] as const;
   const progress = v2Sequence.map((stage) => ANALYSIS_STAGES[stage].progress);
-  assert.deepEqual(progress, [35, 37, 39, 42, 45, 46, 48, 50]);
+  assert.deepEqual(progress, [35, 37, 39, 40, 42, 45, 46, 48, 50]);
   const fullV2 = ["topic_extraction", ...V2_DOWNSTREAM_STAGE_ORDER, "verification"] as const;
   fullV2.slice(1).forEach((stage, index) =>
     assert.ok(ANALYSIS_STAGES[stage].progress > ANALYSIS_STAGES[fullV2[index]].progress, stage));
@@ -434,7 +436,7 @@ test("[registry] the generic status UI needs no change for the new stage names",
 // ------------------------------------------------------------------ ownership invariant
 test("[ownership] fan-out unit modules cannot import or call any checkpoint writer", async () => {
   const writer = /saveV2Checkpoint|saveAnalysisJobCheckpoint|stageCheckpoint|\.update\(\{ checkpoint/;
-  for (const file of ["job-units", "v2-unit-execution", "v2-foundation-probe", "workflow-concurrency", "workflow-v2", "v2-topic-steps", "v2-workflow-steps", "v2-conversation-event-steps", "v2-candidate-steps", "v2-atomic-action-harvest-steps", "v2-normalization-steps", "v2-validation"]) {
+  for (const file of ["job-units", "v2-unit-execution", "v2-foundation-probe", "workflow-concurrency", "workflow-v2", "v2-topic-steps", "v2-workflow-steps", "v2-conversation-event-steps", "v2-candidate-steps", "v2-atomic-action-harvest-steps", "v2-completeness-adjudication-steps", "v2-normalization-steps", "v2-validation"]) {
     const source = await readFile(new URL(`../lib/meeting-analysis/${file}.ts`, import.meta.url), "utf8");
     assert.doesNotMatch(source, writer, file);
   }
@@ -456,11 +458,11 @@ test("[ownership] only jobs.ts and checkpoint.ts write the checkpoint column; on
     if (/\bsaveV2Checkpoint\b/.test(source) && name !== "checkpoint.ts") importsV2Writer.push(name);
   }
   assert.deepEqual(writesColumn.sort(), ["checkpoint.ts", "jobs.ts"]);
-  assert.deepEqual(importsV2Writer.sort(), ["v2-atomic-action-harvest.ts", "v2-candidates.ts", "v2-conversation-events.ts", "v2-lifecycle.ts", "v2-normalization.ts", "v2-topic-extraction.ts", "worker.ts"]);
+  assert.deepEqual(importsV2Writer.sort(), ["v2-atomic-action-harvest.ts", "v2-candidates.ts", "v2-completeness-adjudication.ts", "v2-conversation-events.ts", "v2-lifecycle.ts", "v2-normalization.ts", "v2-topic-extraction.ts", "worker.ts"]);
   // Inside the fan-out stage modules, the writer is reachable only through the finalizer's deps.
-  for (const name of ["v2-topic-extraction.ts", "v2-conversation-events.ts", "v2-candidates.ts", "v2-atomic-action-harvest.ts", "v2-normalization.ts"]) {
+  for (const name of ["v2-topic-extraction.ts", "v2-conversation-events.ts", "v2-candidates.ts", "v2-atomic-action-harvest.ts", "v2-completeness-adjudication.ts", "v2-normalization.ts"]) {
     const source = await readFile(new URL(name, dir), "utf8");
     assert.deepEqual(source.match(/saveV2Checkpoint/g), ["saveV2Checkpoint", "saveV2Checkpoint"], name);
-    assert.match(source, /const finalizeDeps = \{[\s\S]*?saveCheckpoint: saveV2Checkpoint\s*\};/, name);
+    assert.match(source, /const (?:finalize|barrier)Deps = \{[\s\S]*?saveCheckpoint: saveV2Checkpoint\s*\};/, name);
   }
 });

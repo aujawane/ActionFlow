@@ -11,6 +11,7 @@ export const ANALYSIS_STAGES = {
   // global_correction (42) between candidates and verification.
   atomic_action_harvest: { stage: "atomic_action_harvest", progress: 37 },
   completeness_adjudication: { stage: "completeness_adjudication", progress: 39 },
+  completeness_coverage: { stage: "completeness_coverage", progress: 40 },
   lifecycle_reconciliation: { stage: "lifecycle_reconciliation", progress: 42 },
   completion_verification: { stage: "completion_verification", progress: 45 },
   scope_deferral_verification: { stage: "scope_deferral_verification", progress: 46 },
@@ -52,6 +53,7 @@ export const V2_DOWNSTREAM_STAGE_ORDER = [
   "candidates",
   "atomic_action_harvest",
   "completeness_adjudication",
+  "completeness_coverage",
   "lifecycle_reconciliation",
   "completion_verification",
   "scope_deferral_verification",
