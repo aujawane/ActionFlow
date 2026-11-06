@@ -613,3 +613,84 @@ test("[29] workflow order: topology, durable normalization, then the unchanged t
   const worker = await readFile(new URL("../lib/meeting-analysis/worker.ts", import.meta.url), "utf8");
   assert.match(worker, /deps\.normalizeMeetingTranscriptForAnalysis\(input\.meetingId\)/);
 });
+
+// ================================================================= exact-tie ordering determinism
+/** Segments 17 and 18 start at the same instant (generation 21: same Recall offset and timestamp). */
+const TIE = [17, 18];
+function seedWithTie(arrival: "natural" | "reversed", count = 120) {
+  seed({ count });
+  const rows = db.rows("transcript_segments");
+  const at = rows[TIE[0]].timestamp;
+  const payload = { words: [{ text: "x", start_timestamp: { relative: 1786.0037, absolute: at } }] };
+  for (const index of TIE) Object.assign(rows[index], { timestamp: at, raw_payload: payload });
+  for (const row of rows) if (!TIE.includes(segmentIndex(String(row.id)))) {
+    row.raw_payload = { words: [{ text: "x", start_timestamp: { relative: segmentIndex(String(row.id)) + 1769, absolute: row.timestamp } }] };
+  }
+  if (arrival === "reversed") [rows[TIE[0]], rows[TIE[1]]] = [rows[TIE[1]], rows[TIE[0]]];
+}
+/** The fake returns equal timestamps in table order, like Postgres may: swap the tied rows. */
+function reverseTiedRows() {
+  const rows = db.rows("transcript_segments");
+  const [a, b] = TIE.map((index) => rows.findIndex((row) => row.id === segmentId(index)));
+  [rows[a], rows[b]] = [rows[b], rows[a]];
+}
+
+test("[T5][T13] a tied pair arriving in opposite orders loads one canonical order, fingerprint and batch plan", async () => {
+  seedWithTie("natural");
+  const natural = await loadOrderedTranscriptSegments(MEETING);
+  seedWithTie("reversed");
+  const reversed = await loadOrderedTranscriptSegments(MEETING);
+  assert.notDeepEqual(db.rows("transcript_segments").map((row) => row.id).slice(17, 19), natural.map((s) => s.id).slice(17, 19),
+    "the fake really returned the tied rows the other way round");
+  assert.deepEqual(reversed.map((s) => s.id), natural.map((s) => s.id));
+  assert.equal(v2.normalizationSourceFingerprint(reversed), v2.normalizationSourceFingerprint(natural));
+  const batchIds = (ordered: typeof natural) => chunkSegmentsForNormalization(ordered).map((batch) => batch.map((s) => s.id));
+  assert.deepEqual(batchIds(reversed), batchIds(natural), "identical normalization batch boundaries and members");
+});
+
+test("[T6] generation-21 regression: plan read in one tie order, a later unit read in the other, the unit proceeds", async () => {
+  resetModel();
+  seedWithTie("natural");
+  const plan = await v2.planV2Normalization(input, 1);
+  await v2.runV2NormalizationUnit({ ...input, unitKey: plan.units[0].unitKey }, 1);
+  reverseTiedRows();
+  // Before the fix this threw FatalError("Transcript changed during normalization.").
+  const ack = await v2.runV2NormalizationUnit({ ...input, unitKey: plan.units[1].unitKey }, 1);
+  assert.deepEqual(ack, { unitKey: plan.units[1].unitKey, ok: true });
+  reverseTiedRows();
+  for (const planned of plan.units.slice(2)) await v2.runV2NormalizationUnit({ ...input, unitKey: planned.unitKey }, 1);
+  reverseTiedRows();
+  const outcome = await v2.finalizeV2Normalization(input, 1);
+  assert.equal((outcome as { status?: string }).status ?? "completed", "completed");
+  assert.ok(batchUnits().every((row) => row.status === "completed" && row.attempt === 1));
+  assert.equal(model.starts.length, plan.units.length);
+  assert.ok((jobRow().checkpoint as Row).normalization, "checkpoint.normalization written");
+});
+
+test("[T9-T12] real source changes still change the fingerprint and are still rejected", async () => {
+  seedWithTie("natural");
+  const baseline = v2.normalizationSourceFingerprint(await loadOrderedTranscriptSegments(MEETING));
+  const mutations: Array<[string, (rows: Row[]) => void]> = [
+    ["text", (rows) => { rows[30].text = "the transcript was re-imported"; }],
+    ["speaker", (rows) => { rows[30].speaker = "Someone Else"; }],
+    ["participant", (rows) => { rows[30].participant_name = "Someone Else"; }],
+    ["tied row text", (rows) => { rows[TIE[1]].text = "edited"; }],
+    ["timestamp", (rows) => { rows[30].timestamp = new Date(Date.parse(String(rows[30].timestamp)) + 1).toISOString(); }],
+    ["segment added", (rows) => { rows.push({ ...rows[119], id: segmentId(900), timestamp: new Date(Date.UTC(2026, 9, 30, 13)).toISOString() }); }],
+    ["segment removed", (rows) => { rows.splice(30, 1); }]
+  ];
+  for (const [label, mutate] of mutations) {
+    seedWithTie("natural");
+    mutate(db.rows("transcript_segments"));
+    assert.notEqual(v2.normalizationSourceFingerprint(await loadOrderedTranscriptSegments(MEETING)), baseline, label);
+  }
+  // Through a unit: a planned run whose transcript really changes is still a FatalError.
+  resetModel();
+  seedWithTie("natural");
+  const plan = await v2.planV2Normalization(input, 1);
+  db.rows("transcript_segments")[TIE[0]].speaker = "Someone Else";
+  const { FatalError } = await import("workflow");
+  await assert.rejects(v2.runV2NormalizationUnit({ ...input, unitKey: plan.units[0].unitKey }, 1),
+    (error) => error instanceof FatalError && (error as Error).message === "Transcript changed during normalization.");
+  assert.equal(model.starts.length, 0);
+});

@@ -20,8 +20,12 @@
  *   4. A verified absolute Recall speech timestamp (`words[0].start_timestamp.absolute`, or an
  *      utterance-level `start_timestamp.absolute` / plain ISO string).
  *   5. `transcript_segments.timestamp`, as a last-resort fallback only.
- *   6. Original stable input order (array index), with the segment id as a final tie-breaker so
- *      the result is deterministic even for two segments with no ordering signal at all.
+ *   6. Original stable input order (array index), for segments with no ordering signal at all.
+ *
+ * Segments with an exactly equal value in the same tier (two utterances starting at the same
+ * instant) are ordered by segment id, and only then by input position. A database query ordered
+ * by `timestamp` returns such ties in no guaranteed order, so input position alone would let the
+ * same unchanged transcript sort differently between two reads.
  */
 import { buildTranscriptWithSegmentIds } from "@/lib/analysis";
 
@@ -135,11 +139,11 @@ function canonicalSortKey(segment: OrderableTranscriptSegment, fallbackIndex: nu
 function compareKeys(a: SortKey, b: SortKey): number {
   if (a.tier !== b.tier) return a.tier - b.tier;
   if (a.value !== b.value) return a.value - b.value;
-  if (a.fallbackIndex !== b.fallbackIndex) return a.fallbackIndex - b.fallbackIndex;
-  // Only reached when two segments share a tier, a value, AND an (impossible in practice,
-  // since fallbackIndex is unique per input array) input position -- id is the final,
-  // fully-deterministic tie-breaker, never the primary signal.
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  // An exact timing tie: the id is stable across reads, unlike the input position (tier 6's
+  // value already is the input position, so it never reaches this). Plain code-unit comparison,
+  // not localeCompare, so the order cannot depend on the runtime's locale.
+  if (a.id !== b.id) return a.id < b.id ? -1 : 1;
+  return a.fallbackIndex - b.fallbackIndex;
 }
 
 /**

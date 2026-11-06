@@ -51,7 +51,10 @@ export async function loadMeetingTranscriptSegments(input: {
       .from("transcript_segments")
       .select("*")
       .eq("meeting_id", input.meetingId)
-      .order("timestamp", { ascending: true });
+      .order("timestamp", { ascending: true })
+      // The fallback's .limit() picks rows by database order, so equal timestamps need a
+      // deterministic secondary key there; canonicalTranscriptOrder sorts whatever comes back.
+      .order("id", { ascending: true });
 
   if (segmentIds.length > 0) {
     const scoped = await baseQuery().in("id", segmentIds);
