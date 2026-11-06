@@ -11,6 +11,11 @@ import {
 } from "./conversation-event-schemas";
 import { canonicalizeConversationEventChunk } from "./conversation-event-identity";
 import { semanticTokenSimilarity } from "./graph";
+import {
+  classifyRetryableProviderError,
+  RetryableProviderError,
+  type RetryableProviderFailure
+} from "./provider-errors";
 import type { ExecutionSourceContext } from "./stages";
 
 export const CONVERSATION_EVENT_EXTRACTION_PROMPT = `
@@ -116,9 +121,13 @@ export function salvageConversationEventOutput(
   return { events, dropped };
 }
 
+/** Every failure is a handled `{ ok: false }` result unless `throwRetryableProviderErrors` is set:
+ * then a transient provider/transport failure (see provider-errors.ts) throws
+ * RetryableProviderError instead, so a durable caller can retry just that chunk. v1's pool never
+ * sets it. */
 export async function extractConversationEvents(
   source: ExecutionSourceContext,
-  options: { createResponse?: CreateResponse } = {}
+  options: { createResponse?: CreateResponse; throwRetryableProviderErrors?: boolean } = {}
 ): Promise<ConversationEventStageResult> {
   const startedAt = Date.now();
   const timeoutMs = getExecutionIntelligenceTimeoutMs();
@@ -180,6 +189,13 @@ export async function extractConversationEvents(
     }
     return { ok: true, events: salvaged.events, latencyMs: Date.now() - startedAt };
   } catch (error) {
+    if (options.throwRetryableProviderErrors) {
+      // This controller's timer is the only abort source here, so an aborted signal is a timeout.
+      const failure: RetryableProviderFailure | null = controller.signal.aborted
+        ? { kind: "timeout" }
+        : classifyRetryableProviderError(error);
+      if (failure) throw new RetryableProviderError("Conversation event extraction", failure);
+    }
     return {
       ok: false,
       error: "Conversation event extraction failed.",

@@ -127,7 +127,9 @@ export type V2ConversationEventUnitDeps = typeof unitDeps;
 
 /** Body of runConversationEventUnitStep (one chunk, one model call). Writes only its own
  * meeting_analysis_job_units row; a completed unit returns before the checkpoint or model is
- * touched. A handled `{ ok: false }` model result completes the unit (no Workflow retry). */
+ * touched. A handled `{ ok: false }` model result completes the unit (no Workflow retry). A
+ * transient provider failure throws instead: the unit is marked failed and the Workflow retries
+ * this chunk only; exhausted retries fail the stage rather than canonicalizing no events. */
 export async function runV2ConversationEventUnit(
   input: V2JobInput & { unitKey: string },
   attempt: number,
@@ -142,7 +144,7 @@ export async function runV2ConversationEventUnit(
       const { prepared } = preparedFromCheckpoint(job?.checkpoint);
       const chunk = planConversationEventChunks(prepared.source)[chunkIndex];
       if (!chunk) throw new AnalysisUnitValidationError(`Unexpected conversation event unit ${input.unitKey}.`);
-      return toUnitResult(await deps.extract(chunk.source));
+      return toUnitResult(await deps.extract(chunk.source, { throwRetryableProviderErrors: true }));
     },
     deps.persistence
   );

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { APIError, APIUserAbortError } from "openai";
+
 import { FakeDb, installFakeSupabase } from "./fixtures/analysis-v2/fake-supabase";
 import { getSupabaseAdmin } from "../lib/supabase/admin";
 import { getOpenAIClient } from "../lib/openai";
@@ -13,7 +15,9 @@ import {
   type ConversationEventStageResult
 } from "../lib/execution-intelligence/conversation-events";
 import type { ConversationEvent } from "../lib/execution-intelligence/conversation-event-schemas";
+import { RetryableProviderError } from "../lib/execution-intelligence/provider-errors";
 import type { ExecutionSourceContext } from "../lib/execution-intelligence/stages";
+import { workflowErrorMessage } from "../lib/meeting-analysis/error-message";
 import { AnalysisUnitValidationError, listAnalysisStageUnits, type AnalysisJobUnit } from "../lib/meeting-analysis/job-units";
 import { ANALYSIS_STAGE_ORDER } from "../lib/meeting-analysis/jobs";
 import * as v2 from "../lib/meeting-analysis/v2-conversation-events";
@@ -503,4 +507,209 @@ test("[9] v1 extractAndLinkConversationEvents keeps its pool: two workers, one c
   assert.deepEqual(gated.events, plain.events);
   assert.equal(model.maxInFlight, 2);
   assert.equal(model.calls.length, 24);
+});
+
+// ================================================================= transient provider failures
+/** The OpenAI SDK's own construction of an HTTP error response (generation 20: chunk:000006). */
+const providerError = (status: number) => APIError.generate(status, undefined, "no healthy upstream", {});
+const RETRYABLE_MESSAGE = "Conversation event extraction hit a retryable provider error (HTTP 503).";
+
+/** Workflow SDK step contract: default maxRetries 3 (4 attempts, one-based), FatalError never retried. */
+const STEP_MAX_ATTEMPTS = 4;
+async function asWorkflowStep<T>(run: (attempt: number) => Promise<T>): Promise<T> {
+  const { FatalError } = await import("workflow");
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= STEP_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await run(attempt);
+    } catch (error) {
+      if (error instanceof FatalError) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+/** 880 synthetic segments plan 25 chunks: the generation-20 shape. */
+const GEN20_SEGMENTS = 880;
+const seedGen20 = () => seed({ checkpoint: { ...b2Checkpoint(), prepared: { ...PREPARED(), source: syntheticSource(GEN20_SEGMENTS) } } });
+const gen20ChunkStart = (index: number) => planConversationEventChunks(syntheticSource(GEN20_SEGMENTS))[index].startSegment - 1;
+/** Fails the model call for one chunk with `error` for its first `times` calls. */
+function failChunk(start: number, error: () => unknown, times: number) {
+  let remaining = times;
+  model.gate = async (callStart) => {
+    await new Promise((resolve) => setImmediate(resolve));
+    if (callStart === start && remaining > 0) {
+      remaining -= 1;
+      throw error();
+    }
+  };
+}
+/** meetingAnalysisV2Workflow's conversation_events stage, every step under the retry contract. */
+async function runV2StageWithRetries() {
+  const { units: planned } = await asWorkflowStep((attempt) => v2.planV2ConversationEvents(input, attempt));
+  await runOrderedAnalysisUnits(planned, (unit) =>
+    asWorkflowStep((attempt) => v2.runV2ConversationEventUnit({ ...input, unitKey: unit.unitKey }, attempt)));
+  return asWorkflowStep((attempt) => v2.finalizeV2ConversationEvents(input, attempt));
+}
+const unitRow = (unitKey: string) => units().find((row) => row.unit_key === unitKey)!;
+
+test("[T6][T7] a retryable provider error throws from the unit: failed row, no completed ok:false, Workflow-retryable", async () => {
+  resetModel();
+  seed();
+  const { units: planned } = await v2.planV2ConversationEvents(input, 1);
+  const unitKey = planned[6].unitKey;
+  failChunk(planConversationEventChunks(syntheticSource())[6].startSegment - 1, () => providerError(503), 1);
+  const { FatalError } = await import("workflow");
+  await assert.rejects(v2.runV2ConversationEventUnit({ ...input, unitKey }, 1),
+    (error) => error instanceof RetryableProviderError && !(error instanceof FatalError) && error.message === RETRYABLE_MESSAGE);
+  const row = unitRow(unitKey);
+  assert.deepEqual([row.status, row.attempt, row.result], ["failed", 1, null]);
+  assert.equal(row.error, RETRYABLE_MESSAGE, "only the classification is persisted");
+  assert.doesNotMatch(JSON.stringify(units()), /healthy upstream/);
+  // The next Workflow attempt reruns the chunk and stores the success.
+  const ack = await v2.runV2ConversationEventUnit({ ...input, unitKey }, 2);
+  assert.deepEqual(ack, { unitKey, ok: true });
+  assert.deepEqual([unitRow(unitKey).status, unitRow(unitKey).attempt, model.calls.length], ["completed", 2, 2]);
+  assert.equal((unitRow(unitKey).result as Row).ok, true);
+});
+
+test("[T8-T11][T15][T16] generation-20 shape: 25 chunks, chunk:000006 hits one 503, its retry succeeds, all 25 contribute", async () => {
+  // Baseline: the same 25 chunks with no failure, through v2 and through v1.
+  resetModel();
+  seedGen20();
+  const clean = await runV2StageWithRetries();
+  const cleanEvents = structuredClone(v2Events());
+  assert.equal(model.calls.length, 25);
+  resetModel();
+  const v1 = await extractAndLinkConversationEvents(syntheticSource(GEN20_SEGMENTS), { generation: GENERATION });
+  assert.ok(v1.ok);
+  assert.deepEqual(cleanEvents, v1.events, "v2 clean finalization equals v1");
+
+  resetModel();
+  seedGen20();
+  const target = gen20ChunkStart(6);
+  failChunk(target, () => providerError(503), 1);
+  const outcome = await runV2StageWithRetries();
+  assert.deepEqual(outcome, clean);
+  assert.ok(outcome.ok && outcome.events > 0);
+  // Every chunk's events are present: identical to the failure-free run (order, dedup, refs, links).
+  assert.deepEqual(v2Events(), cleanEvents);
+  assert.ok(cleanEvents!.some((event) => event.client_ref.startsWith(`g${GENERATION}_c7_`)), "chunk 6 (c7) contributed events");
+  // Only the failed chunk was called again; completed siblings were not repeated.
+  assert.equal(model.calls.length, 26);
+  assert.equal(model.calls.filter((start) => start === target).length, 2);
+  const others = model.calls.filter((start) => start !== target);
+  assert.equal(new Set(others).size, 24);
+  assert.equal(units().length, 25);
+  for (const row of units()) {
+    assert.equal(row.status, "completed", String(row.unit_key));
+    assert.equal(row.attempt, row.unit_key === "chunk:000006" ? 2 : 1, String(row.unit_key));
+    assert.equal((row.result as Row).ok, true, String(row.unit_key));
+  }
+  // First completed result wins: a later ambiguous retry neither calls the model nor replaces it.
+  const stored = structuredClone(unitRow("chunk:000006").result);
+  const ack = await v2.runV2ConversationEventUnit({ ...input, unitKey: "chunk:000006" }, 3, {
+    execute: (await import("../lib/meeting-analysis/v2-unit-execution")).executeV2AnalysisUnit,
+    persistence: (await import("../lib/meeting-analysis/v2-unit-execution")).b2UnitPersistence,
+    loadJob: (await import("../lib/meeting-analysis/jobs")).getMeetingAnalysisJob,
+    extract: async () => { throw new Error("the model must not be called again"); }
+  });
+  assert.deepEqual(ack, { unitKey: "chunk:000006", ok: true });
+  assert.deepEqual(unitRow("chunk:000006").result, stored);
+  assert.equal(model.calls.length, 26);
+});
+
+test("[T12][T13] exhausted retryable failures fail the stage; conversationEvents is never canonicalized as []", async () => {
+  resetModel();
+  seedGen20();
+  const before = structuredClone(jobRow().checkpoint);
+  const target = gen20ChunkStart(6);
+  failChunk(target, () => providerError(503), Number.POSITIVE_INFINITY);
+  let thrown: unknown;
+  await assert.rejects(runV2StageWithRetries(), (error) => {
+    thrown = error;
+    return error instanceof RetryableProviderError && error.message === RETRYABLE_MESSAGE;
+  });
+  // The workflow catch records exactly this message through failV2AnalysisStep.
+  assert.equal(workflowErrorMessage(thrown), RETRYABLE_MESSAGE);
+  assert.equal(model.calls.filter((start) => start === target).length, STEP_MAX_ATTEMPTS);
+  assert.deepEqual([unitRow("chunk:000006").status, unitRow("chunk:000006").attempt], ["failed", STEP_MAX_ATTEMPTS]);
+  assert.ok(units().every((row) => row.unit_key === "chunk:000006" || row.status === "completed"));
+  // The finalizer never ran: the checkpoint is untouched and carries no conversationEvents at all.
+  assert.deepEqual(jobRow().checkpoint, before);
+  const source = ((jobRow().checkpoint as Row).prepared as { source: ExecutionSourceContext }).source;
+  assert.equal(source.conversationEvents, undefined);
+  // Even a finalizer invoked directly refuses the failed unit and writes nothing.
+  await assert.rejects(v2.finalizeV2ConversationEvents(input, 1),
+    (error) => error instanceof AnalysisUnitValidationError && /chunk:000006 is not completed|Missing conversation event unit/.test(error.message));
+  assert.deepEqual(jobRow().checkpoint, before);
+});
+
+test("[T5] a request timeout (this call's own abort timer) is retryable in v2 and handled in v1", async () => {
+  const previous = process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS;
+  process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS = "1000";
+  try {
+    const hang = (signal: AbortSignal) => new Promise<never>((_, reject) => {
+      signal.addEventListener("abort", () => reject(new APIUserAbortError()));
+    });
+    const chunk = planConversationEventChunks(syntheticSource())[0].source;
+    await assert.rejects(extractConversationEvents(chunk, { createResponse: hang, throwRetryableProviderErrors: true }),
+      (error) => error instanceof RetryableProviderError && error.failure.kind === "timeout");
+    const handled = await extractConversationEvents(chunk, { createResponse: hang });
+    assert.deepEqual([handled.ok, handled.ok ? "" : handled.error], [false, "Conversation event extraction failed."]);
+  } finally {
+    if (previous === undefined) delete process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS;
+    else process.env.EXECUTION_INTELLIGENCE_TIMEOUT_MS = previous;
+  }
+});
+
+test("[T14] non-transient failures keep the handled ok:false unit (completed, attempt 1, no Workflow retry)", async () => {
+  resetModel();
+  seed();
+  const { units: planned } = await v2.planV2ConversationEvents(input, 1);
+  const chunks = planConversationEventChunks(syntheticSource());
+  const cases: Array<[number, () => unknown, RegExp]> = [
+    [0, () => providerError(400), /^400 no healthy upstream$/],
+    [1, () => providerError(401), /^401 /],
+    [2, () => providerError(422), /^422 /],
+    [3, () => new APIUserAbortError(), /Request was aborted/],
+    [4, () => new Error("socket hang up"), /socket hang up/]
+  ];
+  for (const [index, error, details] of cases) {
+    failChunk(chunks[index].startSegment - 1, error, 1);
+    const ack = await v2.runV2ConversationEventUnit({ ...input, unitKey: planned[index].unitKey }, 1);
+    assert.deepEqual(ack, { unitKey: planned[index].unitKey, ok: false });
+    const row = unitRow(planned[index].unitKey);
+    assert.deepEqual([row.status, row.attempt], ["completed", 1], String(index));
+    const result = row.result as Row;
+    assert.equal(result.error, "Conversation event extraction failed.");
+    assert.match(String(result.details), details);
+  }
+  // Empty/invalid model output is still a completed ok:false (existing semantic failure path).
+  model.gate = null;
+  model.failStarts.add(chunks[5].startSegment - 1);
+  await v2.runV2ConversationEventUnit({ ...input, unitKey: planned[5].unitKey }, 1);
+  assert.deepEqual([unitRow(planned[5].unitKey).status, (unitRow(planned[5].unitKey).result as Row).error],
+    ["completed", "OpenAI returned empty conversation event output."]);
+  assert.equal(model.calls.length, 6, "one call per unit: none of these were retried");
+});
+
+test("[T18] v1 is unchanged: a 503 is still a handled chunk failure and the v1 stage still continues with []", async () => {
+  resetModel();
+  const target = planConversationEventChunks(syntheticSource())[6].startSegment - 1;
+  failChunk(target, () => providerError(503), Number.POSITIVE_INFINITY);
+  const v1 = await extractAndLinkConversationEvents(syntheticSource(), { generation: GENERATION });
+  assert.equal(v1.ok, false);
+  assert.equal(v1.ok ? "" : v1.error, "Conversation event chunk 7 failed: Conversation event extraction failed.");
+  assert.equal(v1.ok ? "" : v1.details, "503 no healthy upstream");
+  assert.equal(model.calls.filter((start) => start === target).length, 1, "v1 never retries the chunk");
+  failChunk(target, () => providerError(503), Number.POSITIVE_INFINITY);
+  seed({ pipeline_version: 1, checkpoint: { prepared: PREPARED(), engine: "v4" } });
+  await runMeetingAnalysisStage({ ...input, stage: "conversation_events" });
+  assert.deepEqual(((jobRow().checkpoint as Row).prepared as { source: ExecutionSourceContext }).source.conversationEvents, []);
+  // The direct call without the opt-in is also unchanged.
+  failChunk(target, () => providerError(503), 1);
+  const direct = await extractConversationEvents(planConversationEventChunks(syntheticSource())[6].source);
+  assert.deepEqual([direct.ok, direct.ok ? "" : direct.details], [false, "503 no healthy upstream"]);
 });
