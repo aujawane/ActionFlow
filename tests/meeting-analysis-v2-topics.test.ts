@@ -483,8 +483,10 @@ test("routing: normal analysis stays on v1; v2 is an explicit, staging-only opt-
   } finally {
     process.env = env;
   }
+  // The gate is per meeting now (see meeting-analysis-v2-activation.test.ts); the route delegates
+  // to the handler, whose first check is the gate.
   const route = await readFile(new URL("../app/api/meetings/[id]/analyze-v2/route.ts", import.meta.url), "utf8");
-  assert.match(route, /if \(!isAnalysisPipelineV2StagingEnabled\(\)\) \{\s*return NextResponse\.json\(\{ error: "Not found" \}, \{ status: 404 \}\);/);
+  assert.match(route, /isEnabledForMeeting: \(meetingId\) => isAnalysisPipelineV2EnabledForMeeting\(meetingId\)/);
   assert.doesNotMatch(route, /x-parfait-internal-secret/);
 });
 
