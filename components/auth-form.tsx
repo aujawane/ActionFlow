@@ -241,6 +241,18 @@ export function AuthForm() {
             {mode === "login" ? "Sign Up" : "Sign In"}
           </button>
         </div>
+
+        <p className="mt-4 text-center text-xs leading-5 text-slate-600">
+          By continuing, you agree to our{" "}
+          <Link href="/terms" className="font-medium text-brand-800 underline underline-offset-2">
+            Terms of Service
+          </Link>{" "}
+          and acknowledge our{" "}
+          <Link href="/privacy" className="font-medium text-brand-800 underline underline-offset-2">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </div>
     </div>
   );

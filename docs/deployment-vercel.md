@@ -85,10 +85,6 @@ no implicit default: the app throws a clear error at first Supabase use if this 
 | `ZOOM_CLIENT_ID` | Zoom Server-to-Server OAuth |
 | `ZOOM_CLIENT_SECRET` | Zoom Server-to-Server OAuth |
 | `ZOOM_ACCOUNT_ID` | Zoom Server-to-Server OAuth |
-| `GOOGLE_CLIENT_ID` | Google OAuth / Meet |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth / Meet |
-| `GOOGLE_REDIRECT_URI` | Must match Google Cloud console |
-| `GOOGLE_REFRESH_TOKEN` | Optional legacy Meet creation fallback |
 | `RECALL_WEBHOOK_URL` | Optional ops documentation / explicit webhook URL |
 
 Do **not** put `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, `RECALL_API_KEY`, Zoom secrets, or Google client secrets in any `NEXT_PUBLIC_*` variable.
@@ -106,14 +102,13 @@ https://your-app.vercel.app/api/recall/webhook
 Configure this exact URL in the Recall.ai webhooks dashboard.
 Production verification is **fail-closed**: missing or invalid `x-recall-signature` returns `401`.
 
-### Google OAuth callback
+### Google
 
-```text
-https://your-app.vercel.app/api/integrations/google/callback
-```
-
-Add the same URI in Google Cloud Console → OAuth client → Authorized redirect URIs,
-and set `GOOGLE_REDIRECT_URI` to that value in Vercel.
+Google sign-in runs entirely through Supabase Auth (the Google provider configured in the
+Supabase dashboard); the app's own callback is `/api/auth/callback`. The former Google Meet
+integration (`/api/integrations/google/*`) has been removed, so the app no longer reads
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` or `GOOGLE_REFRESH_TOKEN`.
+Any of these still set in Vercel are inert and can be deleted at your discretion.
 
 ### Zoom callback
 

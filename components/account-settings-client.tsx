@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -232,6 +233,17 @@ export function AccountSettingsClient({
               <p className="mt-1.5 break-words text-sm font-medium text-slate-900">{value}</p>
             </div>
           ))}
+          <div className="p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Legal</p>
+            <p className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm font-medium">
+              <Link href="/privacy" className="text-brand-800 underline underline-offset-2">
+                Privacy Policy
+              </Link>
+              <Link href="/terms" className="text-brand-800 underline underline-offset-2">
+                Terms of Service
+              </Link>
+            </p>
+          </div>
         </aside>
       </div>
 

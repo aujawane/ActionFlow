@@ -16,15 +16,13 @@ export const PRIMARY_NAV_ITEMS: NavItem[] = [
 
 /** Account-level destinations -- visually secondary to the primary product navigation above. */
 export const SECONDARY_NAV_ITEMS: NavItem[] = [
-  { href: "/account" as Route, label: "Account" },
-  { href: "/account/integrations" as Route, label: "Integrations" }
+  { href: "/account" as Route, label: "Account" }
 ];
 
 const ALL_NAV_ITEMS = [...PRIMARY_NAV_ITEMS, ...SECONDARY_NAV_ITEMS];
 
-/** Only the single most specific matching route counts as active -- without this, "/account"
- * and "/account/integrations" would both read as selected while on the Integrations page,
- * since "/account" is a literal prefix of "/account/integrations". */
+/** Only the single most specific matching route counts as active, so nested destinations never
+ * leave two items selected at once. */
 export function activeNavHref(pathname: string): Route | undefined {
   const matches = ALL_NAV_ITEMS.filter(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`)

@@ -7,8 +7,7 @@ import { z } from "zod";
  * Next.js can collect route metadata during builds without crashing when
  * secrets are injected only at runtime on Vercel.
  *
- * Zoom / Google credentials are optional at boot and validated when those
- * integrations are actually used.
+ * Zoom credentials are optional at boot and validated when they are actually used.
  */
 
 function readEnv(name: string): string | undefined {
@@ -233,10 +232,6 @@ const coreEnvSchema = z.object({
   RECALL_WEBHOOK_SECRET: z.string().trim().min(1),
   INTERNAL_APP_URL: optionalUrl,
   RECALL_WEBHOOK_URL: optionalUrl,
-  GOOGLE_CLIENT_ID: optionalNonEmptyString,
-  GOOGLE_CLIENT_SECRET: optionalNonEmptyString,
-  GOOGLE_REDIRECT_URI: optionalUrl,
-  GOOGLE_REFRESH_TOKEN: optionalNonEmptyString,
   ZOOM_CLIENT_ID: optionalNonEmptyString,
   ZOOM_CLIENT_SECRET: optionalNonEmptyString,
   ZOOM_ACCOUNT_ID: optionalNonEmptyString
@@ -259,10 +254,6 @@ function buildEnvInput() {
     RECALL_WEBHOOK_SECRET: readEnv("RECALL_WEBHOOK_SECRET"),
     INTERNAL_APP_URL: readEnv("INTERNAL_APP_URL"),
     RECALL_WEBHOOK_URL: readEnv("RECALL_WEBHOOK_URL"),
-    GOOGLE_CLIENT_ID: readEnv("GOOGLE_CLIENT_ID"),
-    GOOGLE_CLIENT_SECRET: readEnv("GOOGLE_CLIENT_SECRET"),
-    GOOGLE_REDIRECT_URI: readEnv("GOOGLE_REDIRECT_URI"),
-    GOOGLE_REFRESH_TOKEN: readEnv("GOOGLE_REFRESH_TOKEN"),
     ZOOM_CLIENT_ID: readEnv("ZOOM_CLIENT_ID"),
     ZOOM_CLIENT_SECRET: readEnv("ZOOM_CLIENT_SECRET"),
     ZOOM_ACCOUNT_ID: readEnv("ZOOM_ACCOUNT_ID")
@@ -453,14 +444,6 @@ export function getPublicAppBaseUrl(options?: { requestOrigin?: string | null })
   if (process.env.NODE_ENV !== "production" && requestOrigin) return requestOrigin;
   if (process.env.NODE_ENV !== "production") return "http://localhost:3000";
   throw new Error("Missing NEXT_PUBLIC_APP_URL for a public authentication redirect.");
-}
-
-export function getGoogleRedirectUri() {
-  const configured = readEnv("GOOGLE_REDIRECT_URI");
-  if (configured) {
-    return configured;
-  }
-  return `${getAppBaseUrl()}/api/integrations/google/callback`;
 }
 
 export function requireEnv(name: string): string {

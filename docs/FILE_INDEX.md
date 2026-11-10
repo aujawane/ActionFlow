@@ -30,7 +30,6 @@ App Router pages and API.
 ### app/api/
 
 - `meetings/route.ts` — list/create meetings
-- `meetings/start/route.ts` — start Zoom/Meet + bot
 - `meetings/[id]/route.ts` — meeting CRUD-ish
 - `meetings/[id]/analyze/route.ts` — enqueue analysis (202)
 - `meetings/[id]/analysis-status/route.ts` — job status
@@ -50,8 +49,6 @@ App Router pages and API.
 - `internal/meeting-analysis/worker/route.ts` — durable stage worker
 - `commitments/[id]/route.ts` — commitment updates
 - `tasks/[id]/owner|comments|artifacts|categorize|prompt|guide|deliverable|generate*/route.ts` — task workspace APIs
-- `integrations/google/*` — Google OAuth connect
-- `integrations/route.ts` — integration status
 - `auth/*` — auth callback / password reset
 - `account/*` — password code / security events
 - `health/route.ts` — health check
@@ -81,7 +78,6 @@ Shared UI (client/server mix).
 - `meeting-follow-up-emails.tsx` — email drafts UI
 - `start-meeting-panel.tsx` / `new-meeting-form.tsx`
 - `auth-form.tsx` / password forms / `sidebar-nav.tsx` / account menus
-- `integrations-settings-client.tsx` — Google connect UI
 
 ## lib/
 
@@ -134,7 +130,7 @@ Domain logic.
 - `project-access.ts` — ownership-scoped project entity lookup
 - `project-execution.ts` — project progress, view models, next-best ranking
 - `meeting-follow-up-email-service.ts` / `meeting-follow-up-emails.ts`
-- `meeting-providers.ts` / `meeting-platform.ts` / `google-integration.ts`
+- `meeting-platform.ts` — detect Zoom / Google Meet from a pasted meeting link
 - `transcript-speaker.ts` / `meeting-participants.ts` — Recall attribution and participant choices
 - `manual-overrides.ts` — re-analysis override tracking
 - `meeting-task-query.ts` — legacy column fallback

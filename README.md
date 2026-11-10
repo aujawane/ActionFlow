@@ -41,7 +41,7 @@ Summary:
 - Keep Supabase, OpenAI, Recall, Zoom, and Google as external services.
 - Do **not** Dockerize this Next.js app for Vercel.
 - Production Recall webhook: `https://<your-domain>/api/recall/webhook`
-- Production Google OAuth callback: `https://<your-domain>/api/integrations/google/callback`
+- Google sign-in is configured in Supabase Auth (callback `https://<your-domain>/api/auth/callback`); Parfait has no Google Meet integration and calls no Google APIs.
 - Zoom has **no** OAuth callback URL (Server-to-Server OAuth only).
 - Health check: `GET /api/health`
 

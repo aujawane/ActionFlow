@@ -59,7 +59,8 @@ Engineering decisions for AI agents. Update when you make a new one.
 ## D010 — Zoom S2S vs Google user OAuth
 
 **Decision:** Zoom uses Server-to-Server OAuth (no browser callback); Google Meet uses per-user OAuth tokens in `user_integrations`.  
-**Why:** Matches each vendor’s meeting-creation model.
+**Why:** Matches each vendor’s meeting-creation model.  
+**Superseded:** The start-meeting feature was removed in August 2026, and the dormant Google Meet connection (scope `meetings.space.created`) was removed before Google OAuth verification. Parfait now only uses Google for Supabase sign-in. The `user_integrations` table and migrations are retained for schema compatibility.
 
 ## D011 — Migrations over `schema.sql` as source of truth
 

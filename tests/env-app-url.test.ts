@@ -7,7 +7,6 @@ import {
   getAppBaseUrl,
   getConfiguredOpenAIModel,
   getExecutionIntelligenceTimeoutMs,
-  getGoogleRedirectUri,
   getPublicAppBaseUrl,
   getRecallWebhookUrl,
   getV4StageTimeoutMs,
@@ -142,10 +141,6 @@ test("getAppBaseUrl prefers INTERNAL_APP_URL then NEXT_PUBLIC_APP_URL", () => {
   assert.equal(
     getRecallWebhookUrl(),
     "https://public.example.com/api/recall/webhook"
-  );
-  assert.equal(
-    getGoogleRedirectUri(),
-    "https://public.example.com/api/integrations/google/callback"
   );
 
   setEnv("INTERNAL_APP_URL", previousInternal);

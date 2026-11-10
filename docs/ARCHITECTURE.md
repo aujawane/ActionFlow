@@ -13,7 +13,7 @@ Browser (App Router)
 External:
   Recall.ai ← bots / webhooks
   OpenAI ← analysis, prompts, deliverables, chat patches
-  Zoom / Google ← meeting creation + OAuth tokens in user_integrations
+  Zoom / Google Meet ← meeting links only (Recall bot joins a pasted link; no Zoom or Meet API calls)
   Supabase Postgres ← source of truth
 ```
 
@@ -83,7 +83,6 @@ Modules: `lib/execution-intelligence/*`. Worker orchestration: `lib/meeting-anal
 | `POST /api/tasks/[id]/comments` | Clarifications / chat patches |
 | `POST /api/tasks/[id]/generate*` / deliverable / prompt | AI workspace |
 | `POST /api/meetings/[id]/follow-up-emails/*` | Email drafts from committed work |
-| `GET/POST /api/integrations/google/*` | Google OAuth |
 
 Auth for user APIs: `lib/api-auth.ts` / `requireUser`. Internal worker: `RECALL_WEBHOOK_SECRET` header.
 
@@ -165,6 +164,6 @@ Critical RPCs: `replace_meeting_execution_graph` (generation-safe merge), `assig
 - **Recall:** create bot, webhook HMAC, fetch completed transcript
 - **OpenAI:** structured extraction, prompts, deliverables, chat patches
 - **Zoom:** account-level S2S meeting create (no browser OAuth callback)
-- **Google:** user OAuth tokens in `user_integrations` for Meet
+- **Google:** sign-in only, via Supabase Auth. The former Meet integration was removed; the `user_integrations` table is retained but unused
 - **Supabase:** auth + DB
 - **Vercel:** hosting; `after()` for worker chaining; `maxDuration` 300 on worker

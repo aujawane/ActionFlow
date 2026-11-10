@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Modal } from "@/components/modal";
 import { activeNavHref, PRIMARY_NAV_ITEMS, SECONDARY_NAV_ITEMS } from "@/components/sidebar-nav";
 
-/** Below the desktop sidebar's `lg` breakpoint, Projects/Meetings/Account/Integrations were only
+/** Below the desktop sidebar's `lg` breakpoint, Projects/Meetings/Account were only
  * reachable by typing a URL -- the sidebar is `hidden` and the mobile header never carried an
  * equivalent. This is the simplest robust fix: a hamburger trigger that opens the same nav items
  * in a Modal "drawer", reusing its existing focus trap/scroll-lock/Escape/restoration behavior. */

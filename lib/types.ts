@@ -596,16 +596,3 @@ export interface MeetingAnalysisJob {
   updated_at: string;
   checkpoint?: Record<string, unknown>;
 }
-
-export interface UserIntegration {
-  id: string;
-  user_id: string;
-  provider: string;
-  access_token: string | null;
-  refresh_token: string | null;
-  expires_at: string | null;
-  scope: string | null;
-  provider_account_email: string | null;
-  created_at: string;
-  updated_at: string;
-}
