@@ -10,9 +10,11 @@ type AccountMenuProps = {
   fullName: string;
   email: string;
   initials: string;
+  /** False for Google-only accounts, which have no Parfait password to change. */
+  canChangePassword: boolean;
 };
 
-export function AccountMenu({ fullName, email, initials }: AccountMenuProps) {
+export function AccountMenu({ fullName, email, initials, canChangePassword }: AccountMenuProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -93,14 +95,16 @@ export function AccountMenu({ fullName, email, initials }: AccountMenuProps) {
           >
             Account Settings
           </Link>
-          <Link
-            href="/account?changePassword=1"
-            role="menuitem"
-            onClick={() => setOpen(false)}
-            className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:-translate-y-0.5 hover:bg-brand-50 hover:text-brand-800"
-          >
-            Change Password
-          </Link>
+          {canChangePassword ? (
+            <Link
+              href="/account?changePassword=1"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:-translate-y-0.5 hover:bg-brand-50 hover:text-brand-800"
+            >
+              Change Password
+            </Link>
+          ) : null}
           <button
             type="button"
             role="menuitem"

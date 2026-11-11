@@ -3,7 +3,13 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const allowedEvents = new Set(["password_change_verified", "password_change_failed"]);
+// Client-reported audit events for the signed-in password change. The verification code itself is
+// sent by Supabase Auth (reauthenticate), never by this app.
+const allowedEvents = new Set([
+  "password_code_requested",
+  "password_change_verified",
+  "password_change_failed"
+]);
 
 export async function POST(request: Request) {
   const { user, response } = await requireApiUser();

@@ -1,5 +1,6 @@
 import { AccountMenu } from "@/components/account-menu";
 import { getCurrentUser } from "@/lib/auth";
+import { hasPasswordCredential } from "@/lib/password-change";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getInitials, getUserFullName } from "@/lib/user-profile";
 
@@ -23,6 +24,7 @@ export async function AccountMenuServer() {
       fullName={fullName}
       email={user.email}
       initials={getInitials(fullName || user.email)}
+      canChangePassword={hasPasswordCredential(user)}
     />
   );
 }

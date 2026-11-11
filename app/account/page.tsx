@@ -2,6 +2,7 @@ import { Suspense } from "react";
 
 import { AccountSettingsClient } from "@/components/account-settings-client";
 import { requireUser } from "@/lib/auth";
+import { hasPasswordCredential } from "@/lib/password-change";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAuthProvider, getInitials, getUserFullName } from "@/lib/user-profile";
 
@@ -39,6 +40,7 @@ export default async function AccountPage() {
         createdAt={formatAccountDate(user.created_at)}
         lastLoginAt={formatAccountDate(user.last_sign_in_at)}
         provider={getAuthProvider(user)}
+        canChangePassword={hasPasswordCredential(user)}
       />
     </Suspense>
   );

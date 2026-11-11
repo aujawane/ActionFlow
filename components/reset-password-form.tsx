@@ -44,14 +44,18 @@ export function ResetPasswordForm() {
       setMessage("Unable to reach the server. Please try again.");
       return;
     }
-    setLoading(false);
-    submittingRef.current = false;
-
     if (!response.ok) {
+      setLoading(false);
+      submittingRef.current = false;
       setMessage(result.error || "Unable to update the password.");
       return;
     }
 
+    // Success: clear the typed passwords and keep the form locked (submittingRef stays true and the
+    // button stays disabled) so the one-time recovery session can't be submitted twice while
+    // navigating away.
+    setPassword("");
+    setConfirmPassword("");
     setMessage(result.message || "Password updated successfully. Redirecting...");
     router.push("/dashboard");
     router.refresh();
