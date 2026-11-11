@@ -436,14 +436,16 @@ export function getAppBaseUrl(options?: { requestOrigin?: string | null }) {
 }
 
 /**
- * On a Vercel Preview deployment, the deployment's own branch URL (Vercel exposes it automatically
- * as NEXT_PUBLIC_VERCEL_BRANCH_URL, a bare host). Returns undefined everywhere else -- Production
+ * On a Vercel Preview deployment, the deployment's own branch URL (VERCEL_BRANCH_URL, else
+ * NEXT_PUBLIC_VERCEL_BRANCH_URL; both bare hosts). Returns undefined everywhere else -- Production
  * and local development are never affected, whatever NEXT_PUBLIC_VERCEL_BRANCH_URL contains.
  */
 function getVercelPreviewBranchUrl(): string | undefined {
   const vercelEnv = readEnv("VERCEL_ENV") ?? readEnv("NEXT_PUBLIC_VERCEL_ENV");
   if (vercelEnv !== "preview") return undefined;
-  const host = readEnv("NEXT_PUBLIC_VERCEL_BRANCH_URL");
+  // VERCEL_BRANCH_URL is the server-side system variable; the NEXT_PUBLIC_ copy only exists when
+  // exposed to the build. Either is a bare host.
+  const host = readEnv("VERCEL_BRANCH_URL") ?? readEnv("NEXT_PUBLIC_VERCEL_BRANCH_URL");
   if (!host) return undefined;
   return (/^https?:\/\//i.test(host) ? host : `https://${host}`).replace(/\/$/, "");
 }

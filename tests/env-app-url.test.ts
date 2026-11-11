@@ -199,6 +199,7 @@ function withUrlEnv(vars: Record<string, string | undefined>, fn: () => void) {
     "VERCEL_ENV",
     "NEXT_PUBLIC_VERCEL_ENV",
     "NEXT_PUBLIC_VERCEL_BRANCH_URL",
+    "VERCEL_BRANCH_URL",
     "NEXT_PUBLIC_APP_URL",
     "NODE_ENV"
   ];
@@ -299,4 +300,51 @@ test("getAppBaseUrl (server-to-server) is unaffected by Preview branch URLs", ()
   } finally {
     setEnv("INTERNAL_APP_URL", previousInternal);
   }
+});
+
+test("Preview with only VERCEL_BRANCH_URL (no NEXT_PUBLIC_ vars) resolves to it", () => {
+  withUrlEnv(
+    { VERCEL_ENV: "preview", NODE_ENV: "production", VERCEL_BRANCH_URL: "parfait-git-server-only-team.vercel.app" },
+    () => assert.equal(getPublicAppBaseUrl(), "https://parfait-git-server-only-team.vercel.app")
+  );
+});
+
+test("Preview with only NEXT_PUBLIC_VERCEL_BRANCH_URL still resolves to it", () => {
+  withUrlEnv(
+    { VERCEL_ENV: "preview", NODE_ENV: "production", NEXT_PUBLIC_VERCEL_BRANCH_URL: "parfait-git-public-team.vercel.app" },
+    () => assert.equal(getPublicAppBaseUrl(), "https://parfait-git-public-team.vercel.app")
+  );
+});
+
+test("VERCEL_BRANCH_URL wins over NEXT_PUBLIC_VERCEL_BRANCH_URL and NEXT_PUBLIC_APP_URL", () => {
+  withUrlEnv(
+    {
+      VERCEL_ENV: "preview",
+      NODE_ENV: "production",
+      VERCEL_BRANCH_URL: "parfait-git-winner-team.vercel.app",
+      NEXT_PUBLIC_VERCEL_BRANCH_URL: "parfait-git-loser-team.vercel.app",
+      NEXT_PUBLIC_APP_URL: "https://parfait-app.com"
+    },
+    () => assert.equal(getPublicAppBaseUrl(), "https://parfait-git-winner-team.vercel.app")
+  );
+});
+
+test("Production ignores VERCEL_BRANCH_URL and NEXT_PUBLIC_VERCEL_BRANCH_URL", () => {
+  withUrlEnv(
+    {
+      VERCEL_ENV: "production",
+      NODE_ENV: "production",
+      NEXT_PUBLIC_APP_URL: "https://parfait-app.com",
+      VERCEL_BRANCH_URL: "parfait-git-main-team.vercel.app",
+      NEXT_PUBLIC_VERCEL_BRANCH_URL: "parfait-git-main-team.vercel.app"
+    },
+    () => assert.equal(getPublicAppBaseUrl(), "https://parfait-app.com")
+  );
+});
+
+test("local development ignores VERCEL_BRANCH_URL", () => {
+  withUrlEnv(
+    { NODE_ENV: "development", VERCEL_BRANCH_URL: "parfait-git-x-team.vercel.app" },
+    () => assert.equal(getPublicAppBaseUrl(), "http://localhost:3000")
+  );
 });

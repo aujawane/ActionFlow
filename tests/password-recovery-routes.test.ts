@@ -105,12 +105,14 @@ const routes = async () => ({
 
 test("Forgot Password redirect uses the resolved Vercel Preview branch URL", async () => {
   const { reset } = await routes();
-  const names = ["VERCEL_ENV", "NEXT_PUBLIC_VERCEL_BRANCH_URL"] as const;
+  const names = ["VERCEL_ENV", "VERCEL_BRANCH_URL", "NEXT_PUBLIC_VERCEL_BRANCH_URL"] as const;
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   try {
     for (const host of ["parfait-git-branch-a-team.vercel.app", "parfait-git-branch-b-team.vercel.app"]) {
+      // Server-side variable only, with NEXT_PUBLIC_APP_URL still pointing elsewhere.
       process.env.VERCEL_ENV = "preview";
-      process.env.NEXT_PUBLIC_VERCEL_BRANCH_URL = host;
+      process.env.VERCEL_BRANCH_URL = host;
+      delete process.env.NEXT_PUBLIC_VERCEL_BRANCH_URL;
       const supabase = stubSupabase();
       try {
         const response = await reset.POST(
