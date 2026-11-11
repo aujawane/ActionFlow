@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { MobileNav } from "@/components/mobile-nav";
+import { ParfaitLogo } from "@/components/parfait-logo";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { isPublicSitePath } from "@/lib/public-site";
 
@@ -34,11 +35,8 @@ export function AppShell({
         <header className="sticky top-0 z-40 border-b border-white/70 bg-white/80 backdrop-blur-xl">
           <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
             <MobileNav />
-            <Link
-              href="/"
-              className="text-base font-semibold text-slate-950 transition hover:text-brand-700 lg:hidden"
-            >
-              Parfait
+            <Link href="/" aria-label="Parfait home" className="flex items-center lg:hidden">
+              <ParfaitLogo variant="mark" height={28} decorative />
             </Link>
             <div className="ml-auto flex items-center gap-2">
               <Link

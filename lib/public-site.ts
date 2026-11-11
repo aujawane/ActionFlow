@@ -35,6 +35,14 @@ export function isPublicSitePath(pathname: string | null | undefined): boolean {
   return (PUBLIC_SITE_PATHS as readonly string[]).includes(normalized);
 }
 
+/** Social sharing image, served from /public/brand and addressed on the existing SITE_URL. */
+export const SOCIAL_IMAGE = {
+  url: `${SITE_URL}/brand/parfait-social-1200x630.png`,
+  width: 1200,
+  height: 630,
+  alt: SITE_NAME
+};
+
 export function canonicalUrl(path: (typeof PUBLIC_SITE_PATHS)[number]): string {
   return path === "/" ? SITE_URL : `${SITE_URL}${path}`;
 }

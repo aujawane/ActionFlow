@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { TermsOfService } from "@/components/public-site/terms-content";
 import { isVisitorSignedIn } from "@/lib/public-site-session";
-import { canonicalUrl, SITE_NAME } from "@/lib/public-site";
+import { canonicalUrl, SITE_NAME, SOCIAL_IMAGE } from "@/lib/public-site";
 
 const title = "Terms of Service | Parfait";
 const description =
@@ -12,7 +12,8 @@ export const metadata: Metadata = {
   title,
   description,
   alternates: { canonical: canonicalUrl("/terms") },
-  openGraph: { title, description, url: canonicalUrl("/terms"), siteName: SITE_NAME, type: "website" }
+  openGraph: { title, description, url: canonicalUrl("/terms"), siteName: SITE_NAME, type: "website", images: [SOCIAL_IMAGE] },
+  twitter: { card: "summary_large_image", images: [SOCIAL_IMAGE.url] }
 };
 
 /** Public: no authentication is required to read the terms. */

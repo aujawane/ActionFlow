@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import { Modal } from "@/components/modal";
+import { ParfaitLogo } from "@/components/parfait-logo";
 import { activeNavHref, PRIMARY_NAV_ITEMS, SECONDARY_NAV_ITEMS } from "@/components/sidebar-nav";
 
 /** Below the desktop sidebar's `lg` breakpoint, Projects/Meetings/Account were only
@@ -34,11 +35,8 @@ export function MobileNav() {
       </button>
 
       <Modal open={open} title="Navigation" onClose={() => setOpen(false)} variant="drawer">
-        <div className="flex items-center gap-3 pb-6">
-          <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-600 text-sm font-bold text-white shadow-lg shadow-brand-700/20">
-            P
-          </span>
-          <span className="text-lg font-semibold text-slate-950">Parfait</span>
+        <div className="pb-6">
+          <ParfaitLogo height={32} />
         </div>
 
         <nav className="space-y-1.5">

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { HomePage } from "@/components/public-site/home-page";
 import { isVisitorSignedIn } from "@/lib/public-site-session";
-import { canonicalUrl, SITE_NAME } from "@/lib/public-site";
+import { canonicalUrl, SITE_NAME, SOCIAL_IMAGE } from "@/lib/public-site";
 
 const title = "Parfait | Turn meetings into action";
 const description =
@@ -12,7 +12,8 @@ export const metadata: Metadata = {
   title,
   description,
   alternates: { canonical: canonicalUrl("/") },
-  openGraph: { title, description, url: canonicalUrl("/"), siteName: SITE_NAME, type: "website" }
+  openGraph: { title, description, url: canonicalUrl("/"), siteName: SITE_NAME, type: "website", images: [SOCIAL_IMAGE] },
+  twitter: { card: "summary_large_image", images: [SOCIAL_IMAGE.url] }
 };
 
 /** Public homepage. Signed-out visitors see the product; signed-in users see "Open Parfait"

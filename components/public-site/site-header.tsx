@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ParfaitLogo } from "@/components/parfait-logo";
 
 import { focusRing, primaryCta, secondaryCta, navLink } from "@/components/public-site/styles";
 
@@ -10,15 +11,10 @@ export function SiteHeader({ signedIn }: { signedIn: boolean }) {
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-3 sm:px-6">
         <Link
           href="/"
-          className={`flex items-center gap-3 rounded-lg text-lg font-semibold text-slate-950 ${focusRing}`}
+          aria-label="Parfait home"
+          className={`flex items-center rounded-lg ${focusRing}`}
         >
-          <span
-            aria-hidden="true"
-            className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-700 text-sm font-bold text-white shadow-lg shadow-brand-700/20"
-          >
-            P
-          </span>
-          <span>Parfait</span>
+          <ParfaitLogo height={32} decorative />
         </Link>
 
         <nav

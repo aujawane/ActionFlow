@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { ParfaitLogo } from "@/components/parfait-logo";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { sanitizeInternalPath } from "@/lib/password-recovery";
 
@@ -81,7 +82,7 @@ export function AuthForm() {
   return (
     <div className="mx-auto grid min-h-[calc(100vh-9rem)] w-full max-w-5xl items-center gap-8 lg:grid-cols-[1fr_28rem]">
       <section className="hidden overflow-hidden rounded-3xl bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/20 lg:block">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-200">Parfait</p>
+        <ParfaitLogo color="white" height={32} />
         <h1 className="mt-6 text-4xl font-semibold leading-tight">
           Turn meeting conversations into implementation-ready work.
         </h1>

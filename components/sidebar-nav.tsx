@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
+import { ParfaitLogo } from "@/components/parfait-logo";
 
 export type NavItem = { href: Route; label: string };
 
@@ -37,14 +38,8 @@ export function SidebarNav() {
   return (
     <aside className="hidden w-64 shrink-0 border-r border-white/70 bg-white/80 backdrop-blur-xl lg:block">
       <div className="flex h-full flex-col p-5">
-        <Link
-          href="/"
-          className="mb-8 flex items-center gap-3 text-lg font-semibold text-slate-950 transition hover:text-brand-700"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-600 text-sm font-bold text-white shadow-lg shadow-brand-700/20">
-            P
-          </span>
-          <span>Parfait</span>
+        <Link href="/" aria-label="Parfait home" className="mb-8 flex items-center">
+          <ParfaitLogo height={32} decorative />
         </Link>
 
         <nav className="space-y-1.5">
