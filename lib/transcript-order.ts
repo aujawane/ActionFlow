@@ -12,8 +12,10 @@
  * Priority (highest wins; a segment's key stops at the first tier where it has a trustworthy
  * value, so segments never mix tiers relative to one another -- ties within a tier fall through
  * to the next tier, and the final tier is the segment's original input-array position):
- *   1. An explicit persisted ordering field on the row itself (`segment_index`, `sequence`, or
- *      `order`), when present and numeric.
+ *   1. An explicit persisted ordering field: on the row itself (`segment_index` or `sequence`),
+ *      when present and numeric, or else an imported transcript's source position,
+ *      `raw_payload.parfait_import.segment_index` (a non-negative integer; anything else is
+ *      ignored). Recall payloads never carry `parfait_import`, so Recall ordering is unaffected.
  *   2. Recall's per-word relative start offset: `raw_payload.words[0].start_timestamp.relative`.
  *   3. Another Recall-relative start field carried directly on the payload (some payload shapes
  *      put `start_timestamp` on the utterance itself rather than nested under `words`).
@@ -69,9 +71,27 @@ function toEpochMs(value: unknown): number | null {
   return null;
 }
 
-/** Tier 1: an explicit, trustworthy persisted ordering field on the row itself. */
+/** The key, inside raw_payload, under which manual transcript imports record their own metadata. */
+export const PARFAIT_IMPORT_PAYLOAD_KEY = "parfait_import";
+
+/** An imported segment's position in its source file, written by the import adapter as
+ * `raw_payload.parfait_import.segment_index`. Strict: only a non-negative safe integer counts.
+ * Strings, fractions, negatives, NaN and Infinity are ignored rather than coerced, so a malformed
+ * value can only drop that segment to a lower tier, never reorder it unpredictably. */
+export function extractImportedSegmentIndex(rawPayload: unknown): number | null {
+  const importMetadata = asRecord(asRecord(rawPayload)?.[PARFAIT_IMPORT_PAYLOAD_KEY]);
+  const value = importMetadata?.segment_index;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** Tier 1: an explicit, trustworthy persisted ordering field -- a row-level field when present,
+ * otherwise an imported transcript's recorded source position. */
 function extractPersistedIndex(segment: OrderableTranscriptSegment): number | null {
-  return toFiniteNumber(segment.segment_index) ?? toFiniteNumber(segment.sequence) ?? null;
+  return (
+    toFiniteNumber(segment.segment_index) ??
+    toFiniteNumber(segment.sequence) ??
+    extractImportedSegmentIndex(segment.raw_payload)
+  );
 }
 
 function firstWord(rawPayload: Record<string, unknown> | null): Record<string, unknown> | null {
@@ -163,7 +183,8 @@ export type TranscriptTextSegment = {
   id: string;
   speaker: string | null;
   text: string;
-  timestamp: string;
+  /** Null for imported segments with no absolute time; the line then omits its time token. */
+  timestamp: string | null;
   raw_payload?: unknown;
   /** For fixtures built from an export with no real Recall payload/UUIDs and a uniform displayed
    * timestamp: an explicit source-order index (tier 1) takes priority over the inert timestamp. */

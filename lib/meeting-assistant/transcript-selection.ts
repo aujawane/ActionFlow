@@ -96,9 +96,15 @@ export function scoreTranscriptSegments(
   // Sort chronologically by timestamp so the excerpt reads coherently rather than by relevance
   // rank -- independent of the order `segments` was passed in, so this holds regardless of
   // whether the caller already pre-sorted it.
-  return segments
-    .filter((segment) => chosenIds.has(segment.id))
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const selected = segments.filter((segment) => chosenIds.has(segment.id));
+  if (selected.some((segment) => segment.timestamp === null)) {
+    // An imported transcript without absolute times: order by the canonical rule (its recorded
+    // source position) instead of comparing null timestamps, which would all read as 1970.
+    return canonicalTranscriptOrder(selected);
+  }
+  return selected.sort(
+    (a, b) => new Date(a.timestamp as string).getTime() - new Date(b.timestamp as string).getTime()
+  );
 }
 
 export async function selectRelevantTranscriptSegments(input: {

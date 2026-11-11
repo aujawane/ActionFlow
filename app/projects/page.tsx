@@ -13,6 +13,7 @@ import {
   formatDaysUntilDueLabel
 } from "@/lib/execution-dashboard";
 import { formatReadableDate } from "@/lib/format-date";
+import { getEffectiveMeetingDate } from "@/lib/meeting-date";
 import { buildProjectExecutionModel } from "@/lib/project-execution";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Meeting, MeetingCommitment, MeetingTask, Project } from "@/lib/types";
@@ -255,7 +256,7 @@ export default async function ProjectsPage() {
                       {item.meeting.title || "Untitled meeting"}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
-                      {formatReadableDate(item.meeting.created_at)}
+                      {formatReadableDate(getEffectiveMeetingDate(item.meeting))}
                     </p>
                     <p className="mt-2 text-xs text-slate-600">
                       {item.commitments} commitment{item.commitments === 1 ? "" : "s"} ·{" "}

@@ -24,6 +24,8 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     meeting_url: "https://example.com/meet",
     platform: "google_meet",
     recall_bot_id: null,
+    source: "recall",
+    meeting_date: null,
     status: "completed",
     is_pinned: false,
     deleted_at: null,

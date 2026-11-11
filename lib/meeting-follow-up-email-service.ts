@@ -5,6 +5,7 @@ import {
   toFollowUpTasks
 } from "@/lib/meeting-follow-up-emails";
 import { isCommittedWork, isTaskExecutable } from "@/lib/execution-display";
+import { getEffectiveMeetingDate } from "@/lib/meeting-date";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadMeetingTranscriptSegments } from "@/lib/transcript-segments";
 import { getTranscriptSpeakerLabel } from "@/lib/transcript-speaker";
@@ -263,7 +264,9 @@ export async function generateMeetingFollowUpEmails(input: {
   }
   const generationContext = {
     meetingTitle: contextResult.meeting.title || "Untitled meeting",
-    meetingDate: contextResult.meeting.created_at ?? null,
+    meetingDate: contextResult.meeting.created_at
+      ? getEffectiveMeetingDate(contextResult.meeting)
+      : null,
     participants: contextResult.participants,
     meetingContext: contextResult.meetingContext
   };

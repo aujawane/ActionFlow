@@ -15,6 +15,7 @@ import { partitionExecutionGraph } from "@/lib/execution-display";
 import { getEffectiveDisplayGeneration } from "@/lib/execution-generation";
 import { formatReadableDate } from "@/lib/format-date";
 import { getLatestMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
+import { getEffectiveMeetingDate } from "@/lib/meeting-date";
 import { buildMeetingParticipantOptions } from "@/lib/meeting-participants";
 import { loadMeetingTasksWithFallback } from "@/lib/meeting-task-query";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -217,7 +218,7 @@ export default async function MeetingDetailPage({
     assistantSuggestions.push("Summarize this meeting", "What did we discuss?");
   }
 
-  const meetingDateLabel = formatReadableDate(meeting.created_at);
+  const meetingDateLabel = formatReadableDate(getEffectiveMeetingDate(meeting));
 
   return (
     <section className="space-y-6">

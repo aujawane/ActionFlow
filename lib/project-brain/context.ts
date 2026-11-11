@@ -3,6 +3,7 @@ import {
   isCommitmentCurrentGeneration,
   isTaskCurrentGeneration
 } from "@/lib/execution-generation";
+import { getEffectiveMeetingDate } from "@/lib/meeting-date";
 import { getOwnedProject } from "@/lib/project-access";
 import { computeProjectProgress } from "@/lib/project-execution";
 import { collectProjectPersonReferences } from "@/lib/project-brain/operations";
@@ -111,7 +112,9 @@ export async function buildProjectBrainContext(
       .limit(200),
     supabaseAdmin
       .from("meetings")
-      .select("id,title,created_at,status,execution_graph_generation,last_persisted_execution_generation")
+      // "*" rather than a column list so meeting_date is read when it exists without making this
+      // query fail on a database where the import migration has not been applied yet.
+      .select("*")
       .eq("project_id", projectId)
       .eq("user_id", userId)
       .is("deleted_at", null)
@@ -277,7 +280,7 @@ export async function buildProjectBrainContext(
     meetings: safeMeetings.map((meeting) => ({
       id: meeting.id,
       title: meeting.title,
-      date: meeting.created_at,
+      date: getEffectiveMeetingDate(meeting),
       status: meeting.status,
       summary: summaryByMeeting.get(meeting.id) ?? null
     })),

@@ -358,6 +358,14 @@ export async function finalizeV2Normalization(
       patches: patches.map(({ id, patch }) => {
         const segment = segmentsById.get(id);
         if (!segment) throw new AnalysisUnitValidationError(`Unknown normalization segment ${id}.`);
+        if (segment.timestamp === null) {
+          // persist_meeting_normalization_v2 requires a string source_timestamp and compares it
+          // to the row, so a timestamp-less (imported) segment would be rejected there as a
+          // malformed payload. Fail here with the real reason. v1 normalization is unaffected.
+          throw new AnalysisUnitValidationError(
+            `Pipeline v2 normalization does not yet support segments without an absolute timestamp (${id}).`
+          );
+        }
         return {
           id,
           source_hash: normalizationSegmentSourceHash(segment),

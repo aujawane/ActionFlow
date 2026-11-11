@@ -113,8 +113,10 @@ export function LiveTranscript({
               className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition hover:border-brand-200 hover:bg-brand-50/30"
             >
               <p className="text-xs font-medium text-slate-500">
-                {getTranscriptSpeakerLabel(segment)} •{" "}
-                {new Date(segment.timestamp).toLocaleTimeString()}
+                {getTranscriptSpeakerLabel(segment)}
+                {segment.timestamp !== null ? (
+                  <> •{" "}{new Date(segment.timestamp).toLocaleTimeString()}</>
+                ) : null}
               </p>
               <p className="mt-1 break-words text-sm text-slate-800">{segment.text}</p>
             </div>

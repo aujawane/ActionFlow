@@ -5,6 +5,7 @@ import {
   segmentMeetingTopicsWithOpenAI
 } from "@/lib/analysis";
 import type { ExecutionSourceContext } from "@/lib/execution-intelligence/stages";
+import { getEffectiveMeetingDate } from "@/lib/meeting-date";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildCanonicalTranscriptWithSegmentIds, canonicalTranscriptOrder } from "@/lib/transcript-order";
 import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
@@ -229,7 +230,11 @@ export async function loadMeetingAnalysisInput(meetingId: string): Promise<Meeti
   }
 
   const segmentationTranscript = buildCanonicalTranscriptWithSegmentIds(safeSegments);
-  const meetingDate = meeting.created_at ?? new Date().toISOString();
+  // The date relative phrases ("tomorrow", "Friday") are resolved against: when the meeting
+  // happened, not when a historical transcript was imported. Recall meetings: unchanged.
+  const meetingDate = meeting.created_at
+    ? getEffectiveMeetingDate(meeting)
+    : new Date().toISOString();
   return {
     safeSegments,
     transcript,

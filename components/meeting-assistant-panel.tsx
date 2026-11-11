@@ -349,7 +349,8 @@ export function MeetingAssistantPanel({
                         <ul className="mt-0.5 space-y-0.5">
                           {sources.map((source, index) => (
                             <li key={`${comment.id}-source-${index}`}>
-                              {source.speaker} · {source.timestamp}
+                              {source.speaker}
+                              {source.timestamp ? ` · ${source.timestamp}` : null}
                             </li>
                           ))}
                         </ul>

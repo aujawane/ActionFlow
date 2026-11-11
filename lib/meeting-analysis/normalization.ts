@@ -18,6 +18,7 @@ import {
   upsertVocabularySuggestions,
   type VocabularyCandidateInput
 } from "@/lib/project-vocabulary";
+import { getEffectiveMeetingDate } from "@/lib/meeting-date";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
@@ -350,7 +351,9 @@ export async function loadNormalizationInput(
 ): Promise<NormalizationInput | { skipped: NormalizationStageResult }> {
   const { data: meeting, error: meetingError } = await supabaseAdmin
     .from("meetings")
-    .select("id, project_id, created_at")
+    // "*" rather than a column list: reads meeting_date when it exists, and does not fail on a
+    // database where the import migration has not been applied yet.
+    .select("*")
     .eq("id", meetingId)
     .is("deleted_at", null)
     .single();
@@ -365,7 +368,13 @@ export async function loadNormalizationInput(
 
   const projectId = typeof meeting.project_id === "string" ? meeting.project_id : null;
   const approvedVocabulary = projectId ? await getApprovedProjectVocabulary(projectId) : [];
-  return { meetingId, meetingDate: meeting.created_at, projectId, ordered, approvedVocabulary };
+  return {
+    meetingId,
+    meetingDate: getEffectiveMeetingDate(meeting),
+    projectId,
+    ordered,
+    approvedVocabulary
+  };
 }
 
 /** Pure: everything every batch request and the merge are computed from. Batches are independent:

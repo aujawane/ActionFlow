@@ -96,7 +96,11 @@ export function MeetingDetailsEditor({
     try {
       const detailPatch: Record<string, string> = {};
       if (parsedTitle.data !== meeting.title) detailPatch.title = parsedTitle.data;
-      if (linkEditable && normalizedMeetingUrl !== meeting.meeting_url) {
+      if (
+        linkEditable &&
+        normalizedMeetingUrl !== null &&
+        normalizedMeetingUrl !== meeting.meeting_url
+      ) {
         detailPatch.meeting_url = normalizedMeetingUrl;
       }
 
@@ -264,7 +268,7 @@ export function MeetingDetailsEditor({
                 <input
                   className="premium-input mt-1.5 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
                   type="url"
-                  value={meetingUrl}
+                  value={meetingUrl ?? ""}
                   disabled={saving || !linkEditable}
                   onChange={(event) => setMeetingUrl(event.target.value)}
                 />

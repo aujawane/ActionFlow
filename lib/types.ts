@@ -27,7 +27,9 @@ export interface TranscriptSegment {
   participant_name: string | null;
   /** Immutable raw transcript text exactly as Recall returned it. Never overwritten. */
   text: string;
-  timestamp: string;
+  /** Absolute speech time. Null when the source carried no absolute time (imported transcripts);
+   * never fill it with a placeholder. Order such rows via lib/transcript-order.ts. */
+  timestamp: string | null;
   raw_payload: JsonValue;
   created_at: string;
   /** Corrected text for this segment, set only when normalization actually changed it. Downstream
@@ -474,7 +476,8 @@ export interface MeetingAssistantGeneratedContentItem {
 export interface MeetingAssistantSource {
   segment_id: string;
   speaker: string;
-  timestamp: string;
+  /** Null when the cited segment has no absolute time (imported transcripts). */
+  timestamp: string | null;
 }
 
 export interface MeetingAssistantCommentMetadata {
@@ -549,14 +552,25 @@ export interface TopicSegmentResult {
   segment_ids: string[];
 }
 
+/** Where a meeting's transcript came from (meetings.source). Existing rows are "recall". */
+export type MeetingSource = "recall" | "manual_upload" | "manual_paste";
+
 export interface Meeting {
   id: string;
   user_id: string;
   project_id?: string | null;
   title: string | null;
-  meeting_url: string;
+  /** Null for imported meetings, which have no join link. */
+  meeting_url: string | null;
   platform: "google_meet" | "zoom" | "unknown";
   recall_bot_id: string | null;
+  /** Read through getMeetingSource() (lib/meeting-source.ts), which treats a missing value as
+   * "recall". Never infer the source from recall_bot_id. */
+  source: MeetingSource;
+  /** Calendar date (YYYY-MM-DD) the meeting occurred, when it differs from created_at. Read the
+   * effective date through getEffectiveMeetingDate() (lib/meeting-date.ts). */
+  meeting_date: string | null;
+  transcript_import_claimed_at?: string | null;
   status:
     | "pending"
     | "joining"

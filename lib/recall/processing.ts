@@ -1,14 +1,23 @@
-import { enqueueMeetingAnalysis } from "@/lib/meeting-analysis/enqueue";
 import {
   fetchRecallTranscript,
   getRecallTranscriptDiagnostics,
   parseRecallTranscriptToSegments,
   type ParsedTranscriptSegment
 } from "@/lib/recall/transcript";
-import { allowedPriorStatuses, shouldSkipDuplicateCompletion } from "@/lib/recall/webhook-events";
+import { shouldSkipDuplicateCompletion } from "@/lib/recall/webhook-events";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  applyGuardedMeetingStatus,
+  commitTranscriptAndEnqueueAnalysis,
+  type CommitTranscriptResult
+} from "@/lib/transcript-commit";
 import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 import type { Meeting } from "@/lib/types";
+
+// The forward-only status guard and the transactional transcript replace are source-independent
+// and live in lib/transcript-commit.ts. Re-exported so existing Recall callers (webhook,
+// sync-status, dev reimport) keep importing them from here unchanged.
+export { applyGuardedMeetingStatus, replaceTranscriptSegments } from "@/lib/transcript-commit";
 
 export type RecallMeetingProcessingResult =
   | {
@@ -41,29 +50,6 @@ export type RecallMeetingProcessingResult =
       generation?: number;
       message: string;
     };
-
-/**
- * Forward-only, idempotent meeting status write: the update only applies if the meeting's current
- * status is still one Supabase can see as "earlier" than `status` (see allowedPriorStatuses), so a
- * duplicate/out-of-order webhook delivery can never regress an already-advanced meeting. Returns
- * whether the write actually applied (false means the meeting had already moved past `status`).
- */
-export async function applyGuardedMeetingStatus(
-  meetingId: string,
-  status: Meeting["status"]
-): Promise<boolean> {
-  const priorStatuses = allowedPriorStatuses(status);
-  if (priorStatuses.length === 0) return false;
-
-  const { data, error } = await supabaseAdmin
-    .from("meetings")
-    .update({ status })
-    .eq("id", meetingId)
-    .in("status", priorStatuses)
-    .select("id");
-  if (error) throw new Error(error.message);
-  return (data?.length ?? 0) > 0;
-}
 
 /** A claim older than this is treated as abandoned rather than active, so a meeting can never be
  * permanently stuck if the process holding a claim is hard-killed (a platform-level timeout/OOM
@@ -134,52 +120,11 @@ export async function releaseTranscriptImportClaim(meetingId: string): Promise<v
 }
 
 /**
- * Transactional, canonical transcript replacement -- the shared low-level primitive behind both
- * the Recall-authoritative import path below and the dev-only raw-transcript reimport route
- * (app/api/dev/reimport-transcript/route.ts). Replaces replaceMeetingTranscriptFromRecall's old
- * two-step `.delete()` then `.insert()` (two separate, non-transactional Supabase calls -- the
- * exact gap that let two concurrent imports each delete 0 rows and then both insert their own
- * full row set) with one call to replace_meeting_transcript_segments(), which performs the
- * delete+insert inside a single Postgres transaction while holding a row lock on the meeting,
- * serializing any concurrent replacement attempt for the same meeting_id regardless of which
- * caller/code path initiated it. This function has no opinion about WHETHER a caller is allowed
- * to replace a given meeting's transcript right now -- that's claimTranscriptImport's job for the
- * automatic path; this is purely "do the replacement atomically," reused by both the gated
- * automatic path and the intentionally-ungated dev tool. */
-export async function replaceTranscriptSegments(
-  meetingId: string,
-  rows: ParsedTranscriptSegment[]
-): Promise<{ insertedCount: number }> {
-  if (rows.length === 0) {
-    const { error } = await supabaseAdmin
-      .from("transcript_segments")
-      .delete()
-      .eq("meeting_id", meetingId);
-    if (error) throw new Error(error.message);
-    return { insertedCount: 0 };
-  }
-
-  const { data, error } = await supabaseAdmin.rpc("replace_meeting_transcript_segments", {
-    p_meeting_id: meetingId,
-    p_segments: rows.map((row) => ({
-      speaker: row.speaker,
-      participant_name: row.participant_name,
-      text: row.text,
-      timestamp: row.timestamp,
-      raw_payload: row.raw_payload
-    }))
-  });
-  if (error) throw new Error(error.message);
-  return { insertedCount: data?.length ?? 0 };
-}
-
-export async function replaceMeetingTranscriptFromRecall({
-  meetingId,
-  recallBotId
-}: {
-  meetingId: string;
-  recallBotId: string;
-}) {
+ * Recall-specific half of an import: fetch the bot's transcript artifact and parse it into
+ * transcript rows (speaker labels normalized). Writes nothing. An empty result means Recall has
+ * not made a downloadable transcript available yet.
+ */
+export async function fetchRecallTranscriptRows(recallBotId: string): Promise<ParsedTranscriptSegment[]> {
   const transcriptContent = await fetchRecallTranscript(recallBotId);
   console.info("[recall-processing] Transcript import diagnostics", {
     bot_id: recallBotId,
@@ -211,18 +156,29 @@ export async function replaceMeetingTranscriptFromRecall({
     segment_count_by_speaker: segmentCountBySpeaker
   });
 
-  if (transcriptRows.length === 0) {
-    return { insertedCount: 0, parsedCount: 0, ready: false };
-  }
-
-  const { insertedCount } = await replaceTranscriptSegments(meetingId, transcriptRows);
-
-  return {
-    insertedCount,
-    parsedCount: transcriptRows.length,
-    ready: true
-  };
+  return transcriptRows;
 }
+
+/** Injectable I/O for processCompletedRecallMeeting; production callers use the defaults. */
+export type RecallMeetingProcessingDeps = {
+  claimTranscriptImport: (meetingId: string) => Promise<TranscriptImportClaimResult>;
+  releaseTranscriptImportClaim: (meetingId: string) => Promise<void>;
+  applyGuardedMeetingStatus: (meetingId: string, status: Meeting["status"]) => Promise<boolean>;
+  fetchRecallTranscriptRows: (recallBotId: string) => Promise<ParsedTranscriptSegment[]>;
+  commitTranscriptAndEnqueueAnalysis: (input: {
+    meetingId: string;
+    segments: ParsedTranscriptSegment[];
+    requestOrigin?: string;
+  }) => Promise<CommitTranscriptResult>;
+};
+
+export const defaultRecallMeetingProcessingDeps: RecallMeetingProcessingDeps = {
+  claimTranscriptImport,
+  releaseTranscriptImportClaim,
+  applyGuardedMeetingStatus,
+  fetchRecallTranscriptRows,
+  commitTranscriptAndEnqueueAnalysis: (input) => commitTranscriptAndEnqueueAnalysis(input)
+};
 
 /**
  * The single shared entry point for processing a completed Recall meeting -- called both
@@ -233,17 +189,25 @@ export async function replaceMeetingTranscriptFromRecall({
  * analysis enqueue); every other concurrent invocation -- automatic or manual, for the same
  * meeting -- returns cleanly as already_processing/already_processed without fetching, deleting,
  * inserting, or enqueueing anything.
+ *
+ * Recall-specific steps (claim, fetch, parse, "not downloadable yet") stay here. The
+ * source-independent tail -- transactional replace, guarded transcript_ready transition, and
+ * enqueueMeetingAnalysis only for the winner of that transition -- is
+ * commitTranscriptAndEnqueueAnalysis (lib/transcript-commit.ts), shared with manual imports.
  */
-export async function processCompletedRecallMeeting({
-  meetingId,
-  recallBotId,
-  requestOrigin
-}: {
-  meetingId: string;
-  recallBotId: string;
-  requestOrigin?: string;
-}): Promise<RecallMeetingProcessingResult> {
-  const claim = await claimTranscriptImport(meetingId);
+export async function processCompletedRecallMeeting(
+  {
+    meetingId,
+    recallBotId,
+    requestOrigin
+  }: {
+    meetingId: string;
+    recallBotId: string;
+    requestOrigin?: string;
+  },
+  deps: RecallMeetingProcessingDeps = defaultRecallMeetingProcessingDeps
+): Promise<RecallMeetingProcessingResult> {
+  const claim = await deps.claimTranscriptImport(meetingId);
   if (!claim.claimed) {
     if (claim.reason === "already_done") {
       return {
@@ -264,18 +228,15 @@ export async function processCompletedRecallMeeting({
   }
 
   try {
-    await applyGuardedMeetingStatus(meetingId, "processing");
+    await deps.applyGuardedMeetingStatus(meetingId, "processing");
 
-    const transcriptResult = await replaceMeetingTranscriptFromRecall({
-      meetingId,
-      recallBotId
-    });
+    const transcriptRows = await deps.fetchRecallTranscriptRows(recallBotId);
 
-    if (!transcriptResult.ready) {
+    if (transcriptRows.length === 0) {
       // Stay in "processing", never fall back to "recording". Release the claim so a later
       // delivery can legitimately retry once the artifact is actually ready.
-      await applyGuardedMeetingStatus(meetingId, "processing");
-      await releaseTranscriptImportClaim(meetingId);
+      await deps.applyGuardedMeetingStatus(meetingId, "processing");
+      await deps.releaseTranscriptImportClaim(meetingId);
       return {
         status: "processing",
         insertedCount: 0,
@@ -285,33 +246,37 @@ export async function processCompletedRecallMeeting({
       };
     }
 
-    const wonTranscriptReady = await applyGuardedMeetingStatus(meetingId, "transcript_ready");
-    if (!wonTranscriptReady) {
+    const committed = await deps.commitTranscriptAndEnqueueAnalysis({
+      meetingId,
+      segments: transcriptRows,
+      requestOrigin
+    });
+
+    if (committed.status === "transition_lost") {
       // The transcript import claim already serializes this in the normal case, so this branch
       // is only reachable if the meeting's status moved past "processing" through some other
-      // path (e.g. independently marked failed) between the claim above and here. Either way,
-      // the transcript import claim does not by itself grant the right to enqueue analysis --
-      // only an actual transcript_ready transition does, so no analysis is enqueued here.
+      // path (e.g. independently marked failed) between the claim above and the transition.
+      // Either way, the transcript import claim does not by itself grant the right to enqueue
+      // analysis -- only an actual transcript_ready transition does, so nothing was enqueued.
       return {
         status: "transcript_ready",
-        insertedCount: transcriptResult.insertedCount,
-        parsedCount: transcriptResult.parsedCount,
+        insertedCount: committed.insertedCount,
+        parsedCount: transcriptRows.length,
         analysisStatus: "not_started",
         message: "Transcript imported, but this meeting had already moved past processing."
       };
     }
 
-    const enqueued = await enqueueMeetingAnalysis(meetingId, { requestOrigin });
-    if (!enqueued.ok) {
+    if (committed.status === "analysis_enqueue_failed") {
       console.warn("[recall-processing] Analysis enqueue failed after transcript import", {
         meeting_id: meetingId,
-        error: enqueued.error,
-        details: enqueued.details
+        error: committed.error,
+        details: committed.details
       });
       return {
         status: "transcript_ready",
-        insertedCount: transcriptResult.insertedCount,
-        parsedCount: transcriptResult.parsedCount,
+        insertedCount: committed.insertedCount,
+        parsedCount: transcriptRows.length,
         analysisStatus: "enqueue_failed",
         message:
           "Transcript imported successfully. Analysis could not be queued; retry Analyze Meeting."
@@ -320,11 +285,11 @@ export async function processCompletedRecallMeeting({
 
     return {
       status: "transcript_ready",
-      insertedCount: transcriptResult.insertedCount,
-      parsedCount: transcriptResult.parsedCount,
+      insertedCount: committed.insertedCount,
+      parsedCount: transcriptRows.length,
       analysisStatus: "queued",
-      jobId: enqueued.jobId,
-      generation: enqueued.generation,
+      jobId: committed.jobId,
+      generation: committed.generation,
       message: "Transcript imported. Analysis queued in the background."
     };
   } catch (error) {
@@ -332,7 +297,7 @@ export async function processCompletedRecallMeeting({
     // failure, a Supabase error, anything) must not permanently block every future import
     // attempt for this meeting. Best-effort: a failure to release must never mask the original
     // error that triggered it.
-    await releaseTranscriptImportClaim(meetingId).catch((releaseError) => {
+    await deps.releaseTranscriptImportClaim(meetingId).catch((releaseError) => {
       console.error("[recall-processing] Failed to release transcript import claim after error", {
         meeting_id: meetingId,
         release_error: releaseError instanceof Error ? releaseError.message : "Unknown error"

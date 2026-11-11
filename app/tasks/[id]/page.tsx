@@ -232,7 +232,8 @@ export default async function TaskWorkspacePage({
                       {segments.map((segment) => (
                         <div key={segment.id} className="rounded-xl bg-white p-3 shadow-sm">
                           <p className="text-xs font-semibold text-slate-500">
-                            {getTranscriptSpeakerLabel(segment)} • {formatTime(segment.timestamp)}
+                            {getTranscriptSpeakerLabel(segment)}
+                            {segment.timestamp !== null ? ` • ${formatTime(segment.timestamp)}` : null}
                           </p>
                           <p className="mt-1 text-sm leading-6 text-slate-700">{segment.text}</p>
                         </div>

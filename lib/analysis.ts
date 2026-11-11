@@ -101,8 +101,19 @@ const transcriptAnalysisJsonSchema: Record<string, unknown> = {
   ]
 };
 
+/**
+ * The `[iso-time] ` prefix of a model transcript line, or "" when the segment has no absolute
+ * time (an imported transcript). A segment with a timestamp renders exactly as it always has, so
+ * Recall transcripts are byte-for-byte unchanged; a missing time is omitted rather than rendered
+ * as `new Date(null)` (1970-01-01) or replaced with an invented value.
+ */
+function transcriptTimePrefix(timestamp: string | null | undefined) {
+  if (timestamp === null || timestamp === undefined) return "";
+  return `[${new Date(timestamp).toISOString()}] `;
+}
+
 export function buildCleanTranscript(
-  segments: Array<{ participant_name?: string | null; speaker: string | null; text: string; timestamp: string }>
+  segments: Array<{ participant_name?: string | null; speaker: string | null; text: string; timestamp: string | null }>
 ) {
   return segments
     .map((segment) => {
@@ -110,16 +121,16 @@ export function buildCleanTranscript(
         participant_name: segment.participant_name ?? null,
         speaker: segment.speaker
       });
-      const time = new Date(segment.timestamp).toISOString();
+      const time = transcriptTimePrefix(segment.timestamp);
       const text = segment.text.trim().replace(/\s+/g, " ");
-      return `[${time}] ${speaker}: ${text}`;
+      return `${time}${speaker}: ${text}`;
     })
     .filter((line) => line.length > 0)
     .join("\n");
 }
 
 export function buildTranscriptWithSegmentIds(
-  segments: Array<{ id: string; participant_name?: string | null; speaker: string | null; text: string; timestamp: string }>
+  segments: Array<{ id: string; participant_name?: string | null; speaker: string | null; text: string; timestamp: string | null }>
 ) {
   return segments
     .map((segment) => {
@@ -127,9 +138,9 @@ export function buildTranscriptWithSegmentIds(
         participant_name: segment.participant_name ?? null,
         speaker: segment.speaker
       });
-      const time = new Date(segment.timestamp).toISOString();
+      const time = transcriptTimePrefix(segment.timestamp);
       const text = segment.text.trim().replace(/\s+/g, " ");
-      return `[${segment.id}] [${time}] ${speaker}: ${text}`;
+      return `[${segment.id}] ${time}${speaker}: ${text}`;
     })
     .filter((line) => line.length > 0)
     .join("\n");

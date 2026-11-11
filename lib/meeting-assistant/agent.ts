@@ -148,6 +148,14 @@ function commentToHistoryEntry(comment: MeetingComment) {
   return { role: comment.role, message: message.slice(0, 4000) };
 }
 
+/** "3:04 PM" for a segment with an absolute time; null (never 1970) for one without. */
+export function formatSegmentClockTime(timestamp: string | null): string | null {
+  if (timestamp === null) return null;
+  return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(
+    new Date(timestamp)
+  );
+}
+
 export async function runMeetingAssistantAgent(input: {
   executionContext: MeetingAssistantExecutionContext;
   transcriptSegments: TranscriptSegment[];
@@ -159,16 +167,18 @@ export async function runMeetingAssistantAgent(input: {
   | { ok: true; result: MeetingAssistantAgentResult; sources: MeetingAssistantSource[] }
   | { ok: false; error: string; details?: string }
 > {
-  const transcriptExcerpt = input.transcriptSegments.map((segment) => ({
-    id: segment.id,
-    speaker: getTranscriptSpeakerLabel(segment),
-    // A short, human-readable time -- matches the convention already used for transcript
-    // segments elsewhere (e.g. Task Workspace evidence), not an invented elapsed-time system.
-    timestamp: new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(
-      new Date(segment.timestamp)
-    ),
-    text: (segment.text ?? "").trim().slice(0, 600)
-  }));
+  const transcriptExcerpt = input.transcriptSegments.map((segment) => {
+    const clockTime = formatSegmentClockTime(segment.timestamp);
+    return {
+      id: segment.id,
+      speaker: getTranscriptSpeakerLabel(segment),
+      // A short, human-readable time -- matches the convention already used for transcript
+      // segments elsewhere (e.g. Task Workspace evidence), not an invented elapsed-time system.
+      // Omitted entirely for a segment with no absolute time, rather than sent as 1970/null.
+      ...(clockTime === null ? {} : { timestamp: clockTime }),
+      text: (segment.text ?? "").trim().slice(0, 600)
+    };
+  });
 
   const payload = {
     meeting_analyzed: input.meetingAnalyzed,
@@ -234,9 +244,7 @@ export async function runMeetingAssistantAgent(input: {
       .map((segment) => ({
         segment_id: segment.id,
         speaker: getTranscriptSpeakerLabel(segment),
-        timestamp: new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(
-          new Date(segment.timestamp)
-        )
+        timestamp: formatSegmentClockTime(segment.timestamp)
       }));
 
     return { ok: true, result: validated.data, sources };

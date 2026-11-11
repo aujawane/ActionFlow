@@ -1,5 +1,6 @@
 import { partitionExecutionGraph, commitmentProgress } from "@/lib/execution-display";
 import { getEffectiveDisplayGeneration } from "@/lib/execution-generation";
+import { getEffectiveMeetingDate } from "@/lib/meeting-date";
 import { buildMeetingParticipantOptions } from "@/lib/meeting-participants";
 import { getSuggestedSteps } from "@/lib/task-workspace";
 import { getDeliverableLifecycleState, groupDeliverablesByType } from "@/lib/task-deliverable-lifecycle";
@@ -248,7 +249,7 @@ export function buildMeetingAssistantExecutionContext(
     meeting: {
       id: input.meeting.id,
       title: input.meeting.title,
-      date: input.meeting.created_at,
+      date: getEffectiveMeetingDate(input.meeting),
       platform: input.meeting.platform,
       status: input.meeting.status,
       project: input.project?.name ?? null,

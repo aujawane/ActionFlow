@@ -169,10 +169,12 @@ test("processCompletedRecallMeeting skips re-import and re-enqueue for a meeting
   const start = source.indexOf("export async function processCompletedRecallMeeting");
   assert.ok(start > -1, "expected processCompletedRecallMeeting");
   const fn = source.slice(start); // last export in the file -- safe to run to EOF
-  const claimIndex = fn.indexOf("const claim = await claimTranscriptImport(meetingId);");
-  const enqueueIndex = fn.indexOf("enqueueMeetingAnalysis(");
+  const claimIndex = fn.indexOf("const claim = await deps.claimTranscriptImport(meetingId);");
+  // Analysis is queued only inside the shared commit helper, which runs after the claim.
+  const enqueueIndex = fn.indexOf("deps.commitTranscriptAndEnqueueAnalysis(");
   assert.ok(claimIndex > -1 && enqueueIndex > -1);
   assert.ok(claimIndex < enqueueIndex, "the atomic import claim must run before enqueueing analysis");
+  assert.doesNotMatch(fn, /[^.]enqueueMeetingAnalysis\(/, "Recall never queues analysis around the shared helper");
   assert.match(fn, /if \(!claim\.claimed\) \{/);
   assert.match(fn, /status: "already_processed"/);
   assert.match(fn, /status: "already_processing"/);
@@ -184,7 +186,7 @@ test("the losing side of the transcript-import claim never fetches from Recall, 
   const fn = source.slice(start);
   const notClaimedBlock = fn.match(/if \(!claim\.claimed\) \{[\s\S]*?\n {2}\}\n/);
   assert.ok(notClaimedBlock, "expected the !claim.claimed early-return block");
-  assert.doesNotMatch(notClaimedBlock![0], /replaceMeetingTranscriptFromRecall|fetchRecallTranscript|enqueueMeetingAnalysis|replaceTranscriptSegments/);
+  assert.doesNotMatch(notClaimedBlock![0], /replaceMeetingTranscriptFromRecall|fetchRecallTranscript|enqueueMeetingAnalysis|replaceTranscriptSegments|commitTranscriptAndEnqueueAnalysis/);
 });
 
 test("claimTranscriptImport performs one atomic UPDATE ... WHERE ... RETURNING, the same shape applyGuardedMeetingStatus already uses -- not a read then a separate write", async () => {
@@ -224,8 +226,12 @@ test("a call that has ended but has no downloadable transcript yet stays in proc
   const source = await readSource("lib/recall/processing.ts");
   const start = source.indexOf("export async function processCompletedRecallMeeting");
   const fn = source.slice(start);
-  assert.match(fn, /if \(!transcriptResult\.ready\) \{[\s\S]{0,300}applyGuardedMeetingStatus\(meetingId, "processing"\)/);
+  assert.match(fn, /if \(transcriptRows\.length === 0\) \{[\s\S]{0,300}deps\.applyGuardedMeetingStatus\(meetingId, "processing"\)/);
   assert.doesNotMatch(fn, /status: "recording"/);
+  // The not-downloadable branch returns before any transcript is committed.
+  const emptyBranch = fn.slice(fn.indexOf("if (transcriptRows.length === 0) {"), fn.indexOf("deps.commitTranscriptAndEnqueueAnalysis("));
+  assert.match(emptyBranch, /return \{/);
+  assert.doesNotMatch(emptyBranch, /commitTranscriptAndEnqueueAnalysis\(|replaceTranscriptSegments\(/);
 });
 
 test("every automatic status write in processCompletedRecallMeeting goes through the forward-only guard, not a raw update", async () => {
@@ -233,36 +239,50 @@ test("every automatic status write in processCompletedRecallMeeting goes through
   const start = source.indexOf("export async function processCompletedRecallMeeting");
   const fn = source.slice(start);
   assert.doesNotMatch(fn, /\.update\(\{ status:/);
-  assert.match(fn, /applyGuardedMeetingStatus\(meetingId, "processing"\)/);
-  assert.match(fn, /applyGuardedMeetingStatus\(meetingId, "transcript_ready"\)/);
+  assert.match(fn, /deps\.applyGuardedMeetingStatus\(meetingId, "processing"\)/);
+  // The transcript_ready transition now happens in the shared commit helper -- also guarded.
+  const shared = await readSource("lib/transcript-commit.ts");
+  const commitFn = shared.slice(shared.indexOf("export async function commitTranscriptAndEnqueueAnalysis"));
+  assert.doesNotMatch(commitFn, /\.update\(\{ status:/);
+  assert.match(commitFn, /deps\.applyGuardedMeetingStatus\(meetingId, "transcript_ready"\)/);
+  assert.match(shared, /applyGuardedMeetingStatus,\n/, "the default dependency is the real guarded write");
 });
 
 test("applyGuardedMeetingStatus writes are scoped with .in(\"status\", priorStatuses) -- atomic, no read-then-write race on the guard itself", async () => {
-  const source = await readSource("lib/recall/processing.ts");
+  const source = await readSource("lib/transcript-commit.ts");
   const start = source.indexOf("export async function applyGuardedMeetingStatus");
-  const end = source.indexOf("export async function replaceMeetingTranscriptFromRecall");
+  const end = source.indexOf("export async function replaceTranscriptSegments");
   assert.ok(start > -1 && end > start);
   const fn = source.slice(start, end);
   assert.match(fn, /\.in\("status", priorStatuses\)/);
+  // Existing Recall callers still import it from lib/recall/processing.
+  const processing = await readSource("lib/recall/processing.ts");
+  assert.match(processing, /export \{ applyGuardedMeetingStatus, replaceTranscriptSegments \} from "@\/lib\/transcript-commit";/);
 });
 
-test("transcript replacement is transactional: replaceMeetingTranscriptFromRecall delegates to the shared replace_meeting_transcript_segments RPC, not two separate delete-then-insert Supabase calls", async () => {
-  const source = await readSource("lib/recall/processing.ts");
+test("transcript replacement is transactional: the shared commit path delegates to the replace_meeting_transcript_segments RPC, not two separate delete-then-insert Supabase calls", async () => {
+  const source = await readSource("lib/transcript-commit.ts");
   assert.match(source, /export async function replaceTranscriptSegments\(/);
   const start = source.indexOf("export async function replaceTranscriptSegments");
-  const end = source.indexOf("export async function replaceMeetingTranscriptFromRecall");
+  const end = source.indexOf("export type CommitTranscriptResult");
   const fn = source.slice(start, end);
   assert.match(fn, /supabaseAdmin\.rpc\("replace_meeting_transcript_segments", \{/);
   assert.match(fn, /p_meeting_id: meetingId,/);
   assert.match(fn, /p_segments: rows\.map/);
 
-  // replaceMeetingTranscriptFromRecall itself no longer issues its own delete/insert pair.
-  const importFnStart = source.indexOf("export async function replaceMeetingTranscriptFromRecall");
-  const importFnEnd = source.indexOf("export async function processCompletedRecallMeeting");
-  const importFn = source.slice(importFnStart, importFnEnd);
-  assert.doesNotMatch(importFn, /\.from\("transcript_segments"\)\s*\n\s*\.delete\(\)/);
-  assert.doesNotMatch(importFn, /\.from\("transcript_segments"\)\s*\n\s*\.insert\(/);
-  assert.match(importFn, /replaceTranscriptSegments\(meetingId, transcriptRows\)/);
+  // The commit helper replaces through that primitive, with the real one as its default.
+  const commitFn = source.slice(source.indexOf("export async function commitTranscriptAndEnqueueAnalysis"));
+  assert.match(commitFn, /await deps\.replaceTranscriptSegments\(meetingId, segments\)/);
+  assert.match(source, /export const defaultCommitTranscriptDeps: CommitTranscriptDeps = \{\n {2}replaceTranscriptSegments,/);
+
+  // Recall's fetch/parse step writes nothing itself -- no delete/insert pair, no replace call.
+  const processing = await readSource("lib/recall/processing.ts");
+  const fetchFn = processing.slice(
+    processing.indexOf("export async function fetchRecallTranscriptRows"),
+    processing.indexOf("export type RecallMeetingProcessingDeps")
+  );
+  assert.doesNotMatch(fetchFn, /\.from\("transcript_segments"\)/);
+  assert.doesNotMatch(fetchFn, /replaceTranscriptSegments\(|\.rpc\(/);
 });
 
 test("the transactional replace RPC is called with the exact name the migration defines", async () => {
@@ -299,13 +319,14 @@ test("no UNIQUE(meeting_id) constraint is added to transcript_segments -- one me
 });
 
 test("only the invocation that wins the transcript_ready transition calls enqueueMeetingAnalysis -- a losing/no-op transition returns before reaching the enqueue call", async () => {
-  const source = await readSource("lib/recall/processing.ts");
-  const start = source.indexOf("export async function processCompletedRecallMeeting");
+  // The transition/enqueue tail lives in the shared helper both Recall and manual imports use.
+  const source = await readSource("lib/transcript-commit.ts");
+  const start = source.indexOf("export async function commitTranscriptAndEnqueueAnalysis");
   const fn = source.slice(start);
 
-  const wonIndex = fn.indexOf('const wonTranscriptReady = await applyGuardedMeetingStatus(meetingId, "transcript_ready");');
+  const wonIndex = fn.indexOf('const wonTranscriptReady = await deps.applyGuardedMeetingStatus(meetingId, "transcript_ready");');
   const guardIndex = fn.indexOf("if (!wonTranscriptReady) {");
-  const enqueueIndex = fn.indexOf("const enqueued = await enqueueMeetingAnalysis(meetingId,");
+  const enqueueIndex = fn.indexOf("const enqueued = await deps.enqueueMeetingAnalysis(meetingId,");
   assert.ok(wonIndex > -1, "expected the transcript_ready transition's boolean result to be captured");
   assert.ok(guardIndex > wonIndex, "expected the result to be checked immediately after the transition");
   assert.ok(enqueueIndex > guardIndex, "expected the enqueue call to come after the guard");

@@ -144,11 +144,16 @@ test("defense in depth: enqueueMeetingAnalysisV2 itself refuses a meeting the ga
 test("[16][17][18] normal Analyze and the Recall webhook still claim v1; only the v2 path claims pipeline_version 2", async () => {
   const enqueue = await readFile(new URL("../lib/meeting-analysis/enqueue.ts", import.meta.url), "utf8");
   assert.match(enqueue, /options\?\.claimJob \?\? claimMeetingAnalysisJob;/);
-  for (const caller of ["../app/api/meetings/[id]/analyze/route.ts", "../lib/recall/processing.ts"]) {
+  // The Recall webhook path queues analysis through the shared transcript commit helper (also
+  // used by manual imports), which calls the normal enqueueMeetingAnalysis.
+  for (const caller of ["../app/api/meetings/[id]/analyze/route.ts", "../lib/transcript-commit.ts"]) {
     const source = await readFile(new URL(caller, import.meta.url), "utf8");
     assert.match(source, /enqueueMeetingAnalysis\(/);
     assert.doesNotMatch(source, /enqueue-v2|v2-activation|MeetingAnalysisV2|claim_meeting_analysis_job_v2|ANALYSIS_PIPELINE_V2/);
   }
+  const recallProcessing = await readFile(new URL("../lib/recall/processing.ts", import.meta.url), "utf8");
+  assert.match(recallProcessing, /commitTranscriptAndEnqueueAnalysis\(/);
+  assert.doesNotMatch(recallProcessing, /enqueue-v2|v2-activation|MeetingAnalysisV2|claim_meeting_analysis_job_v2|ANALYSIS_PIPELINE_V2/);
   // claimMeetingAnalysisJobV2 (the only claim that writes pipeline_version 2) has one caller.
   const files = await sourceFiles();
   const callers = [];
