@@ -140,6 +140,91 @@ test("Forgot Password redirect uses the resolved Vercel Preview branch URL", asy
   }
 });
 
+test("Preview: reset started on a deployment-specific host redirects back to that exact host (PKCE cookie stays valid)", async () => {
+  const { reset, callback } = await routes();
+  const DEPLOYMENT = "parfait-mnit7w2hb-aujawanes-projects.vercel.app";
+  const BRANCH = "parfait-git-fix-password-workflows-aujawanes-projects.vercel.app";
+  const names = ["VERCEL_ENV", "VERCEL_URL", "VERCEL_BRANCH_URL", "NEXT_PUBLIC_VERCEL_BRANCH_URL"] as const;
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  const supabase = stubSupabase();
+  const jar = cookieJar();
+  try {
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_URL = DEPLOYMENT;
+    process.env.VERCEL_BRANCH_URL = BRANCH;
+    delete process.env.NEXT_PUBLIC_VERCEL_BRANCH_URL;
+
+    const response = await reset.POST(
+      new NextRequest(`https://${DEPLOYMENT}/api/auth/password-reset`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "person@example.com" })
+      })
+    );
+    jar.absorb(response);
+    assert.equal(response.status, 200);
+    const recover = supabase.requests.find((r) => r.url.pathname === "/auth/v1/recover");
+    // Not the stable branch host, and not NEXT_PUBLIC_APP_URL: the host that received the request.
+    assert.equal(
+      recover?.url.searchParams.get("redirect_to"),
+      `https://${DEPLOYMENT}/api/auth/callback?next=/account/reset-password`
+    );
+
+    // The PKCE verifier is a host-only cookie (no Domain attribute), so it only returns to the host
+    // that set it. That is why redirect_to must be this exact host.
+    const verifierLine = response.headers
+      .getSetCookie()
+      .find((line) => line.startsWith(`${STORAGE_KEY}-code-verifier=`));
+    assert.ok(verifierLine, "the reset request writes the PKCE verifier cookie");
+    assert.ok(!/;\s*domain=/i.test(verifierLine), "verifier cookie must stay host-only");
+
+    // Clicking the emailed link in the same browser lands on that host with the cookie -> success.
+    const callbackResponse = await callback.GET(
+      new NextRequest(`https://${DEPLOYMENT}/api/auth/callback?next=/account/reset-password&code=recovery-code`, {
+        headers: { cookie: jar.header() }
+      })
+    );
+    assert.equal(callbackResponse.headers.get("location"), `https://${DEPLOYMENT}/account/reset-password`);
+  } finally {
+    supabase.restore();
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
+
+test("Preview: an untrusted request host never becomes the password-reset redirect", async () => {
+  const { reset } = await routes();
+  const BRANCH = "parfait-git-branch-z-aujawanes-projects.vercel.app";
+  const names = ["VERCEL_ENV", "VERCEL_URL", "VERCEL_BRANCH_URL"] as const;
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  const supabase = stubSupabase();
+  try {
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_URL = "parfait-own-deployment-aujawanes-projects.vercel.app";
+    process.env.VERCEL_BRANCH_URL = BRANCH;
+    await reset.POST(
+      new NextRequest("https://evil.example.com/api/auth/password-reset", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "person@example.com" })
+      })
+    );
+    const recover = supabase.requests.find((r) => r.url.pathname === "/auth/v1/recover");
+    assert.equal(
+      recover?.url.searchParams.get("redirect_to"),
+      `https://${BRANCH}/api/auth/callback?next=/account/reset-password`
+    );
+  } finally {
+    supabase.restore();
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
+
 test("Forgot Password -> recovery link -> reset page -> updateUser({ password }) works end to end", async () => {
   const { reset, callback, update } = await routes();
   const { authRedirectFor } = await import("../lib/supabase/middleware");

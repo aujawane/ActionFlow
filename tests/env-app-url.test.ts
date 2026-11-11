@@ -200,6 +200,8 @@ function withUrlEnv(vars: Record<string, string | undefined>, fn: () => void) {
     "NEXT_PUBLIC_VERCEL_ENV",
     "NEXT_PUBLIC_VERCEL_BRANCH_URL",
     "VERCEL_BRANCH_URL",
+    "VERCEL_URL",
+    "NEXT_PUBLIC_VERCEL_URL",
     "NEXT_PUBLIC_APP_URL",
     "NODE_ENV"
   ];
@@ -347,4 +349,111 @@ test("local development ignores VERCEL_BRANCH_URL", () => {
     { NODE_ENV: "development", VERCEL_BRANCH_URL: "parfait-git-x-team.vercel.app" },
     () => assert.equal(getPublicAppBaseUrl(), "http://localhost:3000")
   );
+});
+
+const DEPLOYMENT_HOST = "parfait-mnit7w2hb-aujawanes-projects.vercel.app";
+const BRANCH_HOST = "parfait-git-fix-password-workflows-aujawanes-projects.vercel.app";
+const previewEnv = {
+  VERCEL_ENV: "preview",
+  NODE_ENV: "production",
+  VERCEL_URL: DEPLOYMENT_HOST,
+  VERCEL_BRANCH_URL: BRANCH_HOST,
+  NEXT_PUBLIC_APP_URL: "https://parfait-app.com"
+};
+
+test("Preview: a request from the deployment-specific hostname stays on that exact hostname", () => {
+  withUrlEnv(previewEnv, () =>
+    assert.equal(
+      getPublicAppBaseUrl({ requestOrigin: `https://${DEPLOYMENT_HOST}` }),
+      `https://${DEPLOYMENT_HOST}`
+    )
+  );
+});
+
+test("Preview: a request from the stable branch hostname stays on that hostname", () => {
+  withUrlEnv(previewEnv, () =>
+    assert.equal(
+      getPublicAppBaseUrl({ requestOrigin: `https://${BRANCH_HOST}` }),
+      `https://${BRANCH_HOST}`
+    )
+  );
+});
+
+test("Preview: the branch URL is only a fallback when no request origin is available", () => {
+  withUrlEnv(previewEnv, () => {
+    assert.equal(getPublicAppBaseUrl(), `https://${BRANCH_HOST}`);
+    assert.equal(getPublicAppBaseUrl({ requestOrigin: null }), `https://${BRANCH_HOST}`);
+    assert.equal(getPublicAppBaseUrl({ requestOrigin: "" }), `https://${BRANCH_HOST}`);
+  });
+});
+
+test("Preview: untrusted request origins never become the redirect origin", () => {
+  withUrlEnv(previewEnv, () => {
+    for (const origin of [
+      "https://evil.example.com",
+      "https://evil.vercel.app",
+      "https://other-project-abc123-aujawanes-projects.vercel.app",
+      `https://${DEPLOYMENT_HOST}.evil.com`,
+      `https://evil.com/${DEPLOYMENT_HOST}`,
+      `https://user:pw@${DEPLOYMENT_HOST}`,
+      `http://${DEPLOYMENT_HOST}`,
+      "javascript:alert(1)",
+      "not a url"
+    ]) {
+      assert.equal(
+        getPublicAppBaseUrl({ requestOrigin: origin }),
+        `https://${BRANCH_HOST}`,
+        `untrusted origin ${origin} must fall back to the branch URL`
+      );
+    }
+  });
+  // With no branch URL either, an untrusted origin falls through to NEXT_PUBLIC_APP_URL.
+  withUrlEnv(
+    { VERCEL_ENV: "preview", NODE_ENV: "production", NEXT_PUBLIC_APP_URL: "https://parfait-app.com" },
+    () =>
+      assert.equal(
+        getPublicAppBaseUrl({ requestOrigin: "https://evil.example.com" }),
+        "https://parfait-app.com"
+      )
+  );
+});
+
+test("Preview trusts the NEXT_PUBLIC_VERCEL_URL / NEXT_PUBLIC_VERCEL_BRANCH_URL copies too", () => {
+  withUrlEnv(
+    {
+      NEXT_PUBLIC_VERCEL_ENV: "preview",
+      NODE_ENV: "production",
+      NEXT_PUBLIC_VERCEL_URL: DEPLOYMENT_HOST,
+      NEXT_PUBLIC_VERCEL_BRANCH_URL: BRANCH_HOST
+    },
+    () => {
+      assert.equal(getPublicAppBaseUrl({ requestOrigin: `https://${DEPLOYMENT_HOST}` }), `https://${DEPLOYMENT_HOST}`);
+      assert.equal(getPublicAppBaseUrl({ requestOrigin: `https://${BRANCH_HOST}` }), `https://${BRANCH_HOST}`);
+    }
+  );
+});
+
+test("Production ignores the request origin, even a Vercel host, and always uses NEXT_PUBLIC_APP_URL", () => {
+  withUrlEnv(
+    {
+      VERCEL_ENV: "production",
+      NODE_ENV: "production",
+      VERCEL_URL: DEPLOYMENT_HOST,
+      VERCEL_BRANCH_URL: BRANCH_HOST,
+      NEXT_PUBLIC_APP_URL: "https://parfait-app.com"
+    },
+    () => {
+      for (const origin of [`https://${DEPLOYMENT_HOST}`, `https://${BRANCH_HOST}`, "https://evil.example.com"]) {
+        assert.equal(getPublicAppBaseUrl({ requestOrigin: origin }), "https://parfait-app.com");
+      }
+    }
+  );
+});
+
+test("local development keeps trusting its own request origin and ignores Vercel hosts", () => {
+  withUrlEnv({ NODE_ENV: "development", VERCEL_URL: DEPLOYMENT_HOST }, () => {
+    assert.equal(getPublicAppBaseUrl({ requestOrigin: "http://localhost:3000" }), "http://localhost:3000");
+    assert.equal(getPublicAppBaseUrl({ requestOrigin: `https://${DEPLOYMENT_HOST}` }), `https://${DEPLOYMENT_HOST}`);
+    assert.equal(getPublicAppBaseUrl(), "http://localhost:3000");
+  });
 });

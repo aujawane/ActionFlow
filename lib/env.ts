@@ -435,27 +435,65 @@ export function getAppBaseUrl(options?: { requestOrigin?: string | null }) {
   );
 }
 
-/**
- * On a Vercel Preview deployment, the deployment's own branch URL (VERCEL_BRANCH_URL, else
- * NEXT_PUBLIC_VERCEL_BRANCH_URL; both bare hosts). Returns undefined everywhere else -- Production
- * and local development are never affected, whatever NEXT_PUBLIC_VERCEL_BRANCH_URL contains.
- */
-function getVercelPreviewBranchUrl(): string | undefined {
-  const vercelEnv = readEnv("VERCEL_ENV") ?? readEnv("NEXT_PUBLIC_VERCEL_ENV");
-  if (vercelEnv !== "preview") return undefined;
-  // VERCEL_BRANCH_URL is the server-side system variable; the NEXT_PUBLIC_ copy only exists when
-  // exposed to the build. Either is a bare host.
-  const host = readEnv("VERCEL_BRANCH_URL") ?? readEnv("NEXT_PUBLIC_VERCEL_BRANCH_URL");
-  if (!host) return undefined;
-  return (/^https?:\/\//i.test(host) ? host : `https://${host}`).replace(/\/$/, "");
+/** Bare host or absolute URL -> `https://host` origin, or undefined if it isn't a plain https host. */
+function toHttpsOrigin(hostOrUrl: string | undefined | null): string | undefined {
+  const value = hostOrUrl?.trim();
+  if (!value) return undefined;
+  try {
+    const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    if (url.protocol !== "https:" || url.username || url.password) return undefined;
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/** True only on a Vercel Preview deployment (never Production or local development). */
+function isVercelPreview(): boolean {
+  return (readEnv("VERCEL_ENV") ?? readEnv("NEXT_PUBLIC_VERCEL_ENV")) === "preview";
 }
 
 /**
- * Public origin used in links delivered to a user's browser or email. On Vercel Preview this is the
- * current branch URL, so NEXT_PUBLIC_APP_URL need not be reconfigured per branch; otherwise it is
- * NEXT_PUBLIC_APP_URL (Production is unchanged).
+ * The deployment's own branch URL on Vercel Preview: VERCEL_BRANCH_URL (server-side system
+ * variable), else NEXT_PUBLIC_VERCEL_BRANCH_URL. Undefined outside Preview.
+ */
+function getVercelPreviewBranchUrl(): string | undefined {
+  if (!isVercelPreview()) return undefined;
+  return toHttpsOrigin(readEnv("VERCEL_BRANCH_URL") ?? readEnv("NEXT_PUBLIC_VERCEL_BRANCH_URL"));
+}
+
+/**
+ * A request origin we trust on Vercel Preview: it must be exactly one of the hostnames Vercel itself
+ * assigned to THIS deployment (the deployment-specific URL or the branch URL, from system
+ * variables the request cannot influence). A forged Host header or an unrelated *.vercel.app host
+ * never matches, so this cannot be used as an open redirect.
+ */
+function getTrustedPreviewRequestOrigin(requestOrigin: string | null | undefined) {
+  if (!isVercelPreview()) return undefined;
+  const origin = toHttpsOrigin(requestOrigin);
+  if (!origin) return undefined;
+  const ownHosts = [
+    readEnv("VERCEL_URL"),
+    readEnv("NEXT_PUBLIC_VERCEL_URL"),
+    readEnv("VERCEL_BRANCH_URL"),
+    readEnv("NEXT_PUBLIC_VERCEL_BRANCH_URL")
+  ];
+  return ownHosts.some((host) => toHttpsOrigin(host) === origin) ? origin : undefined;
+}
+
+/**
+ * Public origin used in links delivered to a user's browser or email.
+ *
+ * Production / non-Preview: NEXT_PUBLIC_APP_URL (request origin is never trusted in Production).
+ * Vercel Preview, in order:
+ *   1. the request origin, if it is this deployment's own Vercel host (so the callback returns to
+ *      the exact hostname that owns the host-only PKCE verifier cookie),
+ *   2. VERCEL_BRANCH_URL, 3. NEXT_PUBLIC_VERCEL_BRANCH_URL, 4. NEXT_PUBLIC_APP_URL.
  */
 export function getPublicAppBaseUrl(options?: { requestOrigin?: string | null }) {
+  const trustedRequestOrigin = getTrustedPreviewRequestOrigin(options?.requestOrigin);
+  if (trustedRequestOrigin) return trustedRequestOrigin;
+
   const previewUrl = getVercelPreviewBranchUrl();
   if (previewUrl) return previewUrl;
 
