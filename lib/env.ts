@@ -435,8 +435,28 @@ export function getAppBaseUrl(options?: { requestOrigin?: string | null }) {
   );
 }
 
-/** Public origin used in links delivered to a user's browser or email. */
+/**
+ * On a Vercel Preview deployment, the deployment's own branch URL (Vercel exposes it automatically
+ * as NEXT_PUBLIC_VERCEL_BRANCH_URL, a bare host). Returns undefined everywhere else -- Production
+ * and local development are never affected, whatever NEXT_PUBLIC_VERCEL_BRANCH_URL contains.
+ */
+function getVercelPreviewBranchUrl(): string | undefined {
+  const vercelEnv = readEnv("VERCEL_ENV") ?? readEnv("NEXT_PUBLIC_VERCEL_ENV");
+  if (vercelEnv !== "preview") return undefined;
+  const host = readEnv("NEXT_PUBLIC_VERCEL_BRANCH_URL");
+  if (!host) return undefined;
+  return (/^https?:\/\//i.test(host) ? host : `https://${host}`).replace(/\/$/, "");
+}
+
+/**
+ * Public origin used in links delivered to a user's browser or email. On Vercel Preview this is the
+ * current branch URL, so NEXT_PUBLIC_APP_URL need not be reconfigured per branch; otherwise it is
+ * NEXT_PUBLIC_APP_URL (Production is unchanged).
+ */
 export function getPublicAppBaseUrl(options?: { requestOrigin?: string | null }) {
+  const previewUrl = getVercelPreviewBranchUrl();
+  if (previewUrl) return previewUrl;
+
   const publicUrl = readEnv("NEXT_PUBLIC_APP_URL");
   if (publicUrl) return publicUrl.replace(/\/$/, "");
 

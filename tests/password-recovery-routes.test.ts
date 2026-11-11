@@ -103,6 +103,41 @@ const routes = async () => ({
   update: await import("../app/api/auth/password-update/route")
 });
 
+test("Forgot Password redirect uses the resolved Vercel Preview branch URL", async () => {
+  const { reset } = await routes();
+  const names = ["VERCEL_ENV", "NEXT_PUBLIC_VERCEL_BRANCH_URL"] as const;
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const host of ["parfait-git-branch-a-team.vercel.app", "parfait-git-branch-b-team.vercel.app"]) {
+      process.env.VERCEL_ENV = "preview";
+      process.env.NEXT_PUBLIC_VERCEL_BRANCH_URL = host;
+      const supabase = stubSupabase();
+      try {
+        const response = await reset.POST(
+          new NextRequest(`https://${host}/api/auth/password-reset`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email: "person@example.com" })
+          })
+        );
+        assert.equal(response.status, 200);
+        const recover = supabase.requests.find((r) => r.url.pathname === "/auth/v1/recover");
+        assert.equal(
+          recover?.url.searchParams.get("redirect_to"),
+          `https://${host}/api/auth/callback?next=/account/reset-password`
+        );
+      } finally {
+        supabase.restore();
+      }
+    }
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
+
 test("Forgot Password -> recovery link -> reset page -> updateUser({ password }) works end to end", async () => {
   const { reset, callback, update } = await routes();
   const { authRedirectFor } = await import("../lib/supabase/middleware");

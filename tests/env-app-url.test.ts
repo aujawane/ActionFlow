@@ -192,3 +192,111 @@ test("public auth redirects use NEXT_PUBLIC_APP_URL and never an internal produc
     setEnv("NODE_ENV", previousNodeEnv);
   }
 });
+
+/** Runs `fn` with exactly these Vercel/app-URL vars set, restoring the previous values afterwards. */
+function withUrlEnv(vars: Record<string, string | undefined>, fn: () => void) {
+  const names = [
+    "VERCEL_ENV",
+    "NEXT_PUBLIC_VERCEL_ENV",
+    "NEXT_PUBLIC_VERCEL_BRANCH_URL",
+    "NEXT_PUBLIC_APP_URL",
+    "NODE_ENV"
+  ];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names) setEnv(name, vars[name]);
+    fn();
+  } finally {
+    for (const name of names) setEnv(name, previous[name]);
+  }
+}
+
+test("Production keeps using NEXT_PUBLIC_APP_URL even if a branch URL is present", () => {
+  withUrlEnv(
+    {
+      VERCEL_ENV: "production",
+      NODE_ENV: "production",
+      NEXT_PUBLIC_APP_URL: "https://parfait-app.com",
+      NEXT_PUBLIC_VERCEL_BRANCH_URL: "parfait-git-main-team.vercel.app"
+    },
+    () => assert.equal(getPublicAppBaseUrl(), "https://parfait-app.com")
+  );
+});
+
+test("Preview uses NEXT_PUBLIC_VERCEL_BRANCH_URL instead of NEXT_PUBLIC_APP_URL", () => {
+  withUrlEnv(
+    {
+      VERCEL_ENV: "preview",
+      NODE_ENV: "production",
+      NEXT_PUBLIC_APP_URL: "https://parfait-app.com",
+      NEXT_PUBLIC_VERCEL_BRANCH_URL: "parfait-git-feat-x-team.vercel.app"
+    },
+    () => assert.equal(getPublicAppBaseUrl(), "https://parfait-git-feat-x-team.vercel.app")
+  );
+});
+
+test("Preview resolves each branch URL automatically, with no NEXT_PUBLIC_APP_URL at all", () => {
+  for (const host of [
+    "parfait-git-feat-public-product-pages-team.vercel.app",
+    "parfait-git-fix-password-workflows-team.vercel.app"
+  ]) {
+    withUrlEnv(
+      { VERCEL_ENV: "preview", NODE_ENV: "production", NEXT_PUBLIC_VERCEL_BRANCH_URL: host },
+      () => assert.equal(getPublicAppBaseUrl(), `https://${host}`)
+    );
+  }
+});
+
+test("Preview detection also works from NEXT_PUBLIC_VERCEL_ENV (browser-visible)", () => {
+  withUrlEnv(
+    {
+      NEXT_PUBLIC_VERCEL_ENV: "preview",
+      NODE_ENV: "production",
+      NEXT_PUBLIC_APP_URL: "https://parfait-app.com",
+      NEXT_PUBLIC_VERCEL_BRANCH_URL: "parfait-git-b-team.vercel.app"
+    },
+    () => assert.equal(getPublicAppBaseUrl(), "https://parfait-git-b-team.vercel.app")
+  );
+});
+
+test("Preview without a branch URL falls back to NEXT_PUBLIC_APP_URL", () => {
+  withUrlEnv(
+    { VERCEL_ENV: "preview", NODE_ENV: "production", NEXT_PUBLIC_APP_URL: "https://staging.parfait.test/" },
+    () => assert.equal(getPublicAppBaseUrl(), "https://staging.parfait.test")
+  );
+});
+
+test("local development ignores any branch URL and keeps the existing fallbacks", () => {
+  withUrlEnv(
+    { NODE_ENV: "development", NEXT_PUBLIC_VERCEL_BRANCH_URL: "parfait-git-x-team.vercel.app" },
+    () => {
+      assert.equal(getPublicAppBaseUrl(), "http://localhost:3000");
+      assert.equal(
+        getPublicAppBaseUrl({ requestOrigin: "http://localhost:4000" }),
+        "http://localhost:4000"
+      );
+    }
+  );
+  withUrlEnv(
+    { VERCEL_ENV: "development", NODE_ENV: "development", NEXT_PUBLIC_APP_URL: "http://localhost:3000" },
+    () => assert.equal(getPublicAppBaseUrl(), "http://localhost:3000")
+  );
+});
+
+test("getAppBaseUrl (server-to-server) is unaffected by Preview branch URLs", () => {
+  const previousInternal = process.env.INTERNAL_APP_URL;
+  setEnv("INTERNAL_APP_URL", undefined);
+  try {
+    withUrlEnv(
+      {
+        VERCEL_ENV: "preview",
+        NODE_ENV: "production",
+        NEXT_PUBLIC_APP_URL: "https://parfait-app.com",
+        NEXT_PUBLIC_VERCEL_BRANCH_URL: "parfait-git-x-team.vercel.app"
+      },
+      () => assert.equal(getAppBaseUrl(), "https://parfait-app.com")
+    );
+  } finally {
+    setEnv("INTERNAL_APP_URL", previousInternal);
+  }
+});
