@@ -56,9 +56,6 @@ export function HomePage({ signedIn }: { signedIn: boolean }) {
       <section aria-labelledby="hero-heading" className="mx-auto w-full max-w-6xl px-4 pb-16 pt-14 sm:px-6 sm:pb-24 sm:pt-20">
         <div className="grid items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-6">
-            <p className="inline-flex rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-900">
-              AI-powered meeting execution workspace
-            </p>
             <h1
               id="hero-heading"
               className="text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl"
@@ -119,7 +116,7 @@ export function HomePage({ signedIn }: { signedIn: boolean }) {
                 <p className="mt-1.5 text-sm font-semibold text-slate-900">
                   Send the revised proposal to the client
                 </p>
-                <p className="mt-1 text-sm text-slate-600">Owner: Priya · Due: Friday</p>
+                <p className="mt-1 text-sm text-slate-600">Owner: Craig · Due: Friday</p>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">

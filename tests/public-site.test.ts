@@ -34,7 +34,12 @@ test("[1] / renders meaningful public Parfait content for a signed-out visitor",
   const body = text(html);
   assert.match(html, /<h1[^>]*>Turn meetings into action\.<\/h1>/);
   assert.match(body, /Parfait captures the commitments, tasks, decisions, and context/);
-  assert.match(body, /AI-powered meeting execution workspace/);
+  // The hero has no eyebrow badge above the headline; the descriptor lives in the footer only.
+  const hero = html.match(/<section[^>]*aria-labelledby="hero-heading"[\s\S]*?<\/section>/)?.[0] ?? "";
+  assert.doesNotMatch(text(hero), /AI-powered meeting execution workspace/);
+  assert.match(hero, /<div class="space-y-6"><h1/);
+  assert.match(text(hero), /Owner: Craig · Due: Friday/);
+  assert.doesNotMatch(body, /Priya/);
   for (const heading of ["From conversation to follow-through", "What Parfait does"]) {
     assert.ok(body.includes(heading), heading);
   }
@@ -284,4 +289,20 @@ test("legal pages collapse the table of contents on small screens and keep it op
     assert.ok(!/<details[^>]*\sopen/.test(html), "collapsed by default");
     assert.match(html, /<nav aria-label="[^"]+ sections" class="hidden lg:sticky lg:top-6 lg:block lg:self-start">/);
   }
+});
+
+test("the shared public header offers Log in (secondary) and Sign up (primary), both to the existing /login route", () => {
+  for (const component of [HomePage, PrivacyPolicy, TermsOfService]) {
+    const header = render(component).match(/<header[\s\S]*?<\/header>/)?.[0] ?? "";
+    const links = [...header.matchAll(/<a ([^>]*href="\/login"[^>]*)>([^<]*)<\/a>/g)];
+    assert.deepEqual(links.map((m) => m[2]), ["Log in", "Sign up"]);
+    assert.match(links[0][1], /border border-slate-300 bg-white\/80/, "Log in stays the outlined action");
+    assert.match(links[1][1], /bg-brand-700 text-white/, "Sign up stays the primary green action");
+    assert.doesNotMatch(header, /Sign in|Get started/);
+  }
+  // Signed-in navigation is unchanged.
+  const signedIn = renderToStaticMarkup(createElement(PrivacyPolicy as never, { signedIn: true }));
+  const signedInHeader = signedIn.match(/<header[\s\S]*?<\/header>/)?.[0] ?? "";
+  assert.match(signedInHeader, /href="\/dashboard"[^>]*>Open Parfait</);
+  assert.doesNotMatch(signedInHeader, /Log in|Sign up/);
 });

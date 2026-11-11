@@ -2,8 +2,8 @@ import Link from "next/link";
 
 import { focusRing, primaryCta, secondaryCta, navLink } from "@/components/public-site/styles";
 
-/** Public navigation shared by the homepage and legal pages. `signedIn` swaps the Sign in / Get
- * started pair for a single "Open Parfait" action; the auth routes themselves are unchanged. */
+/** Public navigation shared by the homepage and legal pages. `signedIn` swaps the Log in / Sign up
+ * pair for a single "Open Parfait" action; the auth routes themselves are unchanged. */
 export function SiteHeader({ signedIn }: { signedIn: boolean }) {
   return (
     <header className="border-b border-white/70 bg-white/80 backdrop-blur-xl">
@@ -44,10 +44,10 @@ export function SiteHeader({ signedIn }: { signedIn: boolean }) {
           ) : (
             <>
               <Link href="/login" className={secondaryCta}>
-                Sign in
+                Log in
               </Link>
               <Link href="/login" className={primaryCta}>
-                Get started
+                Sign up
               </Link>
             </>
           )}

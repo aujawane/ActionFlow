@@ -29,6 +29,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "summary",
     title: "The short version",
+    navLabel: "The short version",
     body: (
       <ul>
         <li>
@@ -52,6 +53,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "information-we-collect",
     title: "Information we collect",
+    navLabel: "Information we collect",
     body: (
       <>
         <h3>Account information</h3>
@@ -108,6 +110,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "google-user-data",
     title: "Google Sign In and Google User Data",
+    navLabel: "Google Sign In",
     body: (
       <>
         <p>
@@ -180,6 +183,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "how-we-use",
     title: "How we use information",
+    navLabel: "How we use information",
     body: (
       <ul>
         <li>To provide Parfait: create your account, join meetings you add, transcribe them, and produce commitments, tasks, decisions and other outputs.</li>
@@ -193,6 +197,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "ai-processing",
     title: "AI processing",
+    navLabel: "AI processing",
     body: (
       <>
         <p>
@@ -212,6 +217,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "sharing",
     title: "Service providers and who we share with",
+    navLabel: "Service providers",
     body: (
       <>
         <p>
@@ -259,6 +265,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "meeting-participants",
     title: "If you attend a meeting recorded with Parfait",
+    navLabel: "Recorded meetings",
     body: (
       <p>
         Parfait is used by individuals and teams who add their own meetings. If you join a meeting
@@ -273,6 +280,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "cookies",
     title: "Cookies and similar technologies",
+    navLabel: "Cookies",
     body: (
       <p>
         We use cookies that are necessary to run the Service: session cookies that keep you signed
@@ -284,6 +292,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "retention",
     title: "Data retention and deletion",
+    navLabel: "Data retention",
     body: (
       <>
         <p>
@@ -320,6 +329,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "choices",
     title: "Your choices",
+    navLabel: "Your choices",
     body: (
       <>
         <ul>
@@ -338,6 +348,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "security",
     title: "Security",
+    navLabel: "Security",
     body: (
       <p>
         We use reasonable safeguards: connections to the Service are encrypted in transit, database
@@ -351,6 +362,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "children",
     title: "Children's privacy",
+    navLabel: "Children's privacy",
     body: (
       <p>
         Parfait is not directed to children and is not intended for anyone under 18. We do not
@@ -362,6 +374,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "changes",
     title: "Changes to this policy",
+    navLabel: "Policy changes",
     body: (
       <p>
         We may update this policy as Parfait changes. We will post the new version here and update
@@ -373,6 +386,7 @@ export const privacySections: LegalSectionContent[] = [
   {
     id: "contact",
     title: "Contact",
+    navLabel: "Contact",
     body: (
       <>
         <p>

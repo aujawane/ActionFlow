@@ -15,3 +15,10 @@ export const textLink = `rounded-sm font-medium text-slate-700 underline-offset-
 
 /** Navigation-style text link with a 28px-tall hit area (WCAG 2.5.8 asks for at least 24px). */
 export const navLink = `${textLink} inline-block py-1`;
+
+/**
+ * Desktop table-of-contents link. Every item reserves the same 2px left bar (transparent when
+ * inactive) so the active state changes colour only: no layout shift. The active item is marked by
+ * the bar and darker brand text, not colour alone; `aria-current` / `data-active` drive it.
+ */
+export const tocLink = `block rounded-sm border-l-2 border-transparent py-1 pl-3 font-medium text-slate-600 transition-colors duration-150 hover:text-brand-800 aria-[current=location]:border-brand-700 aria-[current=location]:text-brand-800 ${focusRing}`;

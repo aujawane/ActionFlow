@@ -1,12 +1,15 @@
 import type { ReactNode } from "react";
 
 import { SiteFrame } from "@/components/public-site/site-frame";
+import { LegalSectionNav } from "@/components/public-site/legal-section-nav";
 import { focusRing, navLink, textLink } from "@/components/public-site/styles";
 import { LEGAL_CONTACT_EMAIL, LEGAL_EFFECTIVE_DATE } from "@/lib/public-site";
 
 export type LegalSectionContent = {
   id: string;
   title: string;
+  /** Short text for the desktop contents list; the section heading itself always uses `title`. */
+  navLabel?: string;
   body: ReactNode;
 };
 
@@ -46,7 +49,7 @@ export function LegalDocument({
   return (
     <SiteFrame signedIn={signedIn}>
       <div className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
-        <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,45rem)] lg:justify-center lg:gap-10">
+        <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,46rem)] lg:justify-center lg:gap-10">
           {/* Small screens: contents collapsed so the document itself starts on the first screen. */}
           <details className="premium-card px-5 py-3 lg:hidden">
             <summary
@@ -67,24 +70,14 @@ export function LegalDocument({
             </nav>
           </details>
 
-          {/* Large screens: always-visible sticky contents. */}
-          <nav
-            aria-label={`${title} sections`}
-            className="hidden lg:sticky lg:top-6 lg:block lg:self-start"
-          >
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-              On this page
-            </p>
-            <ol className="mt-3 text-sm">
-              {sections.map((section) => (
-                <li key={section.id}>
-                  <a href={`#${section.id}`} className={navLink}>
-                    {section.title}
-                  </a>
-                </li>
-              ))}
-            </ol>
-          </nav>
+          {/* Large screens: always-visible sticky contents with scrollspy. */}
+          <LegalSectionNav
+            title={title}
+            items={sections.map((section) => ({
+              id: section.id,
+              label: section.navLabel ?? section.title
+            }))}
+          />
 
           <article className="premium-card min-w-0 p-6 sm:p-10">
             <header className="border-b border-slate-200 pb-6">
