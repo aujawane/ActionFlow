@@ -1,5 +1,6 @@
 import { mergeProjectPeople, stringArray } from "@/lib/project-execution";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadAllMeetingTranscriptSegmentsAdmin } from "@/lib/transcript-loader";
 import { getTranscriptSpeakerLabel } from "@/lib/transcript-speaker";
 
 type ParticipantBearingSegment = {
@@ -44,10 +45,11 @@ export function buildMeetingParticipantOptions(input: {
 
 export async function loadMeetingParticipantOptions(meetingId: string): Promise<string[]> {
   const [{ data: segments }, { data: tasks }, { data: commitments }] = await Promise.all([
-    supabaseAdmin
-      .from("transcript_segments")
-      .select("participant_name,speaker")
-      .eq("meeting_id", meetingId),
+    // Every segment: a speaker who only talks late in a long meeting must still be an option.
+    loadAllMeetingTranscriptSegmentsAdmin<ParticipantBearingSegment>({
+      meetingId,
+      columns: "id,participant_name,speaker"
+    }),
     supabaseAdmin.from("meeting_tasks").select("owner,owners").eq("meeting_id", meetingId),
     supabaseAdmin
       .from("meeting_commitments")

@@ -11,6 +11,7 @@ import {
   generateExecutionCandidates
 } from "../lib/execution-intelligence/stages";
 import { canonicalTranscriptOrder } from "../lib/transcript-order";
+import { loadAllMeetingTranscriptSegments, type TranscriptPageClient } from "../lib/transcript-loader";
 import { normalizeTranscriptSpeaker } from "../lib/transcript-speaker";
 import type {
   ExtractedInsight,
@@ -75,11 +76,10 @@ async function main() {
       .select("id, created_at")
       .eq("id", meetingId)
       .single(),
-    staging
-      .from("transcript_segments")
-      .select("*")
-      .eq("meeting_id", meetingId)
-      .order("timestamp", { ascending: true }),
+    loadAllMeetingTranscriptSegments<TranscriptSegment>({
+      client: staging as unknown as TranscriptPageClient,
+      meetingId
+    }),
     staging
       .from("meeting_topics")
       .select("id, title, summary, segment_ids")

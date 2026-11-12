@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadAllMeetingTranscriptSegmentsAdmin } from "@/lib/transcript-loader";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 import type { TranscriptSegment } from "@/lib/types";
@@ -27,11 +28,7 @@ export async function GET(
     return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
   }
 
-  const { data, error } = await supabaseAdmin
-    .from("transcript_segments")
-    .select("*")
-    .eq("meeting_id", id)
-    .order("timestamp", { ascending: true });
+  const { data, error } = await loadAllMeetingTranscriptSegmentsAdmin<TranscriptSegment>({ meetingId: id });
 
   if (error) {
     return NextResponse.json(

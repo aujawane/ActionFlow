@@ -10,6 +10,7 @@ import {
 } from "@/lib/meeting-assistant/transcript-selection";
 import { getOwnedMeeting } from "@/lib/project-access";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadAllMeetingTranscriptSegmentsAdmin } from "@/lib/transcript-loader";
 import type {
   ExtractedInsight,
   MeetingCommitment,
@@ -102,10 +103,10 @@ export async function POST(
     loadMeetingComments(id),
     supabaseAdmin.from("meeting_commitments").select("*").eq("meeting_id", id),
     supabaseAdmin.from("meeting_tasks").select("*").eq("meeting_id", id),
-    supabaseAdmin
-      .from("transcript_segments")
-      .select("participant_name,speaker")
-      .eq("meeting_id", id),
+    loadAllMeetingTranscriptSegmentsAdmin<{ participant_name: string | null; speaker: string | null }>({
+      meetingId: id,
+      columns: "id,participant_name,speaker"
+    }),
     supabaseAdmin.from("meeting_topics").select("*").eq("meeting_id", id),
     supabaseAdmin.from("extracted_insights").select("*").eq("meeting_id", id),
     meeting.project_id

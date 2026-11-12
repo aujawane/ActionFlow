@@ -16,6 +16,11 @@ export class FakeDb {
    * SQL boundary (class 22/23/42 -> TF001, anything else surfaces unchanged). */
   rejectTopicInsert: { code: string; message: string } | null = null;
   rejectNormalizationPersistence: { code: string; message: string } | null = null;
+  /** PostgREST's max-rows: a response never carries more rows than this, with no error. Unset
+   * (null) keeps the historical unlimited behaviour for tests that do not exercise it. */
+  maxRows: number | null = null;
+  /** Number of SELECT requests, so tests can assert how many pages a load took. */
+  selectRequests: Array<{ table: string; range: [number, number] | null }> = [];
   constructor(seed: Record<string, Row[]>) {
     for (const [table, rows] of Object.entries(seed)) this.tables[table] = rows.map((row) => ({ ...row }));
   }
@@ -201,11 +206,16 @@ class FakeQuery implements PromiseLike<Result> {
   private returning = false;
   private head = false;
   private mode: "many" | "single" | "maybe" = "many";
-  private sortColumn: string | null = null;
+  private sortKeys: Array<{ column: string; ascending: boolean; nullsFirst: boolean }> = [];
   private max: number | null = null;
+  private window: [number, number] | null = null;
+  private wantCount = false;
   constructor(private db: FakeDb, private table: string) {}
-  select(_columns?: string, options?: { head?: boolean }) {
-    if (this.op === "select") this.head = Boolean(options?.head);
+  select(_columns?: string, options?: { head?: boolean; count?: "exact" }) {
+    if (this.op === "select") {
+      this.head = Boolean(options?.head);
+      this.wantCount = options?.count === "exact";
+    }
     else this.returning = true;
     return this;
   }
@@ -217,7 +227,13 @@ class FakeQuery implements PromiseLike<Result> {
   is(column: string, value: unknown) { this.filters.push((row) => (row[column] ?? null) === value); return this; }
   ilike(column: string, value: string) { this.filters.push((row) => String(row[column]).toLowerCase() === value.toLowerCase()); return this; }
   in(column: string, values: unknown[]) { this.filters.push((row) => values.includes(row[column])); return this; }
-  order(column: string) { this.sortColumn = column; return this; }
+  order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) {
+    const ascending = options?.ascending ?? true;
+    // PostgREST/Postgres default: NULLS LAST for ASC, NULLS FIRST for DESC.
+    this.sortKeys.push({ column, ascending, nullsFirst: options?.nullsFirst ?? !ascending });
+    return this;
+  }
+  range(from: number, to: number) { this.window = [from, to]; return this; }
   limit(count: number) { this.max = count; return this; }
   single() { this.mode = "single"; return this; }
   maybeSingle() { this.mode = "maybe"; return this; }
@@ -248,12 +264,27 @@ class FakeQuery implements PromiseLike<Result> {
       return { data: this.returning ? updated.map((row) => ({ ...row })) : null, error: null };
     }
     let rows = this.matches().map((row) => ({ ...row }));
-    if (this.sortColumn) {
-      const column = this.sortColumn;
-      rows = rows.sort((left, right) => String(left[column]).localeCompare(String(right[column])));
+    if (this.sortKeys.length > 0) {
+      const keys = this.sortKeys;
+      rows = rows.sort((left, right) => {
+        for (const { column, ascending, nullsFirst } of keys) {
+          const a = left[column] ?? null;
+          const b = right[column] ?? null;
+          if (a === null && b === null) continue;
+          if (a === null || b === null) return (a === null) === nullsFirst ? -1 : 1;
+          const compared = String(a).localeCompare(String(b));
+          if (compared !== 0) return ascending ? compared : -compared;
+        }
+        return 0;
+      });
     }
+    const total = rows.length;
+    this.db.selectRequests.push({ table: this.table, range: this.window });
+    if (this.window) rows = rows.slice(this.window[0], this.window[1] + 1);
     if (this.max !== null) rows = rows.slice(0, this.max);
-    if (this.head) return { data: null, error: null, count: rows.length };
+    if (this.db.maxRows !== null && !this.head) rows = rows.slice(0, this.db.maxRows);
+    if (this.head) return { data: null, error: null, count: total };
+    if (this.wantCount && this.mode === "many") return { data: rows, error: null, count: total };
     if (this.mode === "single") {
       return rows.length === 1 ? { data: rows[0], error: null } : { data: null, error: { message: "not exactly one row" } };
     }

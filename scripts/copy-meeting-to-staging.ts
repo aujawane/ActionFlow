@@ -1,6 +1,8 @@
 import { loadEnvConfig } from "@next/env";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+import { loadAllMeetingTranscriptSegments, type TranscriptPageClient } from "../lib/transcript-loader";
+
 loadEnvConfig(process.cwd());
 
 const UUID_PATTERN =
@@ -132,10 +134,11 @@ async function main() {
     transcriptResult,
     aliasResult
   ] = await Promise.all([
-    production
-      .from("transcript_segments")
-      .select("*")
-      .eq("meeting_id", meetingId),
+    // Paged: a plain select would silently copy only the first 1,000 segments of a long meeting.
+    loadAllMeetingTranscriptSegments<Record<string, unknown>>({
+      client: production as unknown as TranscriptPageClient,
+      meetingId
+    }),
     production
       .from("meeting_speaker_aliases")
       .select("*")

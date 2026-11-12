@@ -7,6 +7,7 @@ import {
 import type { ExecutionSourceContext } from "@/lib/execution-intelligence/stages";
 import { getEffectiveMeetingDate } from "@/lib/meeting-date";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadAllMeetingTranscriptSegmentsAdmin } from "@/lib/transcript-loader";
 import { buildCanonicalTranscriptWithSegmentIds, canonicalTranscriptOrder } from "@/lib/transcript-order";
 import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 import type {
@@ -164,11 +165,8 @@ export async function loadMeetingAnalysisInput(meetingId: string): Promise<Meeti
       .eq("id", meetingId)
       .is("deleted_at", null)
       .single(),
-    supabaseAdmin
-      .from("transcript_segments")
-      .select("*")
-      .eq("meeting_id", meetingId)
-      .order("timestamp", { ascending: true })
+    // Every page of the transcript: a plain select stops at PostgREST's 1,000-row cap.
+    loadAllMeetingTranscriptSegmentsAdmin<TranscriptSegment>({ meetingId })
   ]);
 
   if (meetingError || !meeting) throw new Error("Meeting not found.");

@@ -2,6 +2,7 @@ import type { GlobalWorkItemAddition, GlobalWorkItemCorrection, WorkItem } from 
 import type { PassAGroundingRejectionTraceEntry, PassAHarvestTraceEntry } from "../work-item-stages";
 import type { PassBAdjudicationTraceEntryResolved } from "../v4-pipeline";
 import type { TopicWorkItemExtraction } from "../work-item-merge";
+import { loadAllMeetingTranscriptSegments } from "../../transcript-loader";
 import type { FinalCommitmentRow, FinalTaskRow, MeetingSnapshot, TranscriptSegmentRow } from "./snapshot";
 
 /**
@@ -11,7 +12,8 @@ import type { FinalCommitmentRow, FinalTaskRow, MeetingSnapshot, TranscriptSegme
  * docs/V4_BENCHMARK_CRAIG_AUG19_GEN1{1,2,3}_*.md) and by app/api/dev/meeting-extraction-debug/
  * route.ts, so future evaluation never needs another one-off script.
  *
- * Issues exactly 4 SELECTs (job, transcript_segments, meeting_commitments, meeting_tasks). Never
+ * Issues SELECTs only: the job, meeting_commitments, meeting_tasks, and transcript_segments (paged
+ * through loadAllMeetingTranscriptSegments, since a plain select stops at PostgREST's row cap). Never
  * writes, never calls OpenAI, never mutates a row -- reading a `status="completed"` job's own
  * already-computed checkpoint is the entire point.
  */
@@ -20,9 +22,10 @@ import type { FinalCommitmentRow, FinalTaskRow, MeetingSnapshot, TranscriptSegme
  * awaited directly, exactly like the real thing. `maybeSingle()` resolves to a single row. */
 type QueryBuilder = {
   eq: (column: string, value: unknown) => QueryBuilder;
-  order: (column: string, options?: { ascending?: boolean }) => QueryBuilder;
+  order: (column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) => QueryBuilder;
+  range: (from: number, to: number) => QueryBuilder;
   maybeSingle: () => Promise<{ data: unknown; error: { message: string } | null }>;
-} & PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
+} & PromiseLike<{ data: unknown[] | null; error: { message: string } | null; count?: number | null }>;
 
 /** A minimal structural shape of the one Supabase client method this reader actually calls, so it
  * never has to pin a specific `SupabaseClient<...>` generic instantiation (which drifts between
@@ -30,7 +33,7 @@ type QueryBuilder = {
  * -- any real client (typed or not) satisfies this. */
 export type MinimalSupabaseClient = {
   from: (table: string) => {
-    select: (columns: string) => QueryBuilder;
+    select: (columns: string, options?: { count?: "exact" }) => QueryBuilder;
   };
 };
 
@@ -52,7 +55,7 @@ export async function readMeetingSnapshot(input: {
 
   const [jobResult, segmentsResult, commitmentsResult, tasksResult] = await Promise.all([
     jobQuery.maybeSingle(),
-    client.from("transcript_segments").select("id, timestamp, speaker, text").eq("meeting_id", meetingId).order("timestamp"),
+    loadAllMeetingTranscriptSegments({ client, meetingId, columns: "id, timestamp, speaker, text" }),
     client.from("meeting_commitments").select("id, title, owner, owners, status, metadata").eq("meeting_id", meetingId),
     client.from("meeting_tasks").select("id, task, owner, owners, status, extraction_metadata").eq("meeting_id", meetingId)
   ]);

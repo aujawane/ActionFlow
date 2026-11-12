@@ -20,6 +20,7 @@ import {
 } from "@/lib/project-vocabulary";
 import { getEffectiveMeetingDate } from "@/lib/meeting-date";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadAllMeetingTranscriptSegmentsAdmin } from "@/lib/transcript-loader";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 import type { ProjectVocabularyTerm, TranscriptCorrectionRecord, TranscriptSegment } from "@/lib/types";
@@ -326,11 +327,8 @@ export const SKIPPED_DISABLED: NormalizationStageResult = {
 /** The transcript in canonical order. Reads only raw `.text`: normalized_* columns never feed back
  * into a batch, so re-running against already-normalized rows sees the same input. */
 export async function loadOrderedTranscriptSegments(meetingId: string): Promise<TranscriptSegment[]> {
-  const { data: rawSegments, error: segmentsError } = await supabaseAdmin
-    .from("transcript_segments")
-    .select("*")
-    .eq("meeting_id", meetingId)
-    .order("timestamp", { ascending: true });
+  const { data: rawSegments, error: segmentsError } =
+    await loadAllMeetingTranscriptSegmentsAdmin<TranscriptSegment>({ meetingId });
   if (segmentsError) throw new Error(segmentsError.message);
 
   return canonicalTranscriptOrder((rawSegments ?? []) as TranscriptSegment[]).map(

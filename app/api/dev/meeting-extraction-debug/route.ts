@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadAllMeetingTranscriptSegmentsAdmin } from "@/lib/transcript-loader";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 
 export async function GET(request: Request) {
@@ -24,7 +25,10 @@ export async function GET(request: Request) {
   if (!meeting) return NextResponse.json({ error: "Meeting not found." }, { status: 404 });
 
   const [segments, events, commitments, tasks, job] = await Promise.all([
-    supabaseAdmin.from("transcript_segments").select("id, timestamp, speaker, text, raw_payload").eq("meeting_id", meetingId).order("timestamp"),
+    loadAllMeetingTranscriptSegmentsAdmin<{ id: string; timestamp: string | null; speaker: string | null; text: string; raw_payload: unknown }>({
+      meetingId,
+      columns: "id, timestamp, speaker, text, raw_payload"
+    }),
     supabaseAdmin.from("meeting_conversation_events").select("*").eq("meeting_id", meetingId).order("created_at"),
     supabaseAdmin.from("meeting_commitments").select("*").eq("meeting_id", meetingId).order("created_at"),
     supabaseAdmin.from("meeting_tasks").select("*").eq("meeting_id", meetingId).order("created_at"),

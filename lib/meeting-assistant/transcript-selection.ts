@@ -1,3 +1,4 @@
+import { loadAllMeetingTranscriptSegmentsAdmin } from "@/lib/transcript-loader";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import { getTranscriptSpeakerLabel, normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 import type { TranscriptSegment } from "@/lib/types";
@@ -112,12 +113,8 @@ export async function selectRelevantTranscriptSegments(input: {
   message: string;
   limit?: number;
 }): Promise<{ segments: TranscriptSegment[]; error: { message: string } | null }> {
-  const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const { data: segmentRows, error: segmentsError } = await supabaseAdmin
-    .from("transcript_segments")
-    .select("*")
-    .eq("meeting_id", input.meetingId)
-    .order("timestamp", { ascending: true });
+  const { data: segmentRows, error: segmentsError } =
+    await loadAllMeetingTranscriptSegmentsAdmin<TranscriptSegment>({ meetingId: input.meetingId });
   if (segmentsError) {
     return { segments: [], error: segmentsError };
   }

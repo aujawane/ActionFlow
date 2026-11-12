@@ -19,6 +19,7 @@ import { getEffectiveMeetingDate } from "@/lib/meeting-date";
 import { buildMeetingParticipantOptions } from "@/lib/meeting-participants";
 import { loadMeetingTasksWithFallback } from "@/lib/meeting-task-query";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadAllMeetingTranscriptSegmentsAdmin } from "@/lib/transcript-loader";
 import { canonicalTranscriptOrder } from "@/lib/transcript-order";
 import { normalizeTranscriptSpeaker } from "@/lib/transcript-speaker";
 import type {
@@ -85,11 +86,7 @@ export default async function MeetingDetailPage({
     latestAnalysisJob
   ] =
     await Promise.all([
-      supabaseAdmin
-        .from("transcript_segments")
-        .select("*")
-        .eq("meeting_id", id)
-        .order("timestamp", { ascending: true }),
+      loadAllMeetingTranscriptSegmentsAdmin<TranscriptSegment>({ meetingId: id }),
       supabaseAdmin
         .from("extracted_insights")
         .select("*")
