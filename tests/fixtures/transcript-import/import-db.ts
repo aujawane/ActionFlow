@@ -12,7 +12,11 @@ export const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart
 
 export const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-type StoredMeeting = NewImportMeetingRow & { created_at: string; deleted_at: string | null };
+type StoredMeeting = Omit<NewImportMeetingRow, "transcript_import_content_sha256"> & {
+  created_at: string;
+  deleted_at: string | null;
+  transcript_import_content_sha256: string | null;
+};
 type StoredSegment = CommittableTranscriptSegment & { id: string; meeting_id: string };
 
 /** In-memory model of exactly the guarantees the import relies on: primary-key uniqueness on
@@ -37,8 +41,8 @@ export class ImportDb {
   meetingRow(id: string): ImportMeetingRow | null {
     const row = this.meetings.get(id);
     if (!row) return null;
-    const { id: meetingId, user_id, title, status, source, meeting_date, project_id, deleted_at, created_at } = row;
-    return { id: meetingId, user_id, title, status, source, meeting_date, project_id, deleted_at, created_at } as ImportMeetingRow;
+    const { id: meetingId, user_id, title, status, source, meeting_date, project_id, deleted_at, created_at, transcript_import_content_sha256 } = row;
+    return { id: meetingId, user_id, title, status, source, meeting_date, project_id, deleted_at, created_at, transcript_import_content_sha256 } as ImportMeetingRow;
   }
 
   deps(): TranscriptImportDeps {
@@ -137,4 +141,3 @@ export class ImportDb {
     };
   }
 }
-

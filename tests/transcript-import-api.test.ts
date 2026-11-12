@@ -357,7 +357,8 @@ test("an import id that matches a Recall meeting or a deleted import is a confli
   db.meetings.set(uuid(25), {
     id: uuid(25), user_id: USER_A, title: null, meeting_url: null, recall_bot_id: null, platform: "unknown",
     status: "pending", source: "recall" as never, meeting_date: null, project_id: null,
-    transcript_import_claimed_at: null as never, created_at: "2026-11-01T00:00:00.000Z", deleted_at: null
+    transcript_import_claimed_at: null as never, transcript_import_content_sha256: null,
+    created_at: "2026-11-01T00:00:00.000Z", deleted_at: null
   });
   assert.equal((await importWith(db, jsonRequest({ importId: uuid(25), text: TRANSCRIPT }))).body.code, "import_id_conflict");
 
@@ -390,6 +391,25 @@ test("a failed segment save never queues analysis; the meeting stays pending and
   assert.equal(db.meetings.get(uuid(30))!.status, "transcript_ready");
   assert.equal(db.segments.get(uuid(30))!.length, 3);
   assert.deepEqual(db.enqueueCalls, [uuid(30)]);
+});
+
+test("a pending import with no saved segments rejects different content and accepts the original", async () => {
+  const db = new ImportDb();
+  db.failReplace = 1;
+  const body = { importId: uuid(36), text: TRANSCRIPT };
+  const failed = await importWith(db, jsonRequest(body));
+  assert.equal(failed.status, 500);
+  assert.equal(db.segments.get(uuid(36)), undefined);
+
+  const changed = await importWith(db, jsonRequest({ ...body, text: `${TRANSCRIPT}\nCraig: changed.` }));
+  assert.equal(changed.status, 409);
+  assert.equal(changed.body.code, "import_id_conflict");
+  assert.equal(db.enqueueCalls.length, 0);
+
+  const original = await importWith(db, jsonRequest(body));
+  assert.equal(original.status, 200);
+  assert.equal(original.body.import.outcome, "recovered");
+  assert.deepEqual(db.enqueueCalls, [uuid(36)]);
 });
 
 test("a crash right after the meeting insert: retries wait while the claim is live, then recover", async () => {
@@ -433,6 +453,7 @@ test("segments saved but the process died before the status change: recovery re-
     id: uuid(33), user_id: USER_A, title: null, meeting_url: null, recall_bot_id: null, platform: "unknown",
     status: "pending", source: "manual_paste", meeting_date: null, project_id: null,
     transcript_import_claimed_at: new Date(db.clock - IMPORT_CLAIM_STALE_AFTER_MS - 1).toISOString(),
+    transcript_import_content_sha256: prepared.contentSha256,
     created_at: new Date(db.clock).toISOString(), deleted_at: null
   });
   db.segments.set(uuid(33), prepared.segments.map((row, i) => ({ ...row, id: uuid(900 + i), meeting_id: uuid(33) })));

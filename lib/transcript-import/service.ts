@@ -12,7 +12,9 @@ import type { Meeting } from "@/lib/types";
 /**
  * Turns a validated, parsed transcript into a normal Parfait meeting.
  *
- * Idempotency without a new column: the client's import UUID becomes the meeting's primary key.
+ * The client's import UUID becomes the meeting's primary key, and the initial transcript
+ * content hash is persisted on the meeting in the same INSERT. This allows retries to
+ * prove they refer to the same content even if the first segment save failed.
  * The database's own uniqueness on meetings.id is what makes "same import twice" create one
  * meeting, including for two truly concurrent requests (one INSERT wins, the other gets 23505).
  *
@@ -33,7 +35,10 @@ import type { Meeting } from "@/lib/types";
 export type ImportMeetingRow = Pick<
   Meeting,
   "id" | "user_id" | "title" | "status" | "source" | "meeting_date" | "project_id" | "deleted_at" | "created_at"
->;
+> & {
+  // Nullable for manual imports created on Staging before the hardening migration.
+  transcript_import_content_sha256?: string | null;
+};
 
 export type NewImportMeetingRow = {
   id: string;
@@ -47,6 +52,7 @@ export type NewImportMeetingRow = {
   meeting_date: string | null;
   project_id: string | null;
   transcript_import_claimed_at: string;
+  transcript_import_content_sha256: string;
 };
 
 export type TranscriptImportDeps = {
@@ -143,6 +149,12 @@ const incomplete = (meetingId: string, retryable: boolean): TranscriptImportFail
   }
 });
 
+function publicMeeting(meeting: ImportMeetingRow): ImportMeetingRow {
+  const result = { ...meeting };
+  delete result.transcript_import_content_sha256;
+  return result;
+}
+
 function warningsFor(prepared: PreparedTranscriptImport, request: TranscriptImportRequest): TranscriptImportWarning[] {
   return request.meetingDate ? prepared.warnings : [...prepared.warnings, meetingDateMissingWarning()];
 }
@@ -180,7 +192,7 @@ async function commitAndRespond(
     ok: true,
     httpStatus: outcome === "created" ? 201 : 200,
     body: {
-      meeting,
+      meeting: publicMeeting(meeting),
       import: {
         outcome,
         source: prepared.source,
@@ -207,6 +219,12 @@ async function resumeExisting(
     return conflict();
   }
   if (meeting.source !== prepared.source) return conflict();
+  // The immutable hash was saved in the same transaction as the meeting's first INSERT.
+  // Reject changed content even when the original attempt saved zero segments.
+  if (
+    meeting.transcript_import_content_sha256 != null &&
+    meeting.transcript_import_content_sha256 !== prepared.contentSha256
+  ) return conflict();
 
   if (meeting.status === "transcript_ready" || meeting.status === "completed") {
     // Title, date and project are editable after an import, so only the content identifies it.
@@ -217,7 +235,7 @@ async function resumeExisting(
       ok: true,
       httpStatus: 200,
       body: {
-        meeting,
+        meeting: publicMeeting(meeting),
         import: {
           outcome: "already_imported",
           source: prepared.source,
@@ -254,7 +272,13 @@ async function resumeExisting(
     return inProgress(meeting.id);
   }
   const stored = await deps.readStoredImport(meeting.id);
-  if (stored.segmentCount > 0 && stored.contentSha256 !== prepared.contentSha256) {
+  // Legacy Staging imports can lack a meeting-level hash. They may be resumed only
+  // if persisted transcript segments establish their original content identity.
+  // Never adopt new content for a pending import whose first save left zero segments.
+  if (
+    (!meeting.transcript_import_content_sha256 && stored.segmentCount === 0) ||
+    (stored.segmentCount > 0 && stored.contentSha256 !== prepared.contentSha256)
+  ) {
     await deps.releaseImportClaim(meeting.id).catch(() => undefined);
     return conflict();
   }
@@ -315,7 +339,8 @@ export async function importTranscript(
     source: prepared.source,
     meeting_date: request.meetingDate,
     project_id: request.projectId,
-    transcript_import_claimed_at: now.toISOString()
+    transcript_import_claimed_at: now.toISOString(),
+    transcript_import_content_sha256: prepared.contentSha256
   });
   if (inserted === "duplicate") {
     return resumeExisting(await deps.findMeeting(importId), userId, prepared, request, deps);

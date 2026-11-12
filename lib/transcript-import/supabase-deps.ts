@@ -1,13 +1,14 @@
 import { getLatestMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { commitTranscriptAndEnqueueAnalysis } from "@/lib/transcript-commit";
+import { isMeetingPrimaryKeyViolation } from "@/lib/transcript-import/duplicate";
 import { IMPORT_CLAIM_STALE_AFTER_MS } from "@/lib/transcript-import/limits";
 import type { ParfaitImportPayload } from "@/lib/transcript-import/prepare";
 import type { ImportMeetingRow, TranscriptImportDeps } from "@/lib/transcript-import/service";
 import { PARFAIT_IMPORT_PAYLOAD_KEY } from "@/lib/transcript-order";
 
 const MANUAL_SOURCES = ["manual_upload", "manual_paste"];
-const MEETING_COLUMNS = "id,user_id,title,status,source,meeting_date,project_id,deleted_at,created_at";
+const MEETING_COLUMNS = "id,user_id,title,status,source,meeting_date,project_id,deleted_at,created_at,transcript_import_content_sha256";
 
 /** The service-role implementations of the import's dependencies. Server-only. */
 export const supabaseTranscriptImportDeps: TranscriptImportDeps = {
@@ -44,7 +45,7 @@ export const supabaseTranscriptImportDeps: TranscriptImportDeps = {
   async insertMeeting(row) {
     const { error } = await supabaseAdmin.from("meetings").insert(row);
     if (!error) return "inserted";
-    if (error.code === "23505") return "duplicate";
+    if (isMeetingPrimaryKeyViolation(error)) return "duplicate";
     throw new Error(error.message);
   },
 

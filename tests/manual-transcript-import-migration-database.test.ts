@@ -27,6 +27,7 @@ test("manual transcript import migration is safe for existing data (isolated loc
   }
   const file = async (relative: string) => sql(await readFile(new URL(relative, import.meta.url), "utf8"));
 
+  await sql("drop schema public cascade; create schema public;");
   await file("fixtures/transcript-import/bootstrap.sql");
   await file("../supabase/migrations/20261013090000_recall_transcript_import_idempotency.sql");
   await file("../supabase/migrations/20261013091500_fix_replace_meeting_transcript_segments_timestamp_cast.sql");

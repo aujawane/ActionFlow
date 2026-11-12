@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/api-auth";
 import { enqueueMeetingAnalysis } from "@/lib/meeting-analysis/enqueue";
+import { isRecallMeeting } from "@/lib/meeting-source";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
@@ -34,7 +35,7 @@ export async function POST(
 
   let meetingQuery = supabaseAdmin
     .from("meetings")
-    .select("id, status")
+    .select("id, status, source")
     .eq("id", id)
     .is("deleted_at", null);
   if (userId) {
@@ -63,6 +64,16 @@ export async function POST(
     // itself (that stays the webhook/sync-status job). The meeting's own status is enough to tell
     // "still processing" apart from "genuinely nothing available" without expanding this route's
     // scope.
+    if (!isRecallMeeting(meeting)) {
+      // An import whose transcript never saved. Recall wording and Sync Status do not apply.
+      return NextResponse.json(
+        {
+          error: "No transcript was saved for this import",
+          details: "Retry the same import from Import transcript to finish it, or start a new import."
+        },
+        { status: 400 }
+      );
+    }
     if (meeting.status === "failed") {
       return NextResponse.json(
         {

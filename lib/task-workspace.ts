@@ -273,7 +273,7 @@ export function buildTaskContextPrompt(context: TaskWorkspaceContext) {
       : "Suggested steps: None provided",
     "",
     `Meeting: ${context.meeting.title || "Untitled meeting"}`,
-    `Meeting URL: ${context.meeting.meeting_url}`,
+    context.meeting.meeting_url ? `Meeting URL: ${context.meeting.meeting_url}` : null,
     context.topic ? `Topic: ${context.topic.title}` : "Topic: Not available",
     context.topic?.summary ? `Topic summary: ${context.topic.summary}` : null,
     context.topic?.separation_reason

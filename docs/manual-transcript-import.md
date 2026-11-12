@@ -97,12 +97,22 @@ existing Analyze Meeting action retries it. Nothing is ever deleted as cleanup.
 **The database migration MUST be applied to a database before the application code that needs it is
 deployed there.** Merging to `main` deploys Production, so the order is fixed:
 
-1. Confirm Production's applied migration history (read-only) and that `20261111090000` is the only
-   pending migration. Production has not yet been independently verified.
-2. Apply `20261111090000_add_manual_transcript_import_foundation.sql` to Production (dry run first).
+1. Confirm Production's applied migration history (read-only). Its latest recorded migration was
+   reported as `20261104090000`, so exactly two migrations are pending, in this order:
+   `20261111090000_add_manual_transcript_import_foundation.sql`, then
+   `20261112170000_manual_import_content_hash.sql`.
+2. Apply both to Production, in that order (dry run first). The second depends on nothing from the
+   first except that `meetings` exists, but the application needs both.
 3. Only then merge the code to `main`.
 
-Staging already has the migration. The same rule applies to every environment, staging included.
+Both migrations are applied to Staging (`20261112170000` on 2026-11-12 via `supabase db push`, so it
+is recorded in Staging's migration history; the column, CHECK constraint and existing rows were
+verified afterwards). The same order rule applies to every environment, staging included.
+
+`20261112170000` adds the nullable `meetings.transcript_import_content_sha256` column (with a format
+CHECK). The import route selects and inserts it, so the import API returns 500 on a database
+without it. Rows created before it exist keep `NULL`; the service resumes those only when stored
+segments establish their content identity and never adopts new content for them.
 
 Why the code cannot run first: `POST /api/meetings/[id]/sync-status` selects `meetings.source`
 explicitly (`app/api/meetings/[id]/sync-status/route.ts`), so against a database without the column
