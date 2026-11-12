@@ -102,22 +102,25 @@ The code reads `meetings` with `select("*")` where it needs `meeting_date`, so i
     Imported rows are never given invented timestamps to get around this.
 - **Meeting library:** newest/oldest ordering, month grouping and the "Created …" label intentionally stay on `created_at`. Whether a historical import is grouped under its meeting month is a Phase 3 product decision.
 
-## Phase 3: Recall-only UI to gate on `!isRecallMeeting(meeting)`
+## Phase 3 (import UI and source-aware meeting page)
 
-| Where | What changes for imported meetings |
-| --- | --- |
-| `components/meeting-actions.tsx` (`isSyncStatusRecoverable(meetingStatus)`) | Hide **Sync Status**. |
-| `app/api/meetings/[id]/sync-status/route.ts` | Reject non-Recall meetings explicitly. Today the only guard is the 400 "no Recall bot id". |
-| `components/meeting-details-editor.tsx`: the `meetingPlatformLabel` badge, the "Recall Bot ID" rows, and the Meeting Link field | Hide the bot and link details. Show an "Imported transcript" source label instead of the platform. |
-| `lib/meeting-details.ts` `canEditMeetingUrl` (used by the editor and by `PATCH /api/meetings/[id]`) | Add `isRecallMeeting(meeting)` to the rule. As written, an imported meeting that is still `pending` with no bot ID would allow link editing. |
-| `app/meetings/[id]/page.tsx` (the "Bot creation failed" banner when status is `failed`) | Use import-specific wording; no bot was involved. |
-| `components/live-transcript.tsx` (`ACTIVE_STATUSES` polling) and `components/live-meeting-status-badge.tsx` | Imported meetings should never sit in `joining`/`recording`/`processing`. Don't start live-status polling for them. |
-| `components/meeting-library.tsx` (`meetingPlatformLabel`, `failed` state) | Show the source instead of the platform. |
-
-## Phase 3 work still open
-
-- Upload/paste UI: generate the `importId` once per import attempt (reuse it on retry), call the
-  preview route, show its warnings (`meeting_date_missing` especially), then call the import route.
-- Map every error `code` (parser and service) to user-facing copy; honour `Retry-After` on
-  `import_in_progress` and `rate_limited`; on `enqueue_failed`, offer Analyze Meeting.
-- The Recall-only UI gating listed above, and how imported meetings appear in the library.
+- **Entry:** Add Meeting has a "Send Parfait bot / Import transcript" switch; `/meetings/new?mode=import`
+  opens the import form directly (the sign-in redirect keeps the query string). The bot form is unchanged.
+- **Form:** `components/import-transcript-form.tsx` over `lib/transcript-import/client-session.ts`
+  (a React-free state machine, so every rule is unit tested). Upload (.txt/.md/.vtt/.srt, drag and
+  drop) or paste, optional title, a recommended meeting date, an optional project, then Preview,
+  an explicit confirmation, and Analyze. It calls the existing preview and import routes only.
+- **Retry identity:** the import UUID is created once and reused. From the moment a request that may
+  have created the meeting is sent (timeout, dropped connection, a 5xx), the inputs are frozen and
+  the identical request is retried; "Start new import" is the only way to a new UUID. A request the
+  server refused before touching the database (bad input, unavailable project, rate limit, expired
+  session) keeps the same UUID. The UUID and the non-sensitive details (mode, file name, title, date,
+  project) survive a refresh in sessionStorage; the transcript never does, so the user supplies the
+  same content again and the server's content hash confirms it.
+- **Source-aware meeting UI** (decided by `meetings.source`, never by a missing bot id): Sync Status,
+  Recall Bot ID, the meeting-link field, the bot-failure banner and live-bot polling are Recall-only;
+  imports show "Imported transcript" and their meeting date (never the import date).
+  `canEditMeetingUrl` and `POST /api/meetings/[id]/sync-status` refuse non-Recall meetings.
+- **Known limits:** the preview shows the first six and last two segments, not the whole transcript;
+  the meeting library still groups and orders imports by creation time (`created_at`), which is a
+  product decision, not a bug; Pipeline v2 still cannot normalize null-timestamp rows (see above).

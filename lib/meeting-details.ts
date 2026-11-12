@@ -4,6 +4,7 @@ import {
   meetingTitleSchema,
   supportedMeetingUrlSchema
 } from "@/lib/meeting-form-validation";
+import { isRecallMeeting } from "@/lib/meeting-source";
 import type { Meeting } from "@/lib/types";
 
 export const meetingDetailsPatchSchema = z
@@ -35,9 +36,11 @@ export const meetingProjectAssignmentSchema = z
   );
 
 export function canEditMeetingUrl(
-  meeting: Pick<Meeting, "status" | "recall_bot_id">
+  meeting: Pick<Meeting, "status" | "recall_bot_id"> & { source?: Meeting["source"] | null }
 ): boolean {
-  return meeting.status === "pending" && meeting.recall_bot_id === null;
+  // An imported transcript has no meeting link at all, and a pending import has no bot id either,
+  // so the bot-id check alone would wrongly allow editing one.
+  return isRecallMeeting(meeting) && meeting.status === "pending" && meeting.recall_bot_id === null;
 }
 
 export const MEETING_URL_LOCKED_MESSAGE =

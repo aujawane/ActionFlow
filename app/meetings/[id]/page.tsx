@@ -16,6 +16,7 @@ import { getEffectiveDisplayGeneration } from "@/lib/execution-generation";
 import { formatReadableDate } from "@/lib/format-date";
 import { getLatestMeetingAnalysisJob } from "@/lib/meeting-analysis/jobs";
 import { getEffectiveMeetingDate } from "@/lib/meeting-date";
+import { isRecallMeeting } from "@/lib/meeting-source";
 import { buildMeetingParticipantOptions } from "@/lib/meeting-participants";
 import { loadMeetingTasksWithFallback } from "@/lib/meeting-task-query";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -215,7 +216,12 @@ export default async function MeetingDetailPage({
     assistantSuggestions.push("Summarize this meeting", "What did we discuss?");
   }
 
-  const meetingDateLabel = formatReadableDate(getEffectiveMeetingDate(meeting));
+  // A Recall meeting happened when its record was created. An imported transcript happened on the
+  // date the user gave, if any; it is never labelled with the import date.
+  const recallMeeting = isRecallMeeting(meeting);
+  const meetingDateLabel = recallMeeting
+    ? formatReadableDate(getEffectiveMeetingDate(meeting))
+    : formatReadableDate(meeting.meeting_date ?? null);
 
   return (
     <section className="space-y-6">
@@ -231,7 +237,9 @@ export default async function MeetingDetailPage({
 
       {meeting.status === "failed" ? (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {botCreationError
+          {!recallMeeting
+            ? "This imported transcript could not be processed. Start a new import from Add Meeting."
+            : botCreationError
             ? `Bot creation failed: ${botCreationError}`
             : "Bot creation failed. Verify the meeting URL is active and try creating the meeting again."}
         </div>
@@ -262,6 +270,7 @@ export default async function MeetingDetailPage({
         <MeetingActions
           meetingId={meeting.id}
           meetingStatus={meeting.status}
+          source={meeting.source}
           showDevReimport={process.env.NODE_ENV === "development"}
         />
         <MeetingAnalysisStatusPanel
@@ -364,6 +373,7 @@ export default async function MeetingDetailPage({
                   meetingId={meeting.id}
                   initialSegments={safeSegments}
                   initialStatus={meeting.status}
+                  pollLiveStatus={recallMeeting}
                 />
               </div>
             </details>

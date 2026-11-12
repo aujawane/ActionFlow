@@ -26,3 +26,9 @@ export function getMeetingSource(meeting: { source?: string | null }): MeetingSo
 export function isRecallMeeting(meeting: { source?: string | null }): boolean {
   return getMeetingSource(meeting) === "recall";
 }
+
+/** Label for where a meeting's transcript came from, for the places the Recall meeting shows its
+ * provider (Zoom / Google Meet). Imported meetings have no provider. */
+export function importedMeetingLabel(meeting: { source?: string | null }): string | null {
+  return isRecallMeeting(meeting) ? null : "Imported transcript";
+}

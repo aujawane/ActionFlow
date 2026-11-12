@@ -3,16 +3,20 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { isRecallMeeting } from "@/lib/meeting-source";
 import { isSyncStatusRecoverable, type MeetingStatus } from "@/lib/recall/webhook-events";
 
 export function MeetingActions({
   meetingId,
   meetingStatus,
+  source,
   showDevReimport = false,
   onAnalysisQueued
 }: {
   meetingId: string;
   meetingStatus: MeetingStatus;
+  /** meetings.source. Omitted means a Recall meeting, which is what every existing caller is. */
+  source?: string | null;
   showDevReimport?: boolean;
   onAnalysisQueued?: () => void;
 }) {
@@ -159,7 +163,7 @@ export function MeetingActions({
             shown for in-flight statuses (joining/recording/processing) where a missed webhook
             could actually leave the meeting stuck -- a completed meeting has nothing left to
             reconcile, so the button would just be visual noise there. */}
-        {isSyncStatusRecoverable(meetingStatus) ? (
+        {isRecallMeeting({ source }) && isSyncStatusRecoverable(meetingStatus) ? (
           <button
             onClick={syncStatus}
             disabled={busy !== null}

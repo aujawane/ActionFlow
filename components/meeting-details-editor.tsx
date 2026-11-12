@@ -15,6 +15,7 @@ import {
   supportedMeetingUrlSchema
 } from "@/lib/meeting-form-validation";
 import { meetingPlatformLabel } from "@/lib/meeting-platform";
+import { importedMeetingLabel, isRecallMeeting } from "@/lib/meeting-source";
 import type { Meeting, Project } from "@/lib/types";
 
 type MeetingResponse = {
@@ -48,6 +49,8 @@ export function MeetingDetailsEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Decided by meeting.source, never by a missing bot id or link.
+  const recall = isRecallMeeting(meeting);
   const linkEditable = canEditMeetingUrl(meeting);
   const assignedProject = projects.find((project) => project.id === meeting.project_id);
 
@@ -179,8 +182,16 @@ export function MeetingDetailsEditor({
             )}
 
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-slate-500">
-              <span className="badge-meta">{meetingPlatformLabel(meeting.platform)}</span>
-              {meetingDateLabel ? <span>{meetingDateLabel}</span> : null}
+              <span className="badge-meta">
+                {recall ? meetingPlatformLabel(meeting.platform) : importedMeetingLabel(meeting)}
+              </span>
+              {recall ? (
+                meetingDateLabel ? <span>{meetingDateLabel}</span> : null
+              ) : meetingDateLabel ? (
+                <span>Meeting date: {meetingDateLabel}</span>
+              ) : (
+                <span className="text-slate-400">Meeting date not provided</span>
+              )}
             </div>
           </div>
 
@@ -194,7 +205,11 @@ export function MeetingDetailsEditor({
                 Edit Meeting
               </button>
             ) : null}
-            <LiveMeetingStatusBadge meetingId={meeting.id} initialStatus={meeting.status} />
+            <LiveMeetingStatusBadge
+              meetingId={meeting.id}
+              initialStatus={meeting.status}
+              pollLiveStatus={recall}
+            />
           </div>
         </div>
 
@@ -258,7 +273,7 @@ export function MeetingDetailsEditor({
             ) : null}
           </div>
 
-          {editing ? (
+          {!recall ? null : editing ? (
             <div className="max-w-2xl border-t border-slate-200 pt-3.5">
               <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-slate-400">
                 Technical Details

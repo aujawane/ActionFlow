@@ -14,6 +14,7 @@ import {
   withMeetingReplaced
 } from "@/lib/meeting-library-state";
 import { meetingPlatformLabel } from "@/lib/meeting-platform";
+import { importedMeetingLabel, isRecallMeeting } from "@/lib/meeting-source";
 import type { Meeting } from "@/lib/types";
 
 type SortOption = "newest" | "oldest" | "title_asc" | "title_desc";
@@ -286,10 +287,16 @@ function MeetingLibraryCard({
           <MeetingStatusBadge status={meeting.status} />
         </div>
 
-        <p className="badge-meta">{meetingPlatformLabel(meeting.platform)}</p>
+        <p className="badge-meta">
+          {importedMeetingLabel(meeting) ?? meetingPlatformLabel(meeting.platform)}
+        </p>
 
         {meeting.status === "failed" ? (
-          <p className="text-xs text-rose-600">Bot creation failed. Open meeting for details.</p>
+          <p className="text-xs text-rose-600">
+            {isRecallMeeting(meeting)
+              ? "Bot creation failed. Open meeting for details."
+              : "Import failed. Open meeting for details."}
+          </p>
         ) : null}
 
         <div className="flex items-center justify-between gap-3">

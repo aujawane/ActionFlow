@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { fetchRecallBotStatus } from "@/lib/recall/client";
 import { applyGuardedMeetingStatus, processCompletedRecallMeeting } from "@/lib/recall/processing";
+import { isRecallMeeting } from "@/lib/meeting-source";
 import { mapBotLifecycleCodeToMeetingStatus } from "@/lib/recall/webhook-events";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -25,7 +26,7 @@ export async function POST(
   const { id } = await context.params;
   const { data: meeting, error: meetingError } = await supabaseAdmin
     .from("meetings")
-    .select("id, recall_bot_id")
+    .select("id, recall_bot_id, source")
     .eq("id", id)
     .eq("user_id", auth.user.id)
     .is("deleted_at", null)
@@ -33,6 +34,14 @@ export async function POST(
 
   if (meetingError || !meeting) {
     return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
+  }
+
+  // Decided by source, never by a missing bot id: an imported transcript was not captured by Recall.
+  if (!isRecallMeeting(meeting)) {
+    return NextResponse.json(
+      { error: "Sync Status only applies to meetings captured by the Parfait bot." },
+      { status: 400 }
+    );
   }
 
   if (!meeting.recall_bot_id) {

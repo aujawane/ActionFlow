@@ -16,11 +16,14 @@ const TERMINAL_SYNC_STATUSES: Meeting["status"][] = [
 export function LiveTranscript({
   meetingId,
   initialSegments,
-  initialStatus
+  initialStatus,
+  pollLiveStatus = true
 }: {
   meetingId: string;
   initialSegments: TranscriptSegment[];
   initialStatus: Meeting["status"];
+  /** False for an imported transcript: there is no bot to wait for, so nothing is polled. */
+  pollLiveStatus?: boolean;
 }) {
   const router = useRouter();
   const [segments, setSegments] = useState(initialSegments);
@@ -37,7 +40,7 @@ export function LiveTranscript({
   }, [initialStatus]);
 
   useEffect(() => {
-    if (!ACTIVE_STATUSES.includes(meetingStatus)) return;
+    if (!pollLiveStatus || !ACTIVE_STATUSES.includes(meetingStatus)) return;
 
     let cancelled = false;
     async function refreshTranscriptAndMeeting() {
@@ -84,7 +87,7 @@ export function LiveTranscript({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [meetingId, meetingStatus, router]);
+  }, [meetingId, meetingStatus, pollLiveStatus, router]);
 
   return (
     <div className="premium-card space-y-3 p-4">
@@ -93,7 +96,7 @@ export function LiveTranscript({
         <span className="text-xs text-slate-500">
           {isRefreshing
             ? "Refreshing..."
-            : ACTIVE_STATUSES.includes(meetingStatus)
+            : pollLiveStatus && ACTIVE_STATUSES.includes(meetingStatus)
               ? "Auto-refresh every 5s"
               : "Transcript finalized"}
         </span>

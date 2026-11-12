@@ -20,10 +20,13 @@ type MeetingStatusEventDetail = {
 
 export function LiveMeetingStatusBadge({
   meetingId,
-  initialStatus
+  initialStatus,
+  pollLiveStatus = true
 }: {
   meetingId: string;
   initialStatus: Meeting["status"];
+  /** False for an imported transcript: no bot lifecycle exists to poll. */
+  pollLiveStatus?: boolean;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
@@ -55,7 +58,7 @@ export function LiveMeetingStatusBadge({
   }, [applyStatus, meetingId]);
 
   useEffect(() => {
-    if (!ACTIVE_STATUSES.includes(status)) return;
+    if (!pollLiveStatus || !ACTIVE_STATUSES.includes(status)) return;
 
     let cancelled = false;
     async function refreshStatus() {
@@ -83,7 +86,7 @@ export function LiveMeetingStatusBadge({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [applyStatus, meetingId, status]);
+  }, [applyStatus, meetingId, pollLiveStatus, status]);
 
   return <MeetingStatusBadge status={status} />;
 }

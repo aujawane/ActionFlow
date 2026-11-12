@@ -83,7 +83,9 @@ export async function updateSession(request: NextRequest) {
     redirectUrl.pathname = destination.pathname;
     redirectUrl.search = destination.search;
     if (destination.pathname === "/login") {
-      redirectUrl.searchParams.set("next", pathname);
+      // Keep the query string so a direct link such as /meetings/new?mode=import survives sign-in
+      // (the login form re-validates it with sanitizeInternalPath before redirecting).
+      redirectUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
     }
     return NextResponse.redirect(redirectUrl);
   }
