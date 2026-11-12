@@ -29,6 +29,64 @@ Upload / paste ──── parse (Phase 2) ────┤
 - `getEffectiveMeetingDate(meeting)` (`lib/meeting-date.ts`) returns `meeting_date ?? created_at`. Use it for "when the meeting happened"; keep `created_at` for "when the record was created".
 - `getMeetingSource(meeting)` (`lib/meeting-source.ts`) treats a missing source as `recall`. Never infer the source from `recall_bot_id`, because a Recall meeting whose bot creation failed also has none.
 
+## Phase 2B (parser and import API)
+
+Code: `lib/transcript-import/` (pure parser and validation, request reader, import service) and two
+routes. No migration.
+
+### Parsing (`parse.ts`, `split.ts`, `prepare.ts`)
+
+- Formats: speaker-prefixed text (`Craig: ...`, including multi-line blocks), timestamped speaker
+  blocks (`[00:02:13] Craig`, `[00:01] Craig: ...`, `Craig  0:02`), plain paragraphs, Markdown
+  (headings, bold labels, bullets, front matter), WebVTT (`<v>` voice tags, NOTE/STYLE/REGION
+  skipped) and SRT. A .txt file or paste that is really WebVTT/SRT is parsed as subtitles.
+- Speakers are recorded only when the source names them and the document as a whole reads as
+  dialogue: at least two labelled turns, covering at least 30% of paragraphs (50% if there is only
+  one name). Heading words (`Action item`, `Note`, `Next steps`, ...) are never speakers. Everything
+  else is `null`, which renders as "Unknown Speaker". `participant_name` is always null for imports.
+- Times are offsets: `raw_payload.parfait_import.start_offset_ms` / `end_offset_ms`. `timestamp` is
+  always null. No date is ever derived from an offset.
+- Order: `raw_payload.parfait_import.segment_index` (0..n-1), plus `turn_index`, `fragment_index`,
+  `fragment_count`, `source_line`, cue range, `content_sha256` and `parser_version` for traceability.
+- Splitting: turns over 700 characters are split at sentence ends, then clauses, then spaces (a
+  single longer token is cut and flagged). Analysis chunks by segment count (40-50 per chunk), so
+  this bounds a chunk at about 35,000 characters. Consecutive subtitle cues from one speaker are
+  re-joined up to 500 characters.
+- Limits: 1 MiB of UTF-8 text (request body capped while streaming at 1 MiB + 64 KiB, under Vercel's
+  4.5 MB), at most 20,000 segments (rejected, never truncated). Binary signatures, NUL, UTF-16,
+  malformed UTF-8 and control-character-heavy input are rejected. The file is never stored.
+
+### Routes
+
+- `POST /api/meetings/import/preview`: same request reader and parser as the import; returns the
+  diagnostics and sample rows. No database access, no model call.
+- `POST /api/meetings/import`: multipart (`file` or `text`) or JSON (`text`), with `importId` (UUID,
+  required), `title`, `meetingDate` (YYYY-MM-DD), `projectId`, and `format` for pastes.
+
+### Import lifecycle (`service.ts`)
+
+1. Authenticate; read, validate and parse the body (nothing touches the database before this).
+2. The import id is the meeting id. If that meeting exists, resume it (step 6).
+3. Check project ownership; check the per-user limits (10 per hour, 30 per day, counted from
+   `meetings`).
+4. INSERT the meeting: `source`, `meeting_url = null`, `recall_bot_id = null`, `platform = unknown`,
+   `status = pending`, `meeting_date`, `project_id`, and `transcript_import_claimed_at = now()`, so the
+   creator holds the import claim from the start. A primary-key collision means a concurrent
+   duplicate: resume instead.
+5. `commitTranscriptAndEnqueueAnalysis`: transactional replace, guarded `pending -> transcript_ready`,
+   then the normal `enqueueMeetingAnalysis`, only for the winner.
+6. Resume: another user's id, a deleted meeting or a non-manual meeting is `409 import_id_conflict`
+   (identical body every time). A finished import with the same content hash is returned as
+   `already_imported` and never re-queued. A pending import with the same details is re-claimed
+   (free or stale claim) and finished; a live claim is `409 import_in_progress`.
+
+Failure handling: a failed segment save releases the claim and returns `500 import_incomplete`
+(`retryable: true`); the meeting stays pending with no analysis, and retrying the same request
+finishes it. A crash leaves the claim held; it goes stale after 3 minutes (the route's
+`maxDuration` is 60 s), after which a retry finishes the meeting. If queueing analysis fails, the
+transcript is kept and the meeting is `transcript_ready`; the response says `enqueue_failed` and the
+existing Analyze Meeting action retries it. Nothing is ever deleted as cleanup.
+
 ## Deployment order
 
 1. Apply the migration to staging, then to Production.
@@ -40,7 +98,8 @@ The code reads `meetings` with `select("*")` where it needs `meeting_date`, so i
 
 - **Pipeline v2 normalization:** `persist_meeting_normalization_v2` requires a string `source_timestamp`. `lib/meeting-analysis/v2-normalization.ts` therefore refuses timestamp-less segments with an explicit error.
   - Imports use `enqueueMeetingAnalysis`, which runs v1, so this only matters if an imported meeting is allowlisted for v2.
-  - The RPC must be updated before v2 analyzes imported meetings.
+  - The RPC must be updated before v2 analyzes imported meetings, and before v2 becomes the default.
+    Imported rows are never given invented timestamps to get around this.
 - **Meeting library:** newest/oldest ordering, month grouping and the "Created …" label intentionally stay on `created_at`. Whether a historical import is grouped under its meeting month is a Phase 3 product decision.
 
 ## Phase 3: Recall-only UI to gate on `!isRecallMeeting(meeting)`
@@ -54,3 +113,11 @@ The code reads `meetings` with `select("*")` where it needs `meeting_date`, so i
 | `app/meetings/[id]/page.tsx` (the "Bot creation failed" banner when status is `failed`) | Use import-specific wording; no bot was involved. |
 | `components/live-transcript.tsx` (`ACTIVE_STATUSES` polling) and `components/live-meeting-status-badge.tsx` | Imported meetings should never sit in `joining`/`recording`/`processing`. Don't start live-status polling for them. |
 | `components/meeting-library.tsx` (`meetingPlatformLabel`, `failed` state) | Show the source instead of the platform. |
+
+## Phase 3 work still open
+
+- Upload/paste UI: generate the `importId` once per import attempt (reuse it on retry), call the
+  preview route, show its warnings (`meeting_date_missing` especially), then call the import route.
+- Map every error `code` (parser and service) to user-facing copy; honour `Retry-After` on
+  `import_in_progress` and `rate_limited`; on `enqueue_failed`, offer Analyze Meeting.
+- The Recall-only UI gating listed above, and how imported meetings appear in the library.
