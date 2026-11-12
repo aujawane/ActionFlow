@@ -1,6 +1,7 @@
 import { TranscriptImportError } from "@/lib/transcript-import/errors";
 import type { TranscriptFileFormat } from "@/lib/transcript-import/input";
 import { CUE_MERGE_TARGET_CHARS } from "@/lib/transcript-import/limits";
+import { removeDelimitedSpans, stripBoldEmphasis } from "@/lib/transcript-import/emphasis";
 import { collapseWhitespace } from "@/lib/transcript-import/split";
 
 /**
@@ -174,7 +175,7 @@ function safeCodePoint(value: number): string {
 
 /** Removes subtitle markup (<i>, <c.x>, <v ...>, inline <00:00:01.000> times, {\an8}). */
 function stripCueMarkup(text: string): string {
-  return decodeEntities(text.replace(/<[^>\n]*>/g, "").replace(/\{\\[^}\n]*\}/g, ""));
+  return decodeEntities(removeDelimitedSpans(removeDelimitedSpans(text, "<", ">"), "{\\", "}"));
 }
 
 type CuePart = {
@@ -440,8 +441,9 @@ function stripMarkdown(text: string): { lines: string[]; headings: Set<number> }
       .replace(/^\s*(?:[-*+]|\d{1,3}[.)])\s+/, "")
       // "**Craig:** text" / "**Craig**: text" / "*Craig:*" -> "Craig: text"
       .replace(/^(\*\*|__|\*|_)([^*_\n]{1,60}?):\1(\s|$)/, "$2:$3")
-      .replace(/^(\*\*|__|\*|_)([^*_\n]{1,60}?)\1\s*:/, "$2:")
-      .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, "$2");
+      .replace(/^(\*\*|__|\*|_)([^*_\n]{1,60}?)\1\s*:/, "$2:");
+    // Bold emphasis anywhere in the line. A linear scan, not a regex: see emphasis.ts.
+    out = stripBoldEmphasis(out);
     lines.push(out);
   });
   return { lines, headings };

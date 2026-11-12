@@ -52,6 +52,11 @@ routes. No migration.
   single longer token is cut and flagged). Analysis chunks by segment count (40-50 per chunk), so
   this bounds a chunk at about 35,000 characters. Consecutive subtitle cues from one speaker are
   re-joined up to 500 characters.
+- Parsing time is linear in the input size. Markdown bold stripping and subtitle-markup removal are
+  explicit scans (`lib/transcript-import/emphasis.ts`), not regexes, because lazy-quantifier regexes
+  rescanned the whole line for every unmatched `**`, `__`, `<` or `{\\` and a crafted 1 MiB file took
+  minutes. `tests/transcript-import-linear-time.test.ts` pins this with a differential test against the
+  original regexes and hostile inputs at the size limit.
 - Limits: 1 MiB of UTF-8 text (request body capped while streaming at 1 MiB + 64 KiB, under Vercel's
   4.5 MB), at most 20,000 segments (rejected, never truncated). Binary signatures, NUL, UTF-16,
   malformed UTF-8 and control-character-heavy input are rejected. The file is never stored.
@@ -89,10 +94,26 @@ existing Analyze Meeting action retries it. Nothing is ever deleted as cleanup.
 
 ## Deployment order
 
-1. Apply the migration to staging, then to Production.
-2. Then merge the code, because merging to `main` deploys Production.
+**The database migration MUST be applied to a database before the application code that needs it is
+deployed there.** Merging to `main` deploys Production, so the order is fixed:
 
-The code reads `meetings` with `select("*")` where it needs `meeting_date`, so it tolerates a database without the migration. But null timestamps and imported meetings must not be written until the migration exists everywhere the code runs.
+1. Confirm Production's applied migration history (read-only) and that `20261111090000` is the only
+   pending migration. Production has not yet been independently verified.
+2. Apply `20261111090000_add_manual_transcript_import_foundation.sql` to Production (dry run first).
+3. Only then merge the code to `main`.
+
+Staging already has the migration. The same rule applies to every environment, staging included.
+
+Why the code cannot run first: `POST /api/meetings/[id]/sync-status` selects `meetings.source`
+explicitly (`app/api/meetings/[id]/sync-status/route.ts`), so against a database without the column
+that query fails and Sync Status reports "Meeting not found" for every Recall meeting. The import
+routes also insert `source` and `meeting_date`, and null `meeting_url` / `timestamp` values are not
+legal until the NOT NULL constraints are dropped. Other readers use `select("*")` and would cope, but
+that does not make deploying the code first safe.
+
+The current Production code (before this branch) keeps working after the migration: it never names
+the new columns, new rows default to `source = 'recall'`, and relaxing NOT NULL does not affect
+writers that still supply values.
 
 ## Known limits
 

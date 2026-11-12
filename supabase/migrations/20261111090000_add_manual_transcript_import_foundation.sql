@@ -1,8 +1,11 @@
 -- Historical transcript import, Phase 1: schema foundation only.
 --
--- Verified against both staging and Production before writing: meetings.meeting_url is
--- text NOT NULL (no default), transcript_segments."timestamp" is timestamptz NOT NULL (no default),
--- and neither project has meetings.source or meetings.meeting_date.
+-- Verified against STAGING (applied there; the live columns were checked afterwards):
+-- meetings.meeting_url was text NOT NULL (no default), transcript_segments."timestamp" was
+-- timestamptz NOT NULL (no default), and there was no meetings.source or meetings.meeting_date.
+-- NOT independently verified against Production: its applied migration history and live schema must
+-- be checked (read-only) before this is applied there. This file is pending on Production, and the
+-- application code that depends on it must be deployed only AFTER it is applied.
 --
 -- Additive and constraint-relaxing only. No row is rewritten: existing meetings keep their
 -- meeting_url, existing segments keep their timestamp, every existing meeting reads back
